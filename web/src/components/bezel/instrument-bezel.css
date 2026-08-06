@@ -1,0 +1,99 @@
+.instrument-bezel {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+  background: var(--color-panel-raised);
+  border-bottom: 1px solid var(--color-hairline);
+  padding: var(--space-md) var(--space-xl);
+  height: var(--bezel-height);
+}
+
+.instrument-bezel__title {
+  color: var(--color-text-primary);
+  flex-shrink: 0;
+}
+
+.instrument-bezel__subtitle {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.instrument-bezel__status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.instrument-bezel__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-text-dim);
+}
+
+.instrument-bezel__dot.is-active {
+  background: var(--color-text-primary);
+  animation: pulse 1.6s var(--ease-out-expo) infinite;
+}
+
+.instrument-bezel__status.is-unknown,
+.instrument-bezel__status.is-disconnected,
+.instrument-bezel__status.is-error {
+  color: var(--color-negative);
+}
+
+.instrument-bezel__status.is-unknown .instrument-bezel__dot,
+.instrument-bezel__status.is-disconnected .instrument-bezel__dot,
+.instrument-bezel__status.is-error .instrument-bezel__dot {
+  background: var(--color-negative);
+}
+
+.instrument-bezel__status.is-connecting {
+  color: var(--color-threshold-warn);
+}
+
+.instrument-bezel__status.is-connecting .instrument-bezel__dot {
+  background: var(--color-threshold-warn);
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (max-width: 600px) {
+  .instrument-bezel {
+    padding-inline: var(--space-md);
+    gap: var(--space-sm);
+  }
+
+  .instrument-bezel__title {
+    font-size: var(--text-metric-size);
+  }
+
+  .instrument-bezel__subtitle {
+    display: none;
+  }
+
+  .instrument-bezel__status {
+    margin-inline-start: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .instrument-bezel__dot.is-active {
+    animation: none;
+  }
+}

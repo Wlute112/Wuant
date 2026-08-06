@@ -1,0 +1,56 @@
+Enter the Huber regression refitting period in bars (e.g., 1, 12, 24): No input received; defaulting refit period to 1 (refit every bar).
+[ensure_tickers] fetching missing tickers via IBKR: ['SOL', 'XRP', 'DOGE']
+Requesting 8-HOUR-MID bars
+[1m2026-07-28T03:51:50.028965000Z[0m [94m[INFO] TRADER-000.MessageBus: config.database=None[0m
+[1m2026-07-28T03:51:50.028978000Z[0m [94m[INFO] TRADER-000.MessageBus: config.encoding='json'[0m
+[1m2026-07-28T03:51:50.028979000Z[0m [94m[INFO] TRADER-000.MessageBus: config.timestamps_as_iso8601=False[0m
+[1m2026-07-28T03:51:50.028979001Z[0m [94m[INFO] TRADER-000.MessageBus: config.buffer_interval_ms=None[0m
+[1m2026-07-28T03:51:50.028980000Z[0m [94m[INFO] TRADER-000.MessageBus: config.autotrim_mins=None[0m
+[1m2026-07-28T03:51:50.028980001Z[0m [94m[INFO] TRADER-000.MessageBus: config.use_trader_prefix=True[0m
+[1m2026-07-28T03:51:50.028981000Z[0m [94m[INFO] TRADER-000.MessageBus: config.use_trader_id=True[0m
+[1m2026-07-28T03:51:50.028981001Z[0m [94m[INFO] TRADER-000.MessageBus: config.use_instance_id=False[0m
+[1m2026-07-28T03:51:50.028981002Z[0m [94m[INFO] TRADER-000.MessageBus: config.streams_prefix='stream'[0m
+[1m2026-07-28T03:51:50.028982000Z[0m [94m[INFO] TRADER-000.MessageBus: config.types_filter=None[0m
+[1m2026-07-28T03:51:50.028998000Z[0m [INFO] TRADER-000.Cache: READY[0m
+[1m2026-07-28T03:51:50.029026000Z[0m [INFO] TRADER-000.InteractiveBrokersClient-001: READY[0m
+[1m2026-07-28T03:51:50.029529000Z[0m [INFO] TRADER-000.InteractiveBrokersClient-001: RUNNING[0m
+[1m2026-07-28T03:51:50.029544000Z[0m [INFO] TRADER-000.InteractiveBrokersInstrumentProvider: READY[0m
+[1m2026-07-28T03:51:50.029552000Z[0m [INFO] TRADER-000.Cache: READY[0m
+[1m2026-07-28T03:51:50.029593000Z[0m [INFO] TRADER-000.DataClient-INTERACTIVE_BROKERS-001: READY[0m
+[1m2026-07-28T03:51:50.029927000Z[0m [INFO] TRADER-000.InteractiveBrokersClient-001: Starting InteractiveBrokersClient (1)...[0m
+[1m2026-07-28T03:51:50.029947000Z[0m [INFO] TRADER-000.InteractiveBrokersClient-001: Connecting to 127.0.0.1:7497 with client id: 1[0m
+[1m2026-07-28T03:51:50.030500000Z[0m [1;31m[ERROR] TRADER-000.InteractiveBrokersClient-001: Connection failed[0m
+[1m2026-07-28T03:51:50.030644000Z[0m [1;31m[ERROR] TRADER-000.InteractiveBrokersClient-001: Unhandled exception in client startup
+ConnectionError(Failed to connect to Interactive Brokers at 127.0.0.1:7497)
+Traceback (most recent call last):
+  File "/Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/client.py", line 254, in _start_async
+    raise ConnectionError(
+[0m
+[1m2026-07-28T03:51:50.030667000Z[0m [INFO] TRADER-000.InteractiveBrokersClient-001: Attempt 2: attempting to reconnect in 5 seconds...[0m
+[1m2026-07-28T03:51:55.031968000Z[0m [INFO] TRADER-000.InteractiveBrokersClient-001: Connecting to 127.0.0.1:7497 with client id: 1[0m
+[1m2026-07-28T03:51:55.032481000Z[0m [1;31m[ERROR] TRADER-000.InteractiveBrokersClient-001: Connection failed[0m
+[1m2026-07-28T03:51:55.032617000Z[0m [1;31m[ERROR] TRADER-000.InteractiveBrokersClient-001: Unhandled exception in client startup
+ConnectionError(Failed to connect to Interactive Brokers at 127.0.0.1:7497)
+Traceback (most recent call last):
+  File "/Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/client.py", line 254, in _start_async
+    raise ConnectionError(
+[0m
+[1m2026-07-28T03:51:55.032643000Z[0m [INFO] TRADER-000.InteractiveBrokersClient-001: Attempt 3: attempting to reconnect in 10 seconds...[0m
+[1m2026-07-28T03:52:05.033924000Z[0m [INFO] TRADER-000.InteractiveBrokersClient-001: Connecting to 127.0.0.1:7497 with client id: 1[0m
+[1m2026-07-28T03:52:05.034420000Z[0m [1;31m[ERROR] TRADER-000.InteractiveBrokersClient-001: Connection failed[0m
+[1m2026-07-28T03:52:05.034535000Z[0m [1;31m[ERROR] TRADER-000.InteractiveBrokersClient-001: Unhandled exception in client startup
+ConnectionError(Failed to connect to Interactive Brokers at 127.0.0.1:7497)
+Traceback (most recent call last):
+  File "/Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/client.py", line 254, in _start_async
+    raise ConnectionError(
+[0m
+[1m2026-07-28T03:52:05.034555000Z[0m [INFO] TRADER-000.InteractiveBrokersClient-001: Attempt 4: attempting to reconnect in 20 seconds...[0m
+[1m2026-07-28T03:52:25.035044000Z[0m [INFO] TRADER-000.InteractiveBrokersClient-001: Connecting to 127.0.0.1:7497 with client id: 1[0m
+[1m2026-07-28T03:52:25.035554000Z[0m [1;31m[ERROR] TRADER-000.InteractiveBrokersClient-001: Connection failed[0m
+[1m2026-07-28T03:52:25.035670000Z[0m [1;31m[ERROR] TRADER-000.InteractiveBrokersClient-001: Unhandled exception in client startup
+ConnectionError(Failed to connect to Interactive Brokers at 127.0.0.1:7497)
+Traceback (most recent call last):
+  File "/Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/client.py", line 254, in _start_async
+    raise ConnectionError(
+[0m
+[1m2026-07-28T03:52:25.035691000Z[0m [INFO] TRADER-000.InteractiveBrokersClient-001: Attempt 5: attempting to reconnect in 40 seconds...[0m

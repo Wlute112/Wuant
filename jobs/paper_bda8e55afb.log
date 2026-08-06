@@ -1,0 +1,611 @@
+[1m2026-07-27T20:48:18.446785000Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:48:18.446794000Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode:  NAUTILUS TRADER - Automated Algorithmic Trading Platform[0m
+[1m2026-07-27T20:48:18.446794001Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode:  by Nautech Systems Pty Ltd.[0m
+[1m2026-07-27T20:48:18.446795000Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode:  Copyright (C) 2015-2026. All rights reserved.[0m
+[1m2026-07-27T20:48:18.446795001Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:48:18.446795002Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: [0m
+[1m2026-07-27T20:48:18.446795003Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣴⣶⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[0m
+[1m2026-07-27T20:48:18.446795004Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣰⣾⣿⣿⣿⠀⢸⣿⣿⣿⣿⣶⣶⣤⣀⠀⠀⠀⠀⠀[0m
+[1m2026-07-27T20:48:18.446795005Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⠀⠀⠀⢀⣴⡇⢀⣾⣿⣿⣿⣿⣿⠀⣾⣿⣿⣿⣿⣿⣿⣿⠿⠓⠀⠀⠀⠀[0m
+[1m2026-07-27T20:48:18.446795006Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⠀⠀⣰⣿⣿⡀⢸⣿⣿⣿⣿⣿⣿⠀⣿⣿⣿⣿⣿⣿⠟⠁⣠⣄⠀⠀⠀⠀[0m
+[1m2026-07-27T20:48:18.446795007Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⠀⢠⣿⣿⣿⣇⠀⢿⣿⣿⣿⣿⣿⠀⢻⣿⣿⣿⡿⢃⣠⣾⣿⣿⣧⡀⠀⠀[0m
+[1m2026-07-27T20:48:18.446796000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⠠⣾⣿⣿⣿⣿⣿⣧⠈⠋⢀⣴⣧⠀⣿⡏⢠⡀⢸⣿⣿⣿⣿⣿⣿⣿⡇⠀[0m
+[1m2026-07-27T20:48:18.446796001Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⣀⠙⢿⣿⣿⣿⣿⣿⠇⢠⣿⣿⣿⡄⠹⠃⠼⠃⠈⠉⠛⠛⠛⠛⠛⠻⠇⠀[0m
+[1m2026-07-27T20:48:18.446796002Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⢸⡟⢠⣤⠉⠛⠿⢿⣿⠀⢸⣿⡿⠋⣠⣤⣄⠀⣾⣿⣿⣶⣶⣶⣦⡄⠀⠀⠀[0m
+[1m2026-07-27T20:48:18.446796003Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠸⠀⣾⠏⣸⣷⠂⣠⣤⠀⠘⢁⣴⣾⣿⣿⣿⡆⠘⣿⣿⣿⣿⣿⣿⠀⠀⠀⠀[0m
+[1m2026-07-27T20:48:18.446796004Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⠀⠛⠀⣿⡟⠀⢻⣿⡄⠸⣿⣿⣿⣿⣿⣿⣿⡀⠘⣿⣿⣿⣿⠟⠀⠀⠀⠀[0m
+[1m2026-07-27T20:48:18.446796005Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⠀⠀⠀⣿⠇⠀⠀⢻⡿⠀⠈⠻⣿⣿⣿⣿⣿⡇⠀⢹⣿⠿⠋⠀⠀⠀⠀⠀[0m
+[1m2026-07-27T20:48:18.446796006Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⠀⠀⠀⠋⠀⠀⠀⡘⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠁⠀⠀⠀⠀⠀⠀⠀[0m
+[1m2026-07-27T20:48:18.446796007Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: [0m
+[1m2026-07-27T20:48:18.446796008Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:48:18.446796009Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode:  SYSTEM SPECIFICATION[0m
+[1m2026-07-27T20:48:18.446796010Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:48:18.446797000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: CPU architecture: Apple M4[0m
+[1m2026-07-27T20:48:18.446797001Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: CPU(s): 10 @ 4464 MHz[0m
+[1m2026-07-27T20:48:18.446797002Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: OS: kernel-25.5.0 macOS 26.5.2 Tahoe[0m
+[1m2026-07-27T20:48:18.446807000Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:48:18.446807001Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode:  MEMORY USAGE[0m
+[1m2026-07-27T20:48:18.446807002Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:48:18.446810000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: RAM-Total: 32.00 GiB[0m
+[1m2026-07-27T20:48:18.446811000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: RAM-Used: 22.05 GiB (68.89%)[0m
+[1m2026-07-27T20:48:18.446811001Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: RAM-Avail: 9.95 GiB (31.11%)[0m
+[1m2026-07-27T20:48:18.446812000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: Swap: disabled[0m
+[1m2026-07-27T20:48:18.446815000Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:48:18.446815001Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode:  IDENTIFIERS[0m
+[1m2026-07-27T20:48:18.446815002Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:48:18.446816000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: trader_id: PAPER-CRYPTO-001[0m
+[1m2026-07-27T20:48:18.446816001Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: machine_id: Mac.lan[0m
+[1m2026-07-27T20:48:18.446816002Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: instance_id: f9be28ba-bec6-433b-9ad0-46a8947db36e[0m
+[1m2026-07-27T20:48:18.446817000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: PID: 21246[0m
+[1m2026-07-27T20:48:18.446817001Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:48:18.446817002Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode:  VERSIONING[0m
+[1m2026-07-27T20:48:18.446817003Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:48:18.446825000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: nautilus_trader: 1.229.0[0m
+[1m2026-07-27T20:48:18.446828000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: python: 3.12.13[0m
+[1m2026-07-27T20:48:18.446830000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: numpy: 2.5.0[0m
+[1m2026-07-27T20:48:18.446831000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: pandas: 3.0.4[0m
+[1m2026-07-27T20:48:18.446832000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: msgspec: 0.21.1[0m
+[1m2026-07-27T20:48:18.446833000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: pyarrow: 24.0.0[0m
+[1m2026-07-27T20:48:18.446834000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: pytz: 2026.2[0m
+[1m2026-07-27T20:48:18.446835000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: uvloop: 0.22.1[0m
+[1m2026-07-27T20:48:18.446835001Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:48:18.446844000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: Building system kernel[0m
+[1m2026-07-27T20:48:18.446920000Z[0m [INFO] PAPER-CRYPTO-001.CacheDatabaseAdapter: READY[0m
+[1m2026-07-27T20:48:18.446925000Z[0m [94m[INFO] PAPER-CRYPTO-001.CacheDatabaseAdapter: config.database=DatabaseConfig(type=redis, host=127.0.0.1, port=6379, username=None, password=None, ssl=False, connection_timeout=20, response_timeout=20, number_of_retries=3, exponent_base=2, max_delay=1000, factor=2)[0m
+[1m2026-07-27T20:48:18.446925001Z[0m [94m[INFO] PAPER-CRYPTO-001.CacheDatabaseAdapter: config.encoding='msgpack'[0m
+[1m2026-07-27T20:48:18.446926000Z[0m [94m[INFO] PAPER-CRYPTO-001.CacheDatabaseAdapter: config.timestamps_as_iso8601=False[0m
+[1m2026-07-27T20:48:18.446926001Z[0m [94m[INFO] PAPER-CRYPTO-001.CacheDatabaseAdapter: config.buffer_interval_ms=100[0m
+[1m2026-07-27T20:48:18.446926002Z[0m [94m[INFO] PAPER-CRYPTO-001.CacheDatabaseAdapter: config.flush_on_start=False[0m
+[1m2026-07-27T20:48:18.446927000Z[0m [94m[INFO] PAPER-CRYPTO-001.CacheDatabaseAdapter: config.use_trader_prefix=True[0m
+[1m2026-07-27T20:48:18.446927001Z[0m [94m[INFO] PAPER-CRYPTO-001.CacheDatabaseAdapter: config.use_instance_id=False[0m
+[1m2026-07-27T20:48:18.447802000Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.database=None[0m
+[1m2026-07-27T20:48:18.447804000Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.encoding='json'[0m
+[1m2026-07-27T20:48:18.447804001Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.timestamps_as_iso8601=False[0m
+[1m2026-07-27T20:48:18.447804002Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.buffer_interval_ms=None[0m
+[1m2026-07-27T20:48:18.447805000Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.autotrim_mins=None[0m
+[1m2026-07-27T20:48:18.447805001Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.use_trader_prefix=True[0m
+[1m2026-07-27T20:48:18.447805002Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.use_trader_id=True[0m
+[1m2026-07-27T20:48:18.447805003Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.use_instance_id=False[0m
+[1m2026-07-27T20:48:18.447806000Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.streams_prefix='stream'[0m
+[1m2026-07-27T20:48:18.447806001Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.types_filter=None[0m
+[1m2026-07-27T20:48:18.447833000Z[0m [INFO] PAPER-CRYPTO-001.Cache: READY[0m
+[1m2026-07-27T20:48:18.448137000Z[0m [INFO] PAPER-CRYPTO-001.DataEngine: READY[0m
+[1m2026-07-27T20:48:18.448256000Z[0m [94m[INFO] PAPER-CRYPTO-001.DataEngine: config.graceful_shutdown_on_exception=False[0m
+[1m2026-07-27T20:48:18.448277000Z[0m [INFO] PAPER-CRYPTO-001.RiskEngine: READY[0m
+[1m2026-07-27T20:48:18.448295000Z[0m [94m[INFO] PAPER-CRYPTO-001.RiskEngine: TradingState is ACTIVE[0m
+[1m2026-07-27T20:48:18.448370000Z[0m [INFO] PAPER-CRYPTO-001.Throttler-ORDER_SUBMIT_THROTTLER: READY[0m
+[1m2026-07-27T20:48:18.448382000Z[0m [94m[INFO] PAPER-CRYPTO-001.RiskEngine: Set MAX_ORDER_SUBMIT_RATE: 100/00:00:01[0m
+[1m2026-07-27T20:48:18.448395000Z[0m [INFO] PAPER-CRYPTO-001.Throttler-ORDER_MODIFY_THROTTLER: READY[0m
+[1m2026-07-27T20:48:18.448400000Z[0m [94m[INFO] PAPER-CRYPTO-001.RiskEngine: Set MAX_ORDER_MODIFY_RATE: 100/00:00:01[0m
+[1m2026-07-27T20:48:18.448415000Z[0m [94m[INFO] PAPER-CRYPTO-001.RiskEngine: config.graceful_shutdown_on_exception=False[0m
+[1m2026-07-27T20:48:18.448440000Z[0m [INFO] PAPER-CRYPTO-001.ExecEngine: READY[0m
+[1m2026-07-27T20:48:18.448453000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.snapshot_orders=True[0m
+[1m2026-07-27T20:48:18.448455000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.snapshot_positions=True[0m
+[1m2026-07-27T20:48:18.448456000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.snapshot_positions_interval_secs=60.0[0m
+[1m2026-07-27T20:48:18.448456001Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.allow_overfills=False[0m
+[1m2026-07-27T20:48:18.448473000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.reconciliation=True[0m
+[1m2026-07-27T20:48:18.448475000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.reconciliation_lookback_mins=None[0m
+[1m2026-07-27T20:48:18.448475001Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.reconciliation_instrument_ids=None[0m
+[1m2026-07-27T20:48:18.448475002Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.filter_unclaimed_external_orders=False[0m
+[1m2026-07-27T20:48:18.448476000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.filter_position_reports=False[0m
+[1m2026-07-27T20:48:18.448476001Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.filtered_client_order_ids=None[0m
+[1m2026-07-27T20:48:18.448476002Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.inflight_check_interval_ms=2000[0m
+[1m2026-07-27T20:48:18.448477000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.inflight_check_threshold_ms=5000[0m
+[1m2026-07-27T20:48:18.448477001Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.inflight_check_retries=5[0m
+[1m2026-07-27T20:48:18.448477002Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.own_books_audit_interval_secs=None[0m
+[1m2026-07-27T20:48:18.448478000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.open_check_interval_secs=None[0m
+[1m2026-07-27T20:48:18.448478001Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.open_check_open_only=True[0m
+[1m2026-07-27T20:48:18.448478002Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.open_check_lookback_mins=60[0m
+[1m2026-07-27T20:48:18.448479000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.open_check_threshold_ms=5000[0m
+[1m2026-07-27T20:48:18.448479001Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.open_check_missing_retries=5[0m
+[1m2026-07-27T20:48:18.448479002Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.max_single_order_queries_per_cycle=10[0m
+[1m2026-07-27T20:48:18.448479003Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.single_order_query_delay_ms=100[0m
+[1m2026-07-27T20:48:18.448480000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.position_check_interval_secs=None[0m
+[1m2026-07-27T20:48:18.448480001Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.position_check_lookback_mins=60[0m
+[1m2026-07-27T20:48:18.448480002Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.position_check_threshold_ms=5000[0m
+[1m2026-07-27T20:48:18.448480003Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.position_check_retries=3[0m
+[1m2026-07-27T20:48:18.448481000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.reconciliation_startup_delay_secs=10.0[0m
+[1m2026-07-27T20:48:18.448481001Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.purge_closed_orders_interval_mins=None[0m
+[1m2026-07-27T20:48:18.448481002Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.purge_closed_orders_buffer_mins=None[0m
+[1m2026-07-27T20:48:18.448482000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.purge_closed_positions_interval_mins=None[0m
+[1m2026-07-27T20:48:18.448482001Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.purge_closed_positions_buffer_mins=None[0m
+[1m2026-07-27T20:48:18.448482002Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.purge_account_events_interval_mins=None[0m
+[1m2026-07-27T20:48:18.448482003Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.purge_account_events_lookback_mins=None[0m
+[1m2026-07-27T20:48:18.448482004Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.purge_from_database=False[0m
+[1m2026-07-27T20:48:18.448483000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.graceful_shutdown_on_exception=False[0m
+[1m2026-07-27T20:48:18.448672000Z[0m [INFO] PAPER-CRYPTO-001.Cache: Cached 0 general objects from database[0m
+[1m2026-07-27T20:48:18.449647000Z[0m [94m[INFO] PAPER-CRYPTO-001.Cache: Cached 6 currencies from database[0m
+[1m2026-07-27T20:48:18.450123000Z[0m [94m[INFO] PAPER-CRYPTO-001.Cache: Cached 5 instruments from database[0m
+[1m2026-07-27T20:48:18.450268000Z[0m [INFO] PAPER-CRYPTO-001.Cache: Cached 0 accounts from database[0m
+[1m2026-07-27T20:48:18.450582000Z[0m [INFO] PAPER-CRYPTO-001.Cache: Cached 0 orders from database[0m
+[1m2026-07-27T20:48:18.450587000Z[0m [INFO] PAPER-CRYPTO-001.Cache: Cached 0 order lists from database[0m
+[1m2026-07-27T20:48:18.450693000Z[0m [INFO] PAPER-CRYPTO-001.Cache: Cached 0 positions from database[0m
+[1m2026-07-27T20:48:18.450700000Z[0m [INFO] PAPER-CRYPTO-001.Cache: Checking data integrity[0m
+[1m2026-07-27T20:48:18.450708000Z[0m [92m[INFO] PAPER-CRYPTO-001.Cache: Integrity check passed in 6μs[0m
+[1m2026-07-27T20:48:18.450718000Z[0m [INFO] PAPER-CRYPTO-001.ExecEngine: Loaded cache in 2ms[0m
+[1m2026-07-27T20:48:18.450746000Z[0m [INFO] PAPER-CRYPTO-001.OrderEmulator: READY[0m
+[1m2026-07-27T20:48:18.450776000Z[0m [INFO] PAPER-CRYPTO-001.PAPER-CRYPTO-001: READY[0m
+[1m2026-07-27T20:48:18.450789000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: Initialized in 4ms[0m
+[1m2026-07-27T20:48:18.450795000Z[0m [94m[INFO] PAPER-CRYPTO-001.TradingNode: has_cache_backing=True[0m
+[1m2026-07-27T20:48:18.450796000Z[0m [94m[INFO] PAPER-CRYPTO-001.TradingNode: has_msgbus_backing=False[0m
+[1m2026-07-27T20:48:18.450850000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: READY[0m
+[1m2026-07-27T20:48:18.450873000Z[0m [INFO] PAPER-CRYPTO-001.ExecEngine: Registered OMS.UNSPECIFIED for Strategy MLStrategy-000[0m
+[1m2026-07-27T20:48:18.450876000Z[0m [INFO] PAPER-CRYPTO-001.PAPER-CRYPTO-001: Registered Strategy MLStrategy-000[0m
+[1m2026-07-27T20:48:18.451006000Z[0m [INFO] PAPER-CRYPTO-001.Cache: No previous state found for StrategyId('MLStrategy-000')[0m
+[1m2026-07-27T20:48:18.451009000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: Building data client for IB[0m
+[1m2026-07-27T20:48:18.451021000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersClient-001: READY[0m
+[1m2026-07-27T20:48:18.451080000Z[0m [1;33m[WARN] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Started when loop is not running[0m
+[1m2026-07-27T20:48:18.451124000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Starting InteractiveBrokersClient (1)...[0m
+[1m2026-07-27T20:48:18.451134000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Connecting to 127.0.0.1:7497 with client id: 1[0m
+[1m2026-07-27T20:48:18.459564000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Connected to Interactive Brokers (v223) at 20260727 13:48:18 PST from 127.0.0.1:7497 with client id: 1[0m
+[1m2026-07-27T20:48:18.460970000Z[0m [1;33m[WARN] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Market data farm connection is OK:uscrypto (code: 2104, req_id=-1)[0m
+[1m2026-07-27T20:48:18.461276000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersClient-001: RUNNING[0m
+[1m2026-07-27T20:48:18.461304000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersInstrumentProvider: READY[0m
+[1m2026-07-27T20:48:18.461359000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: READY[0m
+[1m2026-07-27T20:48:18.461391000Z[0m [INFO] PAPER-CRYPTO-001.DataEngine: Registered IB for default routing[0m
+[1m2026-07-27T20:48:18.461400000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: Building execution client for IB[0m
+[1m2026-07-27T20:48:18.461442000Z[0m [INFO] PAPER-CRYPTO-001.ExecClient-IB: READY[0m
+[1m2026-07-27T20:48:18.461459000Z[0m [INFO] PAPER-CRYPTO-001.ExecEngine: Registered ExecutionClient-IB for default routing[0m
+[1m2026-07-27T20:48:18.461505000Z[0m [1;33m[WARN] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Market data farm connection is OK:usfarm.nj (code: 2104, req_id=-1)[0m
+[1m2026-07-27T20:48:18.461520000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: STARTING[0m
+[1m2026-07-27T20:48:18.461548000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: RUNNING[0m
+[1m2026-07-27T20:48:18.461561000Z[0m [INFO] PAPER-CRYPTO-001.DataEngine: RUNNING[0m
+[1m2026-07-27T20:48:18.461573000Z[0m [INFO] PAPER-CRYPTO-001.RiskEngine: RUNNING[0m
+[1m2026-07-27T20:48:18.461581000Z[0m [INFO] PAPER-CRYPTO-001.ExecClient-IB: RUNNING[0m
+[1m2026-07-27T20:48:18.461587000Z[0m [INFO] PAPER-CRYPTO-001.ExecEngine: Starting position snapshots timer at 60.0 second intervals[0m
+[1m2026-07-27T20:48:18.461784000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: Started reconciliation task[0m
+[1m2026-07-27T20:48:18.461788000Z[0m [INFO] PAPER-CRYPTO-001.ExecEngine: RUNNING[0m
+[1m2026-07-27T20:48:18.461790000Z[0m [INFO] PAPER-CRYPTO-001.DataEngine: Connecting all clients...[0m
+[1m2026-07-27T20:48:18.461792000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: Connecting...[0m
+[1m2026-07-27T20:48:18.461797000Z[0m [INFO] PAPER-CRYPTO-001.ExecEngine: Connecting all clients...[0m
+[1m2026-07-27T20:48:18.461798000Z[0m [INFO] PAPER-CRYPTO-001.ExecClient-IB: Connecting...[0m
+[1m2026-07-27T20:48:18.461804000Z[0m [94m[INFO] PAPER-CRYPTO-001.TradingNode: Awaiting engine connections and initializations (60.0s timeout)...[0m
+[1m2026-07-27T20:48:18.461895000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: Starting continuous reconciliation with intervals: inflight=2000ms, consistency=Nones, position=Nones[0m
+[1m2026-07-27T20:48:18.461897000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: Awaiting startup reconciliation completion before starting continuous checks[0m
+[1m2026-07-27T20:48:18.461904000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Setting Market DataType to REALTIME[0m
+[1m2026-07-27T20:48:18.462023000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersInstrumentProvider: Initializing instruments...[0m
+[1m2026-07-27T20:48:18.462037000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersInstrumentProvider: Loading instruments: XRP/USD.ZEROHASH, DOGE/USD.ZEROHASH, BTC/USD.ZEROHASH, SOL/USD.ZEROHASH, ETH/USD.ZEROHASH...[0m
+[1m2026-07-27T20:48:18.462305000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersInstrumentProvider: Adding instrument=CryptoPerpetual(id=XRP/USD.ZEROHASH, raw_symbol=XRP.USD, asset_class=CRYPTOCURRENCY, instrument_class=SWAP, quote_currency=USD, is_inverse=True, price_precision=4, price_increment=0.0001, size_precision=6, size_increment=0.000001, multiplier=1, lot_size=1, margin_init=0, margin_maint=0, maker_fee=0, taker_fee=0, info={'contract': {'secType': 'CRYPTO', 'conId': 766137544, 'exchange': 'ZEROHASH', 'primaryExchange': '', 'symbol': 'XRP', 'localSymbol': 'XRP.USD', 'currency': 'USD', 'tradingClass': 'XRP', 'lastTradeDateOrContractMonth': '', 'lastTradeDate': '', 'multiplier': '', 'strike': 1.7976931348623157e+308, 'right': '', 'includeExpired': False, 'secIdType': '', 'secId': '', 'description': '', 'issuerId': '', 'comboLegsDescrip': '', 'comboLegs': [], 'deltaNeutralContract': None, 'build_futures_chain': None, 'build_options_chain': None, 'options_chain_exchange': None, 'min_expiry_days': None, 'max_expiry_days': None}, 'marketName': 'XRP', 'minTick': 0.0001, 'orderTypes': 'AD,ADJUST,ALERT,BASKET,BENCHPX,CASHQTY,COND,DAY,DEACT,DEACTDIS,DEACTEOD,GAT,GTC,GTD,GTT,IOC,LMT,MKT,NMIN,NONALGO,WHATIF', 'validExchanges': 'ZEROHASH', 'priceMagnifier': 1, 'underConId': 0, 'longName': 'Ripple cryptocurrency', 'contractMonth': '', 'industry': '', 'category': '', 'subcategory': '', 'timeZoneId': 'US/Eastern', 'tradingHours': '20260726:0300-20260727:1600;20260727:1601-20260728:1600;20260728:1601-20260729:1600;20260729:1601-20260730:1600;20260730:1601-20260731:1600', 'liquidHours': '20260726:0300-20260727:1600;20260727:1601-20260728:1600;20260728:1601-20260729:1600;20260729:1601-20260730:1600;20260730:1601-20260731:1600', 'evRule': '', 'evMultiplier': 0, 'mdSizeMultiplier': 1, 'aggGroup': 0, 'underSymbol': '', 'underSecType': '', 'marketRuleIds': '3132', 'secIdList': [], 'realExpirationDate': '', 'lastTradeTime': '', 'stockType': '', 'minSize': '0.000001', 'sizeIncrement': '0.000001', 'suggestedSizeIncrement': '0.000001', 'minAlgoSize': '0', 'lastPricePrecision': '170141183460469231731687303715884105727', 'lastSizePrecision': '170141183460469231731687303715884105727', 'cusip': '', 'ratings': '', 'descAppend': '', 'bondType': '', 'couponType': '', 'callable': False, 'putable': False, 'coupon': 0, 'convertible': False, 'maturity': '', 'issueDate': '', 'nextOptionDate': '', 'nextOptionType': '', 'nextOptionPartial': False, 'notes': '', 'fundName': '', 'fundFamily': '', 'fundType': '', 'fundFrontLoad': '', 'fundBackLoad': '', 'fundBackLoadTimeInterval': '', 'fundManagementFee': '', 'fundClosed': False, 'fundClosedForNewInvestors': False, 'fundClosedForNewMoney': False, 'fundNotifyAmount': '', 'fundMinimumInitialPurchase': '', 'fundSubsequentMinimumPurchase': '', 'fundBlueSkyStates': '', 'fundBlueSkyTerritories': '', 'fundDistributionPolicyIndicator': ['None', 'None'], 'fundAssetType': ['None', 'None'], 'ineligibilityReasonList': None, 'eventContract1': '', 'eventContractDescription1': '', 'eventContractDescription2': ''}) from InteractiveBrokersInstrumentProvider[0m
+[1m2026-07-27T20:48:18.462460000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersInstrumentProvider: Adding instrument=CryptoPerpetual(id=DOGE/USD.ZEROHASH, raw_symbol=DOGE.USD, asset_class=CRYPTOCURRENCY, instrument_class=SWAP, quote_currency=USD, is_inverse=True, price_precision=5, price_increment=0.00001, size_precision=1, size_increment=0.1, multiplier=1, lot_size=1, margin_init=0, margin_maint=0, maker_fee=0, taker_fee=0, info={'contract': {'secType': 'CRYPTO', 'conId': 766137549, 'exchange': 'ZEROHASH', 'primaryExchange': '', 'symbol': 'DOGE', 'localSymbol': 'DOGE.USD', 'currency': 'USD', 'tradingClass': 'DOGE', 'lastTradeDateOrContractMonth': '', 'lastTradeDate': '', 'multiplier': '', 'strike': 1.7976931348623157e+308, 'right': '', 'includeExpired': False, 'secIdType': '', 'secId': '', 'description': '', 'issuerId': '', 'comboLegsDescrip': '', 'comboLegs': [], 'deltaNeutralContract': None, 'build_futures_chain': None, 'build_options_chain': None, 'options_chain_exchange': None, 'min_expiry_days': None, 'max_expiry_days': None}, 'marketName': 'DOGE', 'minTick': 1e-05, 'orderTypes': 'AD,ADJUST,ALERT,BASKET,BENCHPX,CASHQTY,COND,DAY,DEACT,DEACTDIS,DEACTEOD,GAT,GTC,GTD,GTT,IOC,LMT,MKT,NMIN,NONALGO,WHATIF', 'validExchanges': 'ZEROHASH', 'priceMagnifier': 1, 'underConId': 0, 'longName': 'Dogecoin cryptocurrency', 'contractMonth': '', 'industry': '', 'category': '', 'subcategory': '', 'timeZoneId': 'US/Eastern', 'tradingHours': '20260726:0300-20260727:1600;20260727:1601-20260728:1600;20260728:1601-20260729:1600;20260729:1601-20260730:1600;20260730:1601-20260731:1600', 'liquidHours': '20260726:0300-20260727:1600;20260727:1601-20260728:1600;20260728:1601-20260729:1600;20260729:1601-20260730:1600;20260730:1601-20260731:1600', 'evRule': '', 'evMultiplier': 0, 'mdSizeMultiplier': 1, 'aggGroup': 0, 'underSymbol': '', 'underSecType': '', 'marketRuleIds': '4192', 'secIdList': [], 'realExpirationDate': '', 'lastTradeTime': '', 'stockType': '', 'minSize': '0.1', 'sizeIncrement': '0.1', 'suggestedSizeIncrement': '0.1', 'minAlgoSize': '0', 'lastPricePrecision': '170141183460469231731687303715884105727', 'lastSizePrecision': '170141183460469231731687303715884105727', 'cusip': '', 'ratings': '', 'descAppend': '', 'bondType': '', 'couponType': '', 'callable': False, 'putable': False, 'coupon': 0, 'convertible': False, 'maturity': '', 'issueDate': '', 'nextOptionDate': '', 'nextOptionType': '', 'nextOptionPartial': False, 'notes': '', 'fundName': '', 'fundFamily': '', 'fundType': '', 'fundFrontLoad': '', 'fundBackLoad': '', 'fundBackLoadTimeInterval': '', 'fundManagementFee': '', 'fundClosed': False, 'fundClosedForNewInvestors': False, 'fundClosedForNewMoney': False, 'fundNotifyAmount': '', 'fundMinimumInitialPurchase': '', 'fundSubsequentMinimumPurchase': '', 'fundBlueSkyStates': '', 'fundBlueSkyTerritories': '', 'fundDistributionPolicyIndicator': ['None', 'None'], 'fundAssetType': ['None', 'None'], 'ineligibilityReasonList': None, 'eventContract1': '', 'eventContractDescription1': '', 'eventContractDescription2': ''}) from InteractiveBrokersInstrumentProvider[0m
+[1m2026-07-27T20:48:18.462591000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersInstrumentProvider: Adding instrument=CryptoPerpetual(id=BTC/USD.ZEROHASH, raw_symbol=BTC.USD, asset_class=CRYPTOCURRENCY, instrument_class=SWAP, quote_currency=USD, is_inverse=True, price_precision=2, price_increment=0.25, size_precision=8, size_increment=0.00000001, multiplier=1, lot_size=1, margin_init=0, margin_maint=0, maker_fee=0, taker_fee=0, info={'contract': {'secType': 'CRYPTO', 'conId': 541686651, 'exchange': 'ZEROHASH', 'primaryExchange': '', 'symbol': 'BTC', 'localSymbol': 'BTC.USD', 'currency': 'USD', 'tradingClass': 'BTC', 'lastTradeDateOrContractMonth': '', 'lastTradeDate': '', 'multiplier': '', 'strike': 1.7976931348623157e+308, 'right': '', 'includeExpired': False, 'secIdType': '', 'secId': '', 'description': '', 'issuerId': '', 'comboLegsDescrip': '', 'comboLegs': [], 'deltaNeutralContract': None, 'build_futures_chain': None, 'build_options_chain': None, 'options_chain_exchange': None, 'min_expiry_days': None, 'max_expiry_days': None}, 'marketName': 'BTC', 'minTick': 0.25, 'orderTypes': 'AD,ADJUST,ALERT,BASKET,BENCHPX,CASHQTY,COND,DAY,DEACT,DEACTDIS,DEACTEOD,GAT,GTC,GTD,GTT,IOC,LMT,MKT,NMIN,NONALGO,WHATIF', 'validExchanges': 'ZEROHASH', 'priceMagnifier': 1, 'underConId': 0, 'longName': 'Bitcoin cryptocurrency', 'contractMonth': '', 'industry': '', 'category': '', 'subcategory': '', 'timeZoneId': 'US/Eastern', 'tradingHours': '20260726:0300-20260727:1600;20260727:1601-20260728:1600;20260728:1601-20260729:1600;20260729:1601-20260730:1600;20260730:1601-20260731:1600', 'liquidHours': '20260726:0300-20260727:1600;20260727:1601-20260728:1600;20260728:1601-20260729:1600;20260729:1601-20260730:1600;20260730:1601-20260731:1600', 'evRule': '', 'evMultiplier': 0, 'mdSizeMultiplier': 1, 'aggGroup': 0, 'underSymbol': '', 'underSecType': '', 'marketRuleIds': '2806', 'secIdList': [], 'realExpirationDate': '', 'lastTradeTime': '', 'stockType': '', 'minSize': '1E-8', 'sizeIncrement': '1E-8', 'suggestedSizeIncrement': '1E-8', 'minAlgoSize': '0', 'lastPricePrecision': '170141183460469231731687303715884105727', 'lastSizePrecision': '170141183460469231731687303715884105727', 'cusip': '', 'ratings': '', 'descAppend': '', 'bondType': '', 'couponType': '', 'callable': False, 'putable': False, 'coupon': 0, 'convertible': False, 'maturity': '', 'issueDate': '', 'nextOptionDate': '', 'nextOptionType': '', 'nextOptionPartial': False, 'notes': '', 'fundName': '', 'fundFamily': '', 'fundType': '', 'fundFrontLoad': '', 'fundBackLoad': '', 'fundBackLoadTimeInterval': '', 'fundManagementFee': '', 'fundClosed': False, 'fundClosedForNewInvestors': False, 'fundClosedForNewMoney': False, 'fundNotifyAmount': '', 'fundMinimumInitialPurchase': '', 'fundSubsequentMinimumPurchase': '', 'fundBlueSkyStates': '', 'fundBlueSkyTerritories': '', 'fundDistributionPolicyIndicator': ['None', 'None'], 'fundAssetType': ['None', 'None'], 'ineligibilityReasonList': None, 'eventContract1': '', 'eventContractDescription1': '', 'eventContractDescription2': ''}) from InteractiveBrokersInstrumentProvider[0m
+[1m2026-07-27T20:48:18.462710000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersInstrumentProvider: Adding instrument=CryptoPerpetual(id=SOL/USD.ZEROHASH, raw_symbol=SOL.USD, asset_class=CRYPTOCURRENCY, instrument_class=SWAP, quote_currency=USD, is_inverse=True, price_precision=2, price_increment=0.01, size_precision=8, size_increment=0.00000001, multiplier=1, lot_size=1, margin_init=0, margin_maint=0, maker_fee=0, taker_fee=0, info={'contract': {'secType': 'CRYPTO', 'conId': 766135595, 'exchange': 'ZEROHASH', 'primaryExchange': '', 'symbol': 'SOL', 'localSymbol': 'SOL.USD', 'currency': 'USD', 'tradingClass': 'SOL', 'lastTradeDateOrContractMonth': '', 'lastTradeDate': '', 'multiplier': '', 'strike': 1.7976931348623157e+308, 'right': '', 'includeExpired': False, 'secIdType': '', 'secId': '', 'description': '', 'issuerId': '', 'comboLegsDescrip': '', 'comboLegs': [], 'deltaNeutralContract': None, 'build_futures_chain': None, 'build_options_chain': None, 'options_chain_exchange': None, 'min_expiry_days': None, 'max_expiry_days': None}, 'marketName': 'SOL', 'minTick': 0.01, 'orderTypes': 'AD,ADJUST,ALERT,BASKET,BENCHPX,CASHQTY,COND,DAY,DEACT,DEACTDIS,DEACTEOD,GAT,GTC,GTD,GTT,IOC,LMT,MKT,NMIN,NONALGO,WHATIF', 'validExchanges': 'ZEROHASH', 'priceMagnifier': 1, 'underConId': 0, 'longName': 'Solana cryptocurrency', 'contractMonth': '', 'industry': '', 'category': '', 'subcategory': '', 'timeZoneId': 'US/Eastern', 'tradingHours': '20260726:0300-20260727:1600;20260727:1601-20260728:1600;20260728:1601-20260729:1600;20260729:1601-20260730:1600;20260730:1601-20260731:1600', 'liquidHours': '20260726:0300-20260727:1600;20260727:1601-20260728:1600;20260728:1601-20260729:1600;20260729:1601-20260730:1600;20260730:1601-20260731:1600', 'evRule': '', 'evMultiplier': 0, 'mdSizeMultiplier': 1, 'aggGroup': 0, 'underSymbol': '', 'underSecType': '', 'marketRuleIds': '2836', 'secIdList': [], 'realExpirationDate': '', 'lastTradeTime': '', 'stockType': '', 'minSize': '1E-8', 'sizeIncrement': '1E-8', 'suggestedSizeIncrement': '1E-8', 'minAlgoSize': '0', 'lastPricePrecision': '170141183460469231731687303715884105727', 'lastSizePrecision': '170141183460469231731687303715884105727', 'cusip': '', 'ratings': '', 'descAppend': '', 'bondType': '', 'couponType': '', 'callable': False, 'putable': False, 'coupon': 0, 'convertible': False, 'maturity': '', 'issueDate': '', 'nextOptionDate': '', 'nextOptionType': '', 'nextOptionPartial': False, 'notes': '', 'fundName': '', 'fundFamily': '', 'fundType': '', 'fundFrontLoad': '', 'fundBackLoad': '', 'fundBackLoadTimeInterval': '', 'fundManagementFee': '', 'fundClosed': False, 'fundClosedForNewInvestors': False, 'fundClosedForNewMoney': False, 'fundNotifyAmount': '', 'fundMinimumInitialPurchase': '', 'fundSubsequentMinimumPurchase': '', 'fundBlueSkyStates': '', 'fundBlueSkyTerritories': '', 'fundDistributionPolicyIndicator': ['None', 'None'], 'fundAssetType': ['None', 'None'], 'ineligibilityReasonList': None, 'eventContract1': '', 'eventContractDescription1': '', 'eventContractDescription2': ''}) from InteractiveBrokersInstrumentProvider[0m
+[1m2026-07-27T20:48:18.462827000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersInstrumentProvider: Adding instrument=CryptoPerpetual(id=ETH/USD.ZEROHASH, raw_symbol=ETH.USD, asset_class=CRYPTOCURRENCY, instrument_class=SWAP, quote_currency=USD, is_inverse=True, price_precision=2, price_increment=0.05, size_precision=8, size_increment=0.00000001, multiplier=1, lot_size=1, margin_init=0, margin_maint=0, maker_fee=0, taker_fee=0, info={'contract': {'secType': 'CRYPTO', 'conId': 541686654, 'exchange': 'ZEROHASH', 'primaryExchange': '', 'symbol': 'ETH', 'localSymbol': 'ETH.USD', 'currency': 'USD', 'tradingClass': 'ETH', 'lastTradeDateOrContractMonth': '', 'lastTradeDate': '', 'multiplier': '', 'strike': 1.7976931348623157e+308, 'right': '', 'includeExpired': False, 'secIdType': '', 'secId': '', 'description': '', 'issuerId': '', 'comboLegsDescrip': '', 'comboLegs': [], 'deltaNeutralContract': None, 'build_futures_chain': None, 'build_options_chain': None, 'options_chain_exchange': None, 'min_expiry_days': None, 'max_expiry_days': None}, 'marketName': 'ETH', 'minTick': 0.05, 'orderTypes': 'AD,ADJUST,ALERT,BASKET,BENCHPX,CASHQTY,COND,DAY,DEACT,DEACTDIS,DEACTEOD,GAT,GTC,GTD,GTT,IOC,LMT,MKT,NMIN,NONALGO,WHATIF', 'validExchanges': 'ZEROHASH', 'priceMagnifier': 1, 'underConId': 0, 'longName': 'Ethereum cryptocurrency', 'contractMonth': '', 'industry': '', 'category': '', 'subcategory': '', 'timeZoneId': 'US/Eastern', 'tradingHours': '20260726:0300-20260727:1600;20260727:1601-20260728:1600;20260728:1601-20260729:1600;20260729:1601-20260730:1600;20260730:1601-20260731:1600', 'liquidHours': '20260726:0300-20260727:1600;20260727:1601-20260728:1600;20260728:1601-20260729:1600;20260729:1601-20260730:1600;20260730:1601-20260731:1600', 'evRule': '', 'evMultiplier': 0, 'mdSizeMultiplier': 1, 'aggGroup': 0, 'underSymbol': '', 'underSecType': '', 'marketRuleIds': '2823', 'secIdList': [], 'realExpirationDate': '', 'lastTradeTime': '', 'stockType': '', 'minSize': '1E-8', 'sizeIncrement': '1E-8', 'suggestedSizeIncrement': '1E-8', 'minAlgoSize': '0', 'lastPricePrecision': '170141183460469231731687303715884105727', 'lastSizePrecision': '170141183460469231731687303715884105727', 'cusip': '', 'ratings': '', 'descAppend': '', 'bondType': '', 'couponType': '', 'callable': False, 'putable': False, 'coupon': 0, 'convertible': False, 'maturity': '', 'issueDate': '', 'nextOptionDate': '', 'nextOptionType': '', 'nextOptionPartial': False, 'notes': '', 'fundName': '', 'fundFamily': '', 'fundType': '', 'fundFrontLoad': '', 'fundBackLoad': '', 'fundBackLoadTimeInterval': '', 'fundManagementFee': '', 'fundClosed': False, 'fundClosedForNewInvestors': False, 'fundClosedForNewMoney': False, 'fundNotifyAmount': '', 'fundMinimumInitialPurchase': '', 'fundSubsequentMinimumPurchase': '', 'fundBlueSkyStates': '', 'fundBlueSkyTerritories': '', 'fundDistributionPolicyIndicator': ['None', 'None'], 'fundAssetType': ['None', 'None'], 'ineligibilityReasonList': None, 'eventContract1': '', 'eventContractDescription1': '', 'eventContractDescription2': ''}) from InteractiveBrokersInstrumentProvider[0m
+[1m2026-07-27T20:48:18.462832000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersInstrumentProvider: Loaded 5 instruments[0m
+[1m2026-07-27T20:48:18.462832001Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersInstrumentProvider: Initialized instruments[0m
+[1m2026-07-27T20:48:18.462854000Z[0m [92m[INFO] PAPER-CRYPTO-001.ExecClient-IB: Account `DUR143045` found in the connected TWS/Gateway[0m
+[1m2026-07-27T20:48:18.462922000Z[0m [1;33m[WARN] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Market data farm connection is OK:usfuture (code: 2104, req_id=-1)[0m
+[1m2026-07-27T20:48:18.462951000Z[0m [92m[INFO] PAPER-CRYPTO-001.DataClient-IB: Connected[0m
+[1m2026-07-27T20:48:18.463244000Z[0m [1;33m[WARN] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Market data farm connection is OK:usopt.nj (code: 2104, req_id=-1)[0m
+[1m2026-07-27T20:48:18.463363000Z[0m [1;33m[WARN] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Market data farm connection is OK:cashfarm (code: 2104, req_id=-1)[0m
+[1m2026-07-27T20:48:18.463434000Z[0m [1;33m[WARN] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Market data farm connection is OK:usfarm (code: 2104, req_id=-1)[0m
+[1m2026-07-27T20:48:18.463497000Z[0m [1;33m[WARN] PAPER-CRYPTO-001.InteractiveBrokersClient-001: HMDS data farm connection is OK:ushmds (code: 2106, req_id=-1)[0m
+[1m2026-07-27T20:48:18.463540000Z[0m [1;33m[WARN] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Sec-def data farm connection is OK:secdefil (code: 2158, req_id=-1)[0m
+[1m2026-07-27T20:48:18.607917000Z[0m [94m[INFO] PAPER-CRYPTO-001.TradingNode: Awaiting execution state reconciliation (30.0s timeout)...[0m
+[1m2026-07-27T20:48:18.607967000Z[0m [92m[INFO] PAPER-CRYPTO-001.ExecClient-IB: Connected[0m
+[1m2026-07-27T20:48:18.607999000Z[0m [INFO] PAPER-CRYPTO-001.ExecClient-IB: Generating ExecutionMassStatus...[0m
+[1m2026-07-27T20:48:18.622082000Z[0m [INFO] PAPER-CRYPTO-001.Portfolio: Updated AccountState(account_id=IB-DUR143045, account_type=MARGIN, base_currency=None, is_reported=True, balances=[AccountBalance(total=1_002_150.50 USD, locked=1_978.34 USD, free=1_000_172.16 USD)], margins=[MarginBalance(initial=0.00 USD, maintenance=0.00 USD, instrument_id=None)], event_id=c7335818-3a46-4c57-890f-17278963e859)[0m
+[1m2026-07-27T20:48:18.713356000Z[0m [INFO] PAPER-CRYPTO-001.ExecClient-IB: Generated 0 FillReports[0m
+[1m2026-07-27T20:48:18.810646000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: Reconciling ExecutionMassStatus for None[0m
+[1m2026-07-27T20:48:18.810655000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: Attempting to adjust fills for 0 instruments[0m
+[1m2026-07-27T20:48:18.812538000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: Updating adjusted fills for 0 instruments[0m
+[1m2026-07-27T20:48:18.812541000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: Final order_reports contains 0 orders, fill_reports contains 0 fills across all instruments[0m
+[1m2026-07-27T20:48:18.812765000Z[0m [92m[INFO] PAPER-CRYPTO-001.ExecEngine: Reconciliation for IB succeeded[0m
+[1m2026-07-27T20:48:18.812771000Z[0m [92m[INFO] PAPER-CRYPTO-001.TradingNode: Execution state reconciled[0m
+[1m2026-07-27T20:48:18.812783000Z[0m [INFO] PAPER-CRYPTO-001.OrderEmulator: No emulated orders to reactivate[0m
+[1m2026-07-27T20:48:18.812792000Z[0m [INFO] PAPER-CRYPTO-001.OrderEmulator: RUNNING[0m
+[1m2026-07-27T20:48:18.813258000Z[0m [INFO] PAPER-CRYPTO-001.Portfolio: Initialized 0 open orders[0m
+[1m2026-07-27T20:48:18.813261000Z[0m [INFO] PAPER-CRYPTO-001.Portfolio: Initialized 0 open positions[0m
+[1m2026-07-27T20:48:18.813266000Z[0m [94m[INFO] PAPER-CRYPTO-001.TradingNode: Awaiting portfolio initialization (10.0s timeout)...[0m
+[1m2026-07-27T20:48:18.813323000Z[0m [92m[INFO] PAPER-CRYPTO-001.ExecEngine: Startup reconciliation completed[0m
+[1m2026-07-27T20:48:18.813325000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: Applying post-reconciliation startup delay (10.0s)[0m
+[1m2026-07-27T20:48:18.813337000Z[0m [92m[INFO] PAPER-CRYPTO-001.TradingNode: Portfolio initialized[0m
+[1m2026-07-27T20:48:18.813346000Z[0m [94m[INFO] PAPER-CRYPTO-001.MLStrategy: self.config.oms_type=None[0m
+[1m2026-07-27T20:48:18.813347000Z[0m [94m[INFO] PAPER-CRYPTO-001.MLStrategy: self.config.external_order_claims=None[0m
+[1m2026-07-27T20:48:18.813348000Z[0m [94m[INFO] PAPER-CRYPTO-001.MLStrategy: self.config.manage_gtd_expiry=False[0m
+[1m2026-07-27T20:48:18.813364000Z[0m [94m[INFO] PAPER-CRYPTO-001.MLStrategy: Set ClientOrderIdGenerator client_order_id count to 0[0m
+[1m2026-07-27T20:48:18.813365000Z[0m [94m[INFO] PAPER-CRYPTO-001.MLStrategy: Set ClientOrderIdGenerator order_list_id count to 0[0m
+[1m2026-07-27T20:48:18.819420000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: [CMD]--> SubscribeBars(bar_type=BTC/USD.ZEROHASH-1-DAY-MID-EXTERNAL, client_id=None, venue=ZEROHASH)[0m
+[1m2026-07-27T20:48:18.819430000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: Subscribed BTC/USD.ZEROHASH-1-DAY-MID-EXTERNAL[0m
+[1m2026-07-27T20:48:18.819470000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: [CMD]--> SubscribeBars(bar_type=ETH/USD.ZEROHASH-1-DAY-MID-EXTERNAL, client_id=None, venue=ZEROHASH)[0m
+[1m2026-07-27T20:48:18.819473000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: Subscribed ETH/USD.ZEROHASH-1-DAY-MID-EXTERNAL[0m
+[1m2026-07-27T20:48:18.819495000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: [CMD]--> SubscribeBars(bar_type=SOL/USD.ZEROHASH-1-DAY-MID-EXTERNAL, client_id=None, venue=ZEROHASH)[0m
+[1m2026-07-27T20:48:18.819497000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: Subscribed SOL/USD.ZEROHASH-1-DAY-MID-EXTERNAL[0m
+[1m2026-07-27T20:48:18.819517000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: [CMD]--> SubscribeBars(bar_type=XRP/USD.ZEROHASH-1-DAY-MID-EXTERNAL, client_id=None, venue=ZEROHASH)[0m
+[1m2026-07-27T20:48:18.819519000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: Subscribed XRP/USD.ZEROHASH-1-DAY-MID-EXTERNAL[0m
+[1m2026-07-27T20:48:18.819539000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: [CMD]--> SubscribeBars(bar_type=DOGE/USD.ZEROHASH-1-DAY-MID-EXTERNAL, client_id=None, venue=ZEROHASH)[0m
+[1m2026-07-27T20:48:18.819541000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: Subscribed DOGE/USD.ZEROHASH-1-DAY-MID-EXTERNAL[0m
+[1m2026-07-27T20:48:18.820246000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: [REQ]--> RequestBars(bar_type=BTC/USD.ZEROHASH-1-DAY-MID-EXTERNAL, start=2025-06-22 20:48:18.819548+00:00, end=2026-07-27 20:48:18.819628+00:00, limit=0, client_id=None, venue=ZEROHASH, data_type=Bar, params={'update_catalog': False, 'join_request': False})[0m
+[1m2026-07-27T20:48:18.820274000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: [REQ]--> RequestBars(bar_type=ETH/USD.ZEROHASH-1-DAY-MID-EXTERNAL, start=2025-06-22 20:48:18.820253+00:00, end=2026-07-27 20:48:18.820261+00:00, limit=0, client_id=None, venue=ZEROHASH, data_type=Bar, params={'update_catalog': False, 'join_request': False})[0m
+[1m2026-07-27T20:48:18.820294000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: [REQ]--> RequestBars(bar_type=SOL/USD.ZEROHASH-1-DAY-MID-EXTERNAL, start=2025-06-22 20:48:18.820279+00:00, end=2026-07-27 20:48:18.820284+00:00, limit=0, client_id=None, venue=ZEROHASH, data_type=Bar, params={'update_catalog': False, 'join_request': False})[0m
+[1m2026-07-27T20:48:18.820311000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: [REQ]--> RequestBars(bar_type=XRP/USD.ZEROHASH-1-DAY-MID-EXTERNAL, start=2025-06-22 20:48:18.820297+00:00, end=2026-07-27 20:48:18.820301+00:00, limit=0, client_id=None, venue=ZEROHASH, data_type=Bar, params={'update_catalog': False, 'join_request': False})[0m
+[1m2026-07-27T20:48:18.820328000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: [REQ]--> RequestBars(bar_type=DOGE/USD.ZEROHASH-1-DAY-MID-EXTERNAL, start=2025-06-22 20:48:18.820314+00:00, end=2026-07-27 20:48:18.820318+00:00, limit=0, client_id=None, venue=ZEROHASH, data_type=Bar, params={'update_catalog': False, 'join_request': False})[0m
+[1m2026-07-27T20:48:18.820687000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: RUNNING[0m
+[1m2026-07-27T20:48:18.820693000Z[0m [INFO] PAPER-CRYPTO-001.PAPER-CRYPTO-001: RUNNING[0m
+[1m2026-07-27T20:48:18.820697000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: RUNNING[0m
+[1m2026-07-27T20:48:18.830430000Z[0m [94m[INFO] PAPER-CRYPTO-001.DataClient-IB: Request BTC/USD.ZEROHASH-1-DAY-MID-EXTERNAL bars from 2025-06-22T20:48:18.819548000Z to 2026-07-27T20:48:18.819628000Z[0m
+[1m2026-07-27T20:48:18.830487000Z[0m [94m[INFO] PAPER-CRYPTO-001.DataClient-IB: Request ETH/USD.ZEROHASH-1-DAY-MID-EXTERNAL bars from 2025-06-22T20:48:18.820253000Z to 2026-07-27T20:48:18.820261000Z[0m
+[1m2026-07-27T20:48:18.830508000Z[0m [94m[INFO] PAPER-CRYPTO-001.DataClient-IB: Request SOL/USD.ZEROHASH-1-DAY-MID-EXTERNAL bars from 2025-06-22T20:48:18.820279000Z to 2026-07-27T20:48:18.820284000Z[0m
+[1m2026-07-27T20:48:18.830526000Z[0m [94m[INFO] PAPER-CRYPTO-001.DataClient-IB: Request XRP/USD.ZEROHASH-1-DAY-MID-EXTERNAL bars from 2025-06-22T20:48:18.820297000Z to 2026-07-27T20:48:18.820301000Z[0m
+[1m2026-07-27T20:48:18.830542000Z[0m [94m[INFO] PAPER-CRYPTO-001.DataClient-IB: Request DOGE/USD.ZEROHASH-1-DAY-MID-EXTERNAL bars from 2025-06-22T20:48:18.820314000Z to 2026-07-27T20:48:18.820318000Z[0m
+[1m2026-07-27T20:48:18.830929000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Creating and registering a new Subscription instance for BTC/USD.ZEROHASH-1-DAY-MID-EXTERNAL[0m
+[1m2026-07-27T20:48:18.831057000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Creating and registering a new Subscription instance for ETH/USD.ZEROHASH-1-DAY-MID-EXTERNAL[0m
+[1m2026-07-27T20:48:18.831112000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Creating and registering a new Subscription instance for SOL/USD.ZEROHASH-1-DAY-MID-EXTERNAL[0m
+[1m2026-07-27T20:48:18.831148000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Creating and registering a new Subscription instance for XRP/USD.ZEROHASH-1-DAY-MID-EXTERNAL[0m
+[1m2026-07-27T20:48:18.831181000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Creating and registering a new Subscription instance for DOGE/USD.ZEROHASH-1-DAY-MID-EXTERNAL[0m
+[1m2026-07-27T20:48:18.831220000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: BTC/USD.ZEROHASH: Requesting historical bars: BTC/USD.ZEROHASH-1-DAY-MID-EXTERNAL ending on '2026-07-27 20:48:18.819628+00:00' with duration '1 Y'[0m
+[1m2026-07-27T20:48:18.831522000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: ETH/USD.ZEROHASH: Requesting historical bars: ETH/USD.ZEROHASH-1-DAY-MID-EXTERNAL ending on '2026-07-27 20:48:18.820261+00:00' with duration '1 Y'[0m
+[1m2026-07-27T20:48:18.831581000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: SOL/USD.ZEROHASH: Requesting historical bars: SOL/USD.ZEROHASH-1-DAY-MID-EXTERNAL ending on '2026-07-27 20:48:18.820284+00:00' with duration '1 Y'[0m
+[1m2026-07-27T20:48:18.831622000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: XRP/USD.ZEROHASH: Requesting historical bars: XRP/USD.ZEROHASH-1-DAY-MID-EXTERNAL ending on '2026-07-27 20:48:18.820301+00:00' with duration '1 Y'[0m
+[1m2026-07-27T20:48:18.831765000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: DOGE/USD.ZEROHASH: Requesting historical bars: DOGE/USD.ZEROHASH-1-DAY-MID-EXTERNAL ending on '2026-07-27 20:48:18.820318+00:00' with duration '1 Y'[0m
+[1m2026-07-27T20:48:18.831815000Z[0m [94m[INFO] PAPER-CRYPTO-001.DataClient-IB: Subscribed BTC/USD.ZEROHASH-1-DAY-MID-EXTERNAL bars[0m
+[1m2026-07-27T20:48:18.831820000Z[0m [94m[INFO] PAPER-CRYPTO-001.DataClient-IB: Subscribed ETH/USD.ZEROHASH-1-DAY-MID-EXTERNAL bars[0m
+[1m2026-07-27T20:48:18.831821000Z[0m [94m[INFO] PAPER-CRYPTO-001.DataClient-IB: Subscribed SOL/USD.ZEROHASH-1-DAY-MID-EXTERNAL bars[0m
+[1m2026-07-27T20:48:18.831822000Z[0m [94m[INFO] PAPER-CRYPTO-001.DataClient-IB: Subscribed XRP/USD.ZEROHASH-1-DAY-MID-EXTERNAL bars[0m
+[1m2026-07-27T20:48:18.831823000Z[0m [94m[INFO] PAPER-CRYPTO-001.DataClient-IB: Subscribed DOGE/USD.ZEROHASH-1-DAY-MID-EXTERNAL bars[0m
+[1m2026-07-27T20:48:19.648708000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: BTC/USD.ZEROHASH: Number of bars retrieved in batch: 261[0m
+[1m2026-07-27T20:48:19.648720000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: Total number of bars in data: 261[0m
+[1m2026-07-27T20:48:19.652290000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: Received <Bar[259]> data for BTC/USD.ZEROHASH-1-DAY-MID-EXTERNAL[0m
+[1m2026-07-27T20:48:19.699869000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: ETH/USD.ZEROHASH: Number of bars retrieved in batch: 261[0m
+[1m2026-07-27T20:48:19.699878000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: Total number of bars in data: 261[0m
+[1m2026-07-27T20:48:19.700916000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: Received <Bar[259]> data for ETH/USD.ZEROHASH-1-DAY-MID-EXTERNAL[0m
+[1m2026-07-27T20:48:19.768986000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: SOL/USD.ZEROHASH: Number of bars retrieved in batch: 261[0m
+[1m2026-07-27T20:48:19.768992000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: Total number of bars in data: 261[0m
+[1m2026-07-27T20:48:19.770015000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: Received <Bar[259]> data for SOL/USD.ZEROHASH-1-DAY-MID-EXTERNAL[0m
+[1m2026-07-27T20:48:19.873173000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: XRP/USD.ZEROHASH: Number of bars retrieved in batch: 261[0m
+[1m2026-07-27T20:48:19.873181000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: Total number of bars in data: 261[0m
+[1m2026-07-27T20:48:19.874474000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: Received <Bar[259]> data for XRP/USD.ZEROHASH-1-DAY-MID-EXTERNAL[0m
+[1m2026-07-27T20:48:19.953783000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: DOGE/USD.ZEROHASH: Number of bars retrieved in batch: 261[0m
+[1m2026-07-27T20:48:19.953796000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: Total number of bars in data: 261[0m
+[1m2026-07-27T20:48:19.955016000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: Received <Bar[259]> data for DOGE/USD.ZEROHASH-1-DAY-MID-EXTERNAL[0m
+[1m2026-07-27T20:51:04.048165000Z[0m [INFO] PAPER-CRYPTO-001.Portfolio: Updated AccountState(account_id=IB-DUR143045, account_type=MARGIN, base_currency=None, is_reported=True, balances=[AccountBalance(total=1_002_150.50 USD, locked=1_978.34 USD, free=1_000_172.16 USD)], margins=[MarginBalance(initial=0.00 USD, maintenance=0.00 USD, instrument_id=None)], event_id=0e32b817-74c6-4edb-8fe7-abfdbe87864d)[0m
+[1m2026-07-27T20:52:50.868819000Z[0m [1;33m[WARN] PAPER-CRYPTO-001.TradingNode: Received SIGINT, shutting down[0m
+[1m2026-07-27T20:52:50.868849000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: STOPPING[0m
+[1m2026-07-27T20:52:50.870544000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: [CMD]--> UnsubscribeBars(bar_type=BTC/USD.ZEROHASH-1-DAY-MID-EXTERNAL, client_id=None, venue=ZEROHASH)[0m
+[1m2026-07-27T20:52:50.870553000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: Unsubscribed from BTC/USD.ZEROHASH-1-DAY-MID-EXTERNAL bar data[0m
+[1m2026-07-27T20:52:50.870567000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: [CMD]--> UnsubscribeBars(bar_type=ETH/USD.ZEROHASH-1-DAY-MID-EXTERNAL, client_id=None, venue=ZEROHASH)[0m
+[1m2026-07-27T20:52:50.870570000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: Unsubscribed from ETH/USD.ZEROHASH-1-DAY-MID-EXTERNAL bar data[0m
+[1m2026-07-27T20:52:50.870579000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: [CMD]--> UnsubscribeBars(bar_type=SOL/USD.ZEROHASH-1-DAY-MID-EXTERNAL, client_id=None, venue=ZEROHASH)[0m
+[1m2026-07-27T20:52:50.870580000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: Unsubscribed from SOL/USD.ZEROHASH-1-DAY-MID-EXTERNAL bar data[0m
+[1m2026-07-27T20:52:50.870588000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: [CMD]--> UnsubscribeBars(bar_type=XRP/USD.ZEROHASH-1-DAY-MID-EXTERNAL, client_id=None, venue=ZEROHASH)[0m
+[1m2026-07-27T20:52:50.870590000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: Unsubscribed from XRP/USD.ZEROHASH-1-DAY-MID-EXTERNAL bar data[0m
+[1m2026-07-27T20:52:50.870598000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: [CMD]--> UnsubscribeBars(bar_type=DOGE/USD.ZEROHASH-1-DAY-MID-EXTERNAL, client_id=None, venue=ZEROHASH)[0m
+[1m2026-07-27T20:52:50.870600000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: Unsubscribed from DOGE/USD.ZEROHASH-1-DAY-MID-EXTERNAL bar data[0m
+[1m2026-07-27T20:52:50.870602000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: Canceling executor tasks[0m
+[1m2026-07-27T20:52:50.870626000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: STOPPED[0m
+[1m2026-07-27T20:52:50.870633000Z[0m [INFO] PAPER-CRYPTO-001.PAPER-CRYPTO-001: STOPPED[0m
+[1m2026-07-27T20:52:50.870641000Z[0m [94m[INFO] PAPER-CRYPTO-001.TradingNode: Awaiting post stop (10.0s timeout)...[0m
+[1m2026-07-27T20:52:50.871330000Z[0m [94m[INFO] PAPER-CRYPTO-001.DataClient-IB: Unsubscribed BTC/USD.ZEROHASH-1-DAY-MID-EXTERNAL bars[0m
+[1m2026-07-27T20:52:50.871334000Z[0m [94m[INFO] PAPER-CRYPTO-001.DataClient-IB: Unsubscribed ETH/USD.ZEROHASH-1-DAY-MID-EXTERNAL bars[0m
+[1m2026-07-27T20:52:50.871335000Z[0m [94m[INFO] PAPER-CRYPTO-001.DataClient-IB: Unsubscribed SOL/USD.ZEROHASH-1-DAY-MID-EXTERNAL bars[0m
+[1m2026-07-27T20:52:50.871337000Z[0m [94m[INFO] PAPER-CRYPTO-001.DataClient-IB: Unsubscribed XRP/USD.ZEROHASH-1-DAY-MID-EXTERNAL bars[0m
+[1m2026-07-27T20:52:50.871338000Z[0m [94m[INFO] PAPER-CRYPTO-001.DataClient-IB: Unsubscribed DOGE/USD.ZEROHASH-1-DAY-MID-EXTERNAL bars[0m
+[1m2026-07-27T20:52:50.879587000Z[0m [1;31m[ERROR] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Historical Market Data Service error message:API historical data query cancelled: 10005 (code: 162, req_id=10005)[0m
+[1m2026-07-27T20:52:50.879608000Z[0m [1;33m[WARN] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Unhandled error: 162 for req_id 10005[0m
+[1m2026-07-27T20:52:50.973608000Z[0m [1;31m[ERROR] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Historical Market Data Service error message:API historical data query cancelled: 10006 (code: 162, req_id=10006)[0m
+[1m2026-07-27T20:52:50.973626000Z[0m [1;33m[WARN] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Unhandled error: 162 for req_id 10006[0m
+[1m2026-07-27T20:52:51.073541000Z[0m [1;31m[ERROR] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Historical Market Data Service error message:API historical data query cancelled: 10007 (code: 162, req_id=10007)[0m
+[1m2026-07-27T20:52:51.073563000Z[0m [1;33m[WARN] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Unhandled error: 162 for req_id 10007[0m
+[1m2026-07-27T20:52:51.173510000Z[0m [1;31m[ERROR] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Historical Market Data Service error message:API historical data query cancelled: 10008 (code: 162, req_id=10008)[0m
+[1m2026-07-27T20:52:51.173526000Z[0m [1;33m[WARN] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Unhandled error: 162 for req_id 10008[0m
+[1m2026-07-27T20:52:51.273770000Z[0m [1;31m[ERROR] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Historical Market Data Service error message:API historical data query cancelled: 10009 (code: 162, req_id=10009)[0m
+[1m2026-07-27T20:52:51.273811000Z[0m [1;33m[WARN] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Unhandled error: 162 for req_id 10009[0m
+[1m2026-07-27T20:53:00.871928000Z[0m [94m[INFO] PAPER-CRYPTO-001.MLStrategy: Saved state: ['ml_strategy.json'][0m
+[1m2026-07-27T20:53:00.872001000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: STOPPED[0m
+[1m2026-07-27T20:53:00.872012000Z[0m [INFO] PAPER-CRYPTO-001.ExecClient-IB: STOPPED[0m
+[1m2026-07-27T20:53:00.872023000Z[0m [INFO] PAPER-CRYPTO-001.DataEngine: Disconnecting all clients...[0m
+[1m2026-07-27T20:53:00.872026000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: Disconnecting...[0m
+[1m2026-07-27T20:53:00.872037000Z[0m [INFO] PAPER-CRYPTO-001.ExecEngine: Disconnecting all clients...[0m
+[1m2026-07-27T20:53:00.872040000Z[0m [INFO] PAPER-CRYPTO-001.ExecClient-IB: Disconnecting...[0m
+[1m2026-07-27T20:53:00.872049000Z[0m [94m[INFO] PAPER-CRYPTO-001.TradingNode: Awaiting engine disconnections (10.0s timeout)...[0m
+[1m2026-07-27T20:53:00.872156000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersClient-001: STOPPED[0m
+[1m2026-07-27T20:53:00.872174000Z[0m [92m[INFO] PAPER-CRYPTO-001.DataClient-IB: Disconnected[0m
+[1m2026-07-27T20:53:00.872189000Z[0m [92m[INFO] PAPER-CRYPTO-001.ExecClient-IB: Disconnected[0m
+[1m2026-07-27T20:53:00.872240000Z[0m [INFO] PAPER-CRYPTO-001.DataEngine: STOPPED[0m
+[1m2026-07-27T20:53:00.872255000Z[0m [INFO] PAPER-CRYPTO-001.RiskEngine: STOPPED[0m
+[1m2026-07-27T20:53:00.872263000Z[0m [INFO] PAPER-CRYPTO-001.ExecEngine: Canceling position snapshots timer[0m
+[1m2026-07-27T20:53:00.872291000Z[0m [INFO] PAPER-CRYPTO-001.ExecEngine: STOPPED[0m
+[1m2026-07-27T20:53:00.872312000Z[0m [INFO] PAPER-CRYPTO-001.OrderEmulator: STOPPED[0m
+[1m2026-07-27T20:53:00.872319000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: STOPPED[0m
+[1m2026-07-27T20:53:00.872328000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersClient-001: Stopping InteractiveBrokersClient (1)...[0m
+[1m2026-07-27T20:53:00.872484000Z[0m [INFO] PAPER-CRYPTO-001.InteractiveBrokersClient-001: All tasks canceled successfully.[0m
+[1m2026-07-27T20:53:00.872708000Z[0m [INFO] PAPER-CRYPTO-001.DataClient-IB: DISPOSED[0m
+[1m2026-07-27T20:53:00.872713000Z[0m [INFO] PAPER-CRYPTO-001.DataEngine: DISPOSED[0m
+[1m2026-07-27T20:53:00.872718000Z[0m [INFO] PAPER-CRYPTO-001.RiskEngine: DISPOSED[0m
+[1m2026-07-27T20:53:00.872724000Z[0m [INFO] PAPER-CRYPTO-001.ExecClient-IB: DISPOSED[0m
+[1m2026-07-27T20:53:00.872726000Z[0m [INFO] PAPER-CRYPTO-001.ExecEngine: DISPOSED[0m
+[1m2026-07-27T20:53:00.872737000Z[0m [INFO] PAPER-CRYPTO-001.OrderEmulator: DISPOSED[0m
+[1m2026-07-27T20:53:00.872743000Z[0m [INFO] PAPER-CRYPTO-001.PAPER-CRYPTO-001: Cleared actors[0m
+[1m2026-07-27T20:53:00.872749000Z[0m [INFO] PAPER-CRYPTO-001.MLStrategy: DISPOSED[0m
+[1m2026-07-27T20:53:00.872755000Z[0m [INFO] PAPER-CRYPTO-001.PAPER-CRYPTO-001: Cleared trading strategies[0m
+[1m2026-07-27T20:53:00.872757000Z[0m [INFO] PAPER-CRYPTO-001.PAPER-CRYPTO-001: Cleared execution algorithms[0m
+[1m2026-07-27T20:53:00.872761000Z[0m [INFO] PAPER-CRYPTO-001.PAPER-CRYPTO-001: DISPOSED[0m
+[1m2026-07-27T20:53:00.872821000Z[0m [INFO] PAPER-CRYPTO-001.Cache: Reset[0m
+[1m2026-07-27T20:53:00.873209000Z[0m [INFO] PAPER-CRYPTO-001.CacheDatabaseAdapter: Closed cache database adapter[0m
+[1m2026-07-27T20:53:00.873229000Z[0m [INFO] PAPER-CRYPTO-001.MessageBus: Closed message bus[0m
+[1m2026-07-27T20:53:00.873233000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: Shutting down executor[0m
+[1m2026-07-27T20:53:01.285255000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: Closing event loop[0m
+Task was destroyed but it is pending!
+task: <Task pending name='_stop_async' coro=<InteractiveBrokersClient._stop_async() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/client.py:391> wait_for=<_GatheringFuture finished result=[None, None, None]> cb=[InteractiveBrokersClient._on_task_completed(None, None)()]>
+[1m2026-07-27T20:53:01.286192000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: loop.is_running=False[0m
+[1m2026-07-27T20:53:01.286194000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: loop.is_closed=True[0m
+[1m2026-07-27T20:53:01.286194001Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: DISPOSED[0m
+Task was destroyed but it is pending!
+task: <Task pending name='Task-504' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-506' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-1204' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2471' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2479' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2485' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2487' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2489' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2491' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2499' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2501' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2505' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2509' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2515' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2519' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2523' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2525' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2529' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2531' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2539' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2541' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2547' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2549' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2555' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2559' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2563' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2565' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2569' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2571' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2577' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2581' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2583' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2587' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-3016' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() done, defined at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1311> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-3020' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() done, defined at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1311> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2595' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2599' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2601' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2603' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2605' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2615' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2619' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2621' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2623' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2625' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2631' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2639' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2641' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2643' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2647' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2651' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2657' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2663' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2665' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2669' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2675' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2679' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2683' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2685' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2687' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2693' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2697' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2701' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2703' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2705' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2711' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2713' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2723' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2725' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2729' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2731' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2737' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2741' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2743' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2747' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2751' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2757' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2761' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2763' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2767' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2773' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2777' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2781' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2785' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2789' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2793' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2797' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2804' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2806' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2808' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2818' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2820' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2824' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2826' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2830' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2832' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2840' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2842' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2844' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2846' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2858' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2860' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2862' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2864' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2868' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2876' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2880' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2882' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2884' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2888' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2896' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2900' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2902' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2904' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2906' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2912' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2918' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2924' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2926' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2928' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2932' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2940' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2944' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2946' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2948' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2958' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2960' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2962' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2964' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2968' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2976' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2980' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2984' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2986' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2988' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-2998' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-3000' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-3002' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-3004' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>
+Task was destroyed but it is pending!
+task: <Task pending name='Task-3006' coro=<InteractiveBrokersClientMarketDataMixin._schedule_bar_completion_timeout.<locals>.completion_handler() running at /Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/nautilus_trader/adapters/interactive_brokers/client/market_data.py:1313> wait_for=<Future pending cb=[Task.task_wakeup()]>>

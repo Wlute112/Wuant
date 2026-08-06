@@ -1,0 +1,176 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-27T20:05:18Z",
+  "title": "Design System: Strip Recorder",
+  "extensions": {
+    "colorMeta": {
+      "bg-void": {
+        "role": "neutral",
+        "displayName": "Void",
+        "canonical": "#0a0b0d",
+        "tonalRamp": ["#0a0b0d", "#121418", "#1a1d23", "#2a2e37", "#4a505c", "#828998", "#b9bdc5", "#e8e6df"]
+      },
+      "trace-amber": {
+        "role": "primary",
+        "displayName": "Trace Amber",
+        "canonical": "#ffb020",
+        "tonalRamp": ["#271900", "#4b3100", "#704a00", "#956400", "#bd8000", "#e49b08", "#ffbd48", "#ffe2a2"]
+      },
+      "trace-cyan": {
+        "role": "secondary",
+        "displayName": "Trace Cyan",
+        "canonical": "#4fd8e0",
+        "tonalRamp": ["#002022", "#003c40", "#005a5f", "#08777d", "#22959c", "#39b6bd", "#70dce2", "#b9f6f8"]
+      },
+      "trace-violet": {
+        "role": "tertiary",
+        "displayName": "Trace Violet",
+        "canonical": "#8b7cf6",
+        "tonalRamp": ["#1b1245", "#31256e", "#483997", "#604ec0", "#7966e4", "#9385ff", "#b7adff", "#e0dcff"]
+      },
+      "positive": {
+        "role": "success",
+        "displayName": "Positive",
+        "canonical": "#35c98d",
+        "tonalRamp": ["#00261a", "#004832", "#006a4b", "#0a8c65", "#20aa78", "#35c98d", "#72e1b1", "#b9f5d8"]
+      },
+      "negative": {
+        "role": "error",
+        "displayName": "Negative",
+        "canonical": "#e0483f",
+        "tonalRamp": ["#2f0705", "#57110d", "#7e1e18", "#a42c25", "#c63b33", "#e25a51", "#f28f88", "#ffd0cc"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Instrument Display",
+        "purpose": "Channel readings and the product bezel title."
+      },
+      "metric": {
+        "displayName": "Metric Reading",
+        "purpose": "Compact portfolio and model measurements."
+      },
+      "label": {
+        "displayName": "Bezel Label",
+        "purpose": "Uppercase controls, status, and channel names."
+      },
+      "body": {
+        "displayName": "Operational Prose",
+        "purpose": "Help, empty, loading, error, and explanatory text."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "fast-state",
+        "value": "150ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Immediate button, border, and control feedback."
+      },
+      {
+        "name": "trace-write",
+        "value": "900ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "One-time pen advance when a new trace series loads; skipped under reduced motion."
+      }
+    ],
+    "breakpoints": [
+      { "name": "compact", "value": "600px" },
+      { "name": "feature-chart", "value": "768px" },
+      { "name": "stacked-instruments", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Run Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Arms a backtest or Optuna recorder channel.",
+      "html": "<button class=\"ds-button-primary\">RUN BACKTEST</button>",
+      "css": ".ds-button-primary { min-height: 36px; padding: var(--space-sm) var(--space-md); border: 1px solid var(--color-trace-amber); border-radius: var(--radius-md); color: var(--color-trace-amber); background: var(--color-panel); font: 600 var(--text-label-size)/1.2 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; transition: background var(--duration-fast) var(--ease-out-expo); } .ds-button-primary:hover { background: var(--color-panel-raised); } .ds-button-primary:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 1px; }"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Arms live trading only after the exact confirmation phrase.",
+      "html": "<button class=\"ds-button-danger\">START LIVE TRADING</button>",
+      "css": ".ds-button-danger { min-height: 36px; padding: var(--space-sm) var(--space-md); border: 1px solid var(--color-negative); border-radius: var(--radius-md); color: var(--color-negative); background: var(--color-panel); font: 600 var(--text-label-size)/1.2 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; } .ds-button-danger:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 1px; }"
+    },
+    {
+      "name": "Instrument Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Compact dark control with a visible neutral focus ring.",
+      "html": "<label class=\"ds-field\"><span>TICKERS</span><input value=\"BTC,ETH,SOL\" /></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: var(--space-xs); color: var(--color-text-dim); font: 600 var(--text-label-size)/1.2 var(--font-mono); letter-spacing: 0.12em; } .ds-field input { min-height: 36px; padding: var(--space-xs) var(--space-sm); border: 1px solid var(--color-hairline); border-radius: var(--radius-sm); color: var(--color-text-primary); background: var(--color-void); font: 400 var(--text-body-size)/1.5 var(--font-mono); } .ds-field input:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 1px; }"
+    },
+    {
+      "name": "Feed Status Tag",
+      "kind": "chip",
+      "refersTo": "status-tag",
+      "description": "Text-first connection state; unknown and stale states never resemble safe data.",
+      "html": "<span class=\"ds-status-tag\">STATUS UNKNOWN — FEED OFFLINE</span>",
+      "css": ".ds-status-tag { display: inline-block; padding: 2px 6px; border: 1px solid var(--color-negative); border-radius: var(--radius-sm); color: var(--color-negative); background: var(--color-panel-raised); font: 600 var(--text-label-size)/1.2 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; }"
+    },
+    {
+      "name": "Instrument Bezel",
+      "kind": "nav",
+      "refersTo": "instrument-bezel",
+      "description": "Sticky product and connection-status rail.",
+      "html": "<header class=\"ds-bezel\"><strong>STRIP RECORDER</strong><span>STATUS UNKNOWN</span></header>",
+      "css": ".ds-bezel { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-md); height: var(--bezel-height); padding: var(--space-md) var(--space-xl); border-bottom: 1px solid var(--color-hairline); color: var(--color-text-primary); background: var(--color-panel-raised); font-family: var(--font-mono); } .ds-bezel span { color: var(--color-negative); font-size: var(--text-label-size); letter-spacing: 0.12em; }"
+    },
+    {
+      "name": "Channel Strip",
+      "kind": "custom",
+      "refersTo": "channel-strip",
+      "description": "Pinned reading rail beside a paper trace surface.",
+      "html": "<section class=\"ds-channel\"><div><span>EQUITY</span><strong>$5,214.38</strong></div><figure aria-label=\"Equity trace, 240 observations, current reading $5,214.38\"></figure></section>",
+      "css": ".ds-channel { display: grid; grid-template-columns: 160px 1fr; gap: var(--space-md); padding: var(--space-md); border: 1px solid var(--color-hairline); border-radius: var(--radius-md); background: var(--color-panel); } .ds-channel > div { display: flex; flex-direction: column; justify-content: center; gap: var(--space-xs); padding-inline-end: var(--space-md); border-inline-end: 1px solid var(--color-hairline); } .ds-channel span { color: var(--color-text-dim); font: 600 var(--text-label-size)/1.2 var(--font-mono); letter-spacing: 0.12em; } .ds-channel strong { color: var(--color-trace-amber); font: 600 var(--text-display-size)/1.1 var(--font-mono); } .ds-channel figure { min-height: 140px; margin: 0; border: 1px solid var(--color-hairline); border-radius: var(--radius-sm); background: var(--color-paper); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Instrument Deck",
+    "overview": "This dashboard is built as an analog seismograph / strip-chart recorder: a bank of instruments in a near-black housing, each channel a continuous pen trace on scrolling paper, each risk threshold a literal banded zone the trace must not cross. It exists to prove the system's fixed risk rails on sight. This is Operate-mode instrumentation, so expression never outranks the numbers.",
+    "keyCharacteristics": [
+      "Near-black instrument housing, warm off-white numerals, three reserved trace hues",
+      "Monospace-first: every number that could sit in a column does",
+      "Flat panel layering instead of shadows; grain/graticule texture instead of gradients",
+      "Threshold bands are drawn geometry at their real value, never decorative color blocks",
+      "Minimal radius (2-4px) — machined, not soft"
+    ],
+    "rules": [
+      {
+        "name": "The Reserved-Channel Rule",
+        "body": "Trace Amber, Cyan, and Violet are bound one-to-one to the equity/PnL, ML-performance, and regime channels. Amber is additionally allowed on the primary run action because that action arms a recorder channel. Selection, focus, connection, and navigation states use Text Primary or semantic status colors, never a reserved trace hue.",
+        "section": "colors"
+      },
+      {
+        "name": "The Threshold-Is-Not-Decoration Rule",
+        "body": "Threshold colors render as geometry positioned at a real risk-rail value with a label naming the rule.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular-Numerals Rule",
+        "body": "Every numeral that could align in a column uses tabular numerals.",
+        "section": "typography"
+      },
+      {
+        "name": "The No-Glow Rule",
+        "body": "Depth comes from panel layering and hairline borders, never shadows or blur.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do reserve Trace Amber / Cyan / Violet for their defined data and action roles.",
+      "Do use tabular numerals on every column of numbers.",
+      "Do position threshold bands at their real risk-rail value, and label every one.",
+      "Do render disconnected or stale broker/API state as STATUS UNKNOWN; never substitute an empty or safe reading."
+    ],
+    "donts": [
+      "Don't use box-shadow, blur, backdrop-filter, or glassmorphism anywhere.",
+      "Don't default to rounded-xl/rounded-2xl or pill-shaped controls.",
+      "Don't reuse a Reserved Channel color as a generic UI accent outside its channel.",
+      "Don't let the live-trading action button become clickable before the exact confirmation phrase is typed."
+    ]
+  }
+}

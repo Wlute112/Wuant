@@ -1,0 +1,230 @@
+[1m2026-07-27T18:57:26.707642000Z[0m [36m[INFO] PAPER-001.TradingNode: =================================================================[0m
+[1m2026-07-27T18:57:26.707650000Z[0m [36m[INFO] PAPER-001.TradingNode:  NAUTILUS TRADER - Automated Algorithmic Trading Platform[0m
+[1m2026-07-27T18:57:26.707650001Z[0m [36m[INFO] PAPER-001.TradingNode:  by Nautech Systems Pty Ltd.[0m
+[1m2026-07-27T18:57:26.707650002Z[0m [36m[INFO] PAPER-001.TradingNode:  Copyright (C) 2015-2026. All rights reserved.[0m
+[1m2026-07-27T18:57:26.707650003Z[0m [36m[INFO] PAPER-001.TradingNode: =================================================================[0m
+[1m2026-07-27T18:57:26.707650004Z[0m [INFO] PAPER-001.TradingNode: [0m
+[1m2026-07-27T18:57:26.707650005Z[0m [INFO] PAPER-001.TradingNode: ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣴⣶⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[0m
+[1m2026-07-27T18:57:26.707651000Z[0m [INFO] PAPER-001.TradingNode: ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣰⣾⣿⣿⣿⠀⢸⣿⣿⣿⣿⣶⣶⣤⣀⠀⠀⠀⠀⠀[0m
+[1m2026-07-27T18:57:26.707651001Z[0m [INFO] PAPER-001.TradingNode: ⠀⠀⠀⠀⠀⠀⢀⣴⡇⢀⣾⣿⣿⣿⣿⣿⠀⣾⣿⣿⣿⣿⣿⣿⣿⠿⠓⠀⠀⠀⠀[0m
+[1m2026-07-27T18:57:26.707651002Z[0m [INFO] PAPER-001.TradingNode: ⠀⠀⠀⠀⠀⣰⣿⣿⡀⢸⣿⣿⣿⣿⣿⣿⠀⣿⣿⣿⣿⣿⣿⠟⠁⣠⣄⠀⠀⠀⠀[0m
+[1m2026-07-27T18:57:26.707651003Z[0m [INFO] PAPER-001.TradingNode: ⠀⠀⠀⠀⢠⣿⣿⣿⣇⠀⢿⣿⣿⣿⣿⣿⠀⢻⣿⣿⣿⡿⢃⣠⣾⣿⣿⣧⡀⠀⠀[0m
+[1m2026-07-27T18:57:26.707651004Z[0m [INFO] PAPER-001.TradingNode: ⠀⠀⠀⠠⣾⣿⣿⣿⣿⣿⣧⠈⠋⢀⣴⣧⠀⣿⡏⢠⡀⢸⣿⣿⣿⣿⣿⣿⣿⡇⠀[0m
+[1m2026-07-27T18:57:26.707651005Z[0m [INFO] PAPER-001.TradingNode: ⠀⠀⠀⣀⠙⢿⣿⣿⣿⣿⣿⠇⢠⣿⣿⣿⡄⠹⠃⠼⠃⠈⠉⠛⠛⠛⠛⠛⠻⠇⠀[0m
+[1m2026-07-27T18:57:26.707651006Z[0m [INFO] PAPER-001.TradingNode: ⠀⠀⢸⡟⢠⣤⠉⠛⠿⢿⣿⠀⢸⣿⡿⠋⣠⣤⣄⠀⣾⣿⣿⣶⣶⣶⣦⡄⠀⠀⠀[0m
+[1m2026-07-27T18:57:26.707651007Z[0m [INFO] PAPER-001.TradingNode: ⠀⠀⠸⠀⣾⠏⣸⣷⠂⣠⣤⠀⠘⢁⣴⣾⣿⣿⣿⡆⠘⣿⣿⣿⣿⣿⣿⠀⠀⠀⠀[0m
+[1m2026-07-27T18:57:26.707651008Z[0m [INFO] PAPER-001.TradingNode: ⠀⠀⠀⠀⠛⠀⣿⡟⠀⢻⣿⡄⠸⣿⣿⣿⣿⣿⣿⣿⡀⠘⣿⣿⣿⣿⠟⠀⠀⠀⠀[0m
+[1m2026-07-27T18:57:26.707651009Z[0m [INFO] PAPER-001.TradingNode: ⠀⠀⠀⠀⠀⠀⣿⠇⠀⠀⢻⡿⠀⠈⠻⣿⣿⣿⣿⣿⡇⠀⢹⣿⠿⠋⠀⠀⠀⠀⠀[0m
+[1m2026-07-27T18:57:26.707651010Z[0m [INFO] PAPER-001.TradingNode: ⠀⠀⠀⠀⠀⠀⠋⠀⠀⠀⡘⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠁⠀⠀⠀⠀⠀⠀⠀[0m
+[1m2026-07-27T18:57:26.707651011Z[0m [INFO] PAPER-001.TradingNode: [0m
+[1m2026-07-27T18:57:26.707652000Z[0m [36m[INFO] PAPER-001.TradingNode: =================================================================[0m
+[1m2026-07-27T18:57:26.707652001Z[0m [36m[INFO] PAPER-001.TradingNode:  SYSTEM SPECIFICATION[0m
+[1m2026-07-27T18:57:26.707652002Z[0m [36m[INFO] PAPER-001.TradingNode: =================================================================[0m
+[1m2026-07-27T18:57:26.707652003Z[0m [INFO] PAPER-001.TradingNode: CPU architecture: Apple M4[0m
+[1m2026-07-27T18:57:26.707652004Z[0m [INFO] PAPER-001.TradingNode: CPU(s): 10 @ 4464 MHz[0m
+[1m2026-07-27T18:57:26.707653000Z[0m [INFO] PAPER-001.TradingNode: OS: kernel-25.5.0 macOS 26.5.2 Tahoe[0m
+[1m2026-07-27T18:57:26.707662000Z[0m [36m[INFO] PAPER-001.TradingNode: =================================================================[0m
+[1m2026-07-27T18:57:26.707662001Z[0m [36m[INFO] PAPER-001.TradingNode:  MEMORY USAGE[0m
+[1m2026-07-27T18:57:26.707663000Z[0m [36m[INFO] PAPER-001.TradingNode: =================================================================[0m
+[1m2026-07-27T18:57:26.707665000Z[0m [INFO] PAPER-001.TradingNode: RAM-Total: 32.00 GiB[0m
+[1m2026-07-27T18:57:26.707666000Z[0m [INFO] PAPER-001.TradingNode: RAM-Used: 21.13 GiB (66.04%)[0m
+[1m2026-07-27T18:57:26.707666001Z[0m [INFO] PAPER-001.TradingNode: RAM-Avail: 10.87 GiB (33.96%)[0m
+[1m2026-07-27T18:57:26.707667000Z[0m [INFO] PAPER-001.TradingNode: Swap: disabled[0m
+[1m2026-07-27T18:57:26.707670000Z[0m [36m[INFO] PAPER-001.TradingNode: =================================================================[0m
+[1m2026-07-27T18:57:26.707670001Z[0m [36m[INFO] PAPER-001.TradingNode:  IDENTIFIERS[0m
+[1m2026-07-27T18:57:26.707670002Z[0m [36m[INFO] PAPER-001.TradingNode: =================================================================[0m
+[1m2026-07-27T18:57:26.707670003Z[0m [INFO] PAPER-001.TradingNode: trader_id: PAPER-001[0m
+[1m2026-07-27T18:57:26.707670004Z[0m [INFO] PAPER-001.TradingNode: machine_id: Mac.lan[0m
+[1m2026-07-27T18:57:26.707671000Z[0m [INFO] PAPER-001.TradingNode: instance_id: 3d3762ce-9916-47aa-bd93-2406fc1efab3[0m
+[1m2026-07-27T18:57:26.707671001Z[0m [INFO] PAPER-001.TradingNode: PID: 12186[0m
+[1m2026-07-27T18:57:26.707671002Z[0m [36m[INFO] PAPER-001.TradingNode: =================================================================[0m
+[1m2026-07-27T18:57:26.707671003Z[0m [36m[INFO] PAPER-001.TradingNode:  VERSIONING[0m
+[1m2026-07-27T18:57:26.707671004Z[0m [36m[INFO] PAPER-001.TradingNode: =================================================================[0m
+[1m2026-07-27T18:57:26.707680000Z[0m [INFO] PAPER-001.TradingNode: nautilus_trader: 1.229.0[0m
+[1m2026-07-27T18:57:26.707683000Z[0m [INFO] PAPER-001.TradingNode: python: 3.12.13[0m
+[1m2026-07-27T18:57:26.707684000Z[0m [INFO] PAPER-001.TradingNode: numpy: 2.5.0[0m
+[1m2026-07-27T18:57:26.707685000Z[0m [INFO] PAPER-001.TradingNode: pandas: 3.0.4[0m
+[1m2026-07-27T18:57:26.707686000Z[0m [INFO] PAPER-001.TradingNode: msgspec: 0.21.1[0m
+[1m2026-07-27T18:57:26.707687000Z[0m [INFO] PAPER-001.TradingNode: pyarrow: 24.0.0[0m
+[1m2026-07-27T18:57:26.707689000Z[0m [INFO] PAPER-001.TradingNode: pytz: 2026.2[0m
+[1m2026-07-27T18:57:26.707690000Z[0m [INFO] PAPER-001.TradingNode: uvloop: 0.22.1[0m
+[1m2026-07-27T18:57:26.707690001Z[0m [36m[INFO] PAPER-001.TradingNode: =================================================================[0m
+[1m2026-07-27T18:57:26.707696000Z[0m [INFO] PAPER-001.TradingNode: Building system kernel[0m
+[1m2026-07-27T18:57:26.707769000Z[0m [INFO] PAPER-001.CacheDatabaseAdapter: READY[0m
+[1m2026-07-27T18:57:26.707774000Z[0m [94m[INFO] PAPER-001.CacheDatabaseAdapter: config.database=DatabaseConfig(type=redis, host=127.0.0.1, port=6379, username=None, password=None, ssl=False, connection_timeout=20, response_timeout=20, number_of_retries=3, exponent_base=2, max_delay=1000, factor=2)[0m
+[1m2026-07-27T18:57:26.707774001Z[0m [94m[INFO] PAPER-001.CacheDatabaseAdapter: config.encoding='msgpack'[0m
+[1m2026-07-27T18:57:26.707775000Z[0m [94m[INFO] PAPER-001.CacheDatabaseAdapter: config.timestamps_as_iso8601=False[0m
+[1m2026-07-27T18:57:26.707775001Z[0m [94m[INFO] PAPER-001.CacheDatabaseAdapter: config.buffer_interval_ms=100[0m
+[1m2026-07-27T18:57:26.707775002Z[0m [94m[INFO] PAPER-001.CacheDatabaseAdapter: config.flush_on_start=False[0m
+[1m2026-07-27T18:57:26.707775003Z[0m [94m[INFO] PAPER-001.CacheDatabaseAdapter: config.use_trader_prefix=True[0m
+[1m2026-07-27T18:57:26.707776000Z[0m [94m[INFO] PAPER-001.CacheDatabaseAdapter: config.use_instance_id=False[0m
+[1m2026-07-27T18:57:26.709277000Z[0m [94m[INFO] PAPER-001.MessageBus: config.database=None[0m
+[1m2026-07-27T18:57:26.709279000Z[0m [94m[INFO] PAPER-001.MessageBus: config.encoding='json'[0m
+[1m2026-07-27T18:57:26.709280000Z[0m [94m[INFO] PAPER-001.MessageBus: config.timestamps_as_iso8601=False[0m
+[1m2026-07-27T18:57:26.709281000Z[0m [94m[INFO] PAPER-001.MessageBus: config.buffer_interval_ms=None[0m
+[1m2026-07-27T18:57:26.709281001Z[0m [94m[INFO] PAPER-001.MessageBus: config.autotrim_mins=None[0m
+[1m2026-07-27T18:57:26.709281002Z[0m [94m[INFO] PAPER-001.MessageBus: config.use_trader_prefix=True[0m
+[1m2026-07-27T18:57:26.709281003Z[0m [94m[INFO] PAPER-001.MessageBus: config.use_trader_id=True[0m
+[1m2026-07-27T18:57:26.709282000Z[0m [94m[INFO] PAPER-001.MessageBus: config.use_instance_id=False[0m
+[1m2026-07-27T18:57:26.709282001Z[0m [94m[INFO] PAPER-001.MessageBus: config.streams_prefix='stream'[0m
+[1m2026-07-27T18:57:26.709282002Z[0m [94m[INFO] PAPER-001.MessageBus: config.types_filter=None[0m
+[1m2026-07-27T18:57:26.709311000Z[0m [INFO] PAPER-001.Cache: READY[0m
+[1m2026-07-27T18:57:26.709612000Z[0m [INFO] PAPER-001.DataEngine: READY[0m
+[1m2026-07-27T18:57:26.709673000Z[0m [94m[INFO] PAPER-001.DataEngine: config.graceful_shutdown_on_exception=False[0m
+[1m2026-07-27T18:57:26.709695000Z[0m [INFO] PAPER-001.RiskEngine: READY[0m
+[1m2026-07-27T18:57:26.709712000Z[0m [94m[INFO] PAPER-001.RiskEngine: TradingState is ACTIVE[0m
+[1m2026-07-27T18:57:26.709792000Z[0m [INFO] PAPER-001.Throttler-ORDER_SUBMIT_THROTTLER: READY[0m
+[1m2026-07-27T18:57:26.709803000Z[0m [94m[INFO] PAPER-001.RiskEngine: Set MAX_ORDER_SUBMIT_RATE: 100/00:00:01[0m
+[1m2026-07-27T18:57:26.709814000Z[0m [INFO] PAPER-001.Throttler-ORDER_MODIFY_THROTTLER: READY[0m
+[1m2026-07-27T18:57:26.709818000Z[0m [94m[INFO] PAPER-001.RiskEngine: Set MAX_ORDER_MODIFY_RATE: 100/00:00:01[0m
+[1m2026-07-27T18:57:26.709833000Z[0m [94m[INFO] PAPER-001.RiskEngine: config.graceful_shutdown_on_exception=False[0m
+[1m2026-07-27T18:57:26.709856000Z[0m [INFO] PAPER-001.ExecEngine: READY[0m
+[1m2026-07-27T18:57:26.709869000Z[0m [94m[INFO] PAPER-001.ExecEngine: config.snapshot_orders=True[0m
+[1m2026-07-27T18:57:26.709870000Z[0m [94m[INFO] PAPER-001.ExecEngine: config.snapshot_positions=True[0m
+[1m2026-07-27T18:57:26.709871000Z[0m [94m[INFO] PAPER-001.ExecEngine: config.snapshot_positions_interval_secs=60.0[0m
+[1m2026-07-27T18:57:26.709871001Z[0m [94m[INFO] PAPER-001.ExecEngine: config.allow_overfills=False[0m
+[1m2026-07-27T18:57:26.709889000Z[0m [94m[INFO] PAPER-001.ExecEngine: config.reconciliation=True[0m
+[1m2026-07-27T18:57:26.709890000Z[0m [94m[INFO] PAPER-001.ExecEngine: config.reconciliation_lookback_mins=None[0m
+[1m2026-07-27T18:57:26.709890001Z[0m [94m[INFO] PAPER-001.ExecEngine: config.reconciliation_instrument_ids=None[0m
+[1m2026-07-27T18:57:26.709891000Z[0m [94m[INFO] PAPER-001.ExecEngine: config.filter_unclaimed_external_orders=False[0m
+[1m2026-07-27T18:57:26.709891001Z[0m [94m[INFO] PAPER-001.ExecEngine: config.filter_position_reports=False[0m
+[1m2026-07-27T18:57:26.709891002Z[0m [94m[INFO] PAPER-001.ExecEngine: config.filtered_client_order_ids=None[0m
+[1m2026-07-27T18:57:26.709892000Z[0m [94m[INFO] PAPER-001.ExecEngine: config.inflight_check_interval_ms=2000[0m
+[1m2026-07-27T18:57:26.709892001Z[0m [94m[INFO] PAPER-001.ExecEngine: config.inflight_check_threshold_ms=5000[0m
+[1m2026-07-27T18:57:26.709893000Z[0m [94m[INFO] PAPER-001.ExecEngine: config.inflight_check_retries=5[0m
+[1m2026-07-27T18:57:26.709893001Z[0m [94m[INFO] PAPER-001.ExecEngine: config.own_books_audit_interval_secs=None[0m
+[1m2026-07-27T18:57:26.709893002Z[0m [94m[INFO] PAPER-001.ExecEngine: config.open_check_interval_secs=None[0m
+[1m2026-07-27T18:57:26.709893003Z[0m [94m[INFO] PAPER-001.ExecEngine: config.open_check_open_only=True[0m
+[1m2026-07-27T18:57:26.709894000Z[0m [94m[INFO] PAPER-001.ExecEngine: config.open_check_lookback_mins=60[0m
+[1m2026-07-27T18:57:26.709894001Z[0m [94m[INFO] PAPER-001.ExecEngine: config.open_check_threshold_ms=5000[0m
+[1m2026-07-27T18:57:26.709894002Z[0m [94m[INFO] PAPER-001.ExecEngine: config.open_check_missing_retries=5[0m
+[1m2026-07-27T18:57:26.709895000Z[0m [94m[INFO] PAPER-001.ExecEngine: config.max_single_order_queries_per_cycle=10[0m
+[1m2026-07-27T18:57:26.709895001Z[0m [94m[INFO] PAPER-001.ExecEngine: config.single_order_query_delay_ms=100[0m
+[1m2026-07-27T18:57:26.709895002Z[0m [94m[INFO] PAPER-001.ExecEngine: config.position_check_interval_secs=None[0m
+[1m2026-07-27T18:57:26.709895003Z[0m [94m[INFO] PAPER-001.ExecEngine: config.position_check_lookback_mins=60[0m
+[1m2026-07-27T18:57:26.709895004Z[0m [94m[INFO] PAPER-001.ExecEngine: config.position_check_threshold_ms=5000[0m
+[1m2026-07-27T18:57:26.709896000Z[0m [94m[INFO] PAPER-001.ExecEngine: config.position_check_retries=3[0m
+[1m2026-07-27T18:57:26.709896001Z[0m [94m[INFO] PAPER-001.ExecEngine: config.reconciliation_startup_delay_secs=10.0[0m
+[1m2026-07-27T18:57:26.709896002Z[0m [94m[INFO] PAPER-001.ExecEngine: config.purge_closed_orders_interval_mins=None[0m
+[1m2026-07-27T18:57:26.709896003Z[0m [94m[INFO] PAPER-001.ExecEngine: config.purge_closed_orders_buffer_mins=None[0m
+[1m2026-07-27T18:57:26.709897000Z[0m [94m[INFO] PAPER-001.ExecEngine: config.purge_closed_positions_interval_mins=None[0m
+[1m2026-07-27T18:57:26.709897001Z[0m [94m[INFO] PAPER-001.ExecEngine: config.purge_closed_positions_buffer_mins=None[0m
+[1m2026-07-27T18:57:26.709897002Z[0m [94m[INFO] PAPER-001.ExecEngine: config.purge_account_events_interval_mins=None[0m
+[1m2026-07-27T18:57:26.709897003Z[0m [94m[INFO] PAPER-001.ExecEngine: config.purge_account_events_lookback_mins=None[0m
+[1m2026-07-27T18:57:26.709897004Z[0m [94m[INFO] PAPER-001.ExecEngine: config.purge_from_database=False[0m
+[1m2026-07-27T18:57:26.709898000Z[0m [94m[INFO] PAPER-001.ExecEngine: config.graceful_shutdown_on_exception=False[0m
+[1m2026-07-27T18:57:26.710175000Z[0m [94m[INFO] PAPER-001.Cache: Cached 1 general object from database[0m
+[1m2026-07-27T18:57:26.710468000Z[0m [94m[INFO] PAPER-001.Cache: Cached 4 currencies from database[0m
+[1m2026-07-27T18:57:26.710866000Z[0m [94m[INFO] PAPER-001.Cache: Cached 3 instruments from database[0m
+[1m2026-07-27T18:57:26.711197000Z[0m [94m[INFO] PAPER-001.Cache: Cached 1 account from database[0m
+[1m2026-07-27T18:57:26.711556000Z[0m [INFO] PAPER-001.Cache: Cached 0 orders from database[0m
+[1m2026-07-27T18:57:26.711561000Z[0m [INFO] PAPER-001.Cache: Cached 0 order lists from database[0m
+[1m2026-07-27T18:57:26.711678000Z[0m [INFO] PAPER-001.Cache: Cached 0 positions from database[0m
+[1m2026-07-27T18:57:26.711689000Z[0m [INFO] PAPER-001.Cache: Checking data integrity[0m
+[1m2026-07-27T18:57:26.711697000Z[0m [92m[INFO] PAPER-001.Cache: Integrity check passed in 7μs[0m
+[1m2026-07-27T18:57:26.711708000Z[0m [INFO] PAPER-001.ExecEngine: Loaded cache in 2ms[0m
+[1m2026-07-27T18:57:26.711738000Z[0m [INFO] PAPER-001.OrderEmulator: READY[0m
+[1m2026-07-27T18:57:26.711771000Z[0m [INFO] PAPER-001.PAPER-001: READY[0m
+[1m2026-07-27T18:57:26.711784000Z[0m [INFO] PAPER-001.TradingNode: Initialized in 4ms[0m
+[1m2026-07-27T18:57:26.711791000Z[0m [94m[INFO] PAPER-001.TradingNode: has_cache_backing=True[0m
+[1m2026-07-27T18:57:26.711792000Z[0m [94m[INFO] PAPER-001.TradingNode: has_msgbus_backing=False[0m
+[1m2026-07-27T18:57:26.711843000Z[0m [INFO] PAPER-001.MLStrategy: READY[0m
+[1m2026-07-27T18:57:26.711868000Z[0m [INFO] PAPER-001.ExecEngine: Registered OMS.UNSPECIFIED for Strategy MLStrategy-000[0m
+[1m2026-07-27T18:57:26.711870000Z[0m [INFO] PAPER-001.PAPER-001: Registered Strategy MLStrategy-000[0m
+[1m2026-07-27T18:57:26.713083000Z[0m [94m[INFO] PAPER-001.MLStrategy: Loaded state ['ml_strategy.json'][0m
+[1m2026-07-27T18:57:26.713088000Z[0m [INFO] PAPER-001.TradingNode: Building data client for IB[0m
+[1m2026-07-27T18:57:26.713110000Z[0m [INFO] PAPER-001.InteractiveBrokersClient-001: READY[0m
+[1m2026-07-27T18:57:26.713169000Z[0m [1;33m[WARN] PAPER-001.InteractiveBrokersClient-001: Started when loop is not running[0m
+[1m2026-07-27T18:57:26.713215000Z[0m [INFO] PAPER-001.InteractiveBrokersClient-001: Starting InteractiveBrokersClient (1)...[0m
+[1m2026-07-27T18:57:26.713226000Z[0m [INFO] PAPER-001.InteractiveBrokersClient-001: Connecting to 127.0.0.1:7497 with client id: 1[0m
+[1m2026-07-27T18:57:26.724556000Z[0m [INFO] PAPER-001.InteractiveBrokersClient-001: Connected to Interactive Brokers (v223) at 20260727 11:57:25 PST from 127.0.0.1:7497 with client id: 1[0m
+[1m2026-07-27T18:57:26.726950000Z[0m [1;33m[WARN] PAPER-001.InteractiveBrokersClient-001: Market data farm connection is OK:cashfarm (code: 2104, req_id=-1)[0m
+[1m2026-07-27T18:57:26.727050000Z[0m [1;33m[WARN] PAPER-001.InteractiveBrokersClient-001: Market data farm connection is OK:uscrypto (code: 2104, req_id=-1)[0m
+[1m2026-07-27T18:57:26.727125000Z[0m [INFO] PAPER-001.InteractiveBrokersClient-001: RUNNING[0m
+[1m2026-07-27T18:57:26.727143000Z[0m [INFO] PAPER-001.InteractiveBrokersInstrumentProvider: READY[0m
+[1m2026-07-27T18:57:26.727174000Z[0m [INFO] PAPER-001.DataClient-IB: READY[0m
+[1m2026-07-27T18:57:26.727191000Z[0m [INFO] PAPER-001.DataEngine: Registered IB for default routing[0m
+[1m2026-07-27T18:57:26.727195000Z[0m [INFO] PAPER-001.TradingNode: Building execution client for IB[0m
+[1m2026-07-27T18:57:26.727225000Z[0m [INFO] PAPER-001.ExecClient-IB: READY[0m
+[1m2026-07-27T18:57:26.727239000Z[0m [INFO] PAPER-001.ExecEngine: Registered ExecutionClient-IB for default routing[0m
+[1m2026-07-27T18:57:26.727268000Z[0m [1;33m[WARN] PAPER-001.InteractiveBrokersClient-001: Market data farm connection is OK:usfuture (code: 2104, req_id=-1)[0m
+[1m2026-07-27T18:57:26.727276000Z[0m [INFO] PAPER-001.TradingNode: STARTING[0m
+[1m2026-07-27T18:57:26.727300000Z[0m [INFO] PAPER-001.DataClient-IB: RUNNING[0m
+[1m2026-07-27T18:57:26.727313000Z[0m [INFO] PAPER-001.DataEngine: RUNNING[0m
+[1m2026-07-27T18:57:26.727323000Z[0m [INFO] PAPER-001.RiskEngine: RUNNING[0m
+[1m2026-07-27T18:57:26.727329000Z[0m [INFO] PAPER-001.ExecClient-IB: RUNNING[0m
+[1m2026-07-27T18:57:26.727334000Z[0m [INFO] PAPER-001.ExecEngine: Starting position snapshots timer at 60.0 second intervals[0m
+[1m2026-07-27T18:57:26.727488000Z[0m [94m[INFO] PAPER-001.ExecEngine: Started reconciliation task[0m
+[1m2026-07-27T18:57:26.727495000Z[0m [INFO] PAPER-001.ExecEngine: RUNNING[0m
+[1m2026-07-27T18:57:26.727498000Z[0m [INFO] PAPER-001.DataEngine: Connecting all clients...[0m
+[1m2026-07-27T18:57:26.727500000Z[0m [INFO] PAPER-001.DataClient-IB: Connecting...[0m
+[1m2026-07-27T18:57:26.727507000Z[0m [INFO] PAPER-001.ExecEngine: Connecting all clients...[0m
+[1m2026-07-27T18:57:26.727508000Z[0m [INFO] PAPER-001.ExecClient-IB: Connecting...[0m
+[1m2026-07-27T18:57:26.727514000Z[0m [94m[INFO] PAPER-001.TradingNode: Awaiting engine connections and initializations (60.0s timeout)...[0m
+[1m2026-07-27T18:57:26.727697000Z[0m [94m[INFO] PAPER-001.ExecEngine: Starting continuous reconciliation with intervals: inflight=2000ms, consistency=Nones, position=Nones[0m
+[1m2026-07-27T18:57:26.727700000Z[0m [94m[INFO] PAPER-001.ExecEngine: Awaiting startup reconciliation completion before starting continuous checks[0m
+[1m2026-07-27T18:57:26.727709000Z[0m [INFO] PAPER-001.InteractiveBrokersClient-001: Setting Market DataType to REALTIME[0m
+[1m2026-07-27T18:57:26.727746000Z[0m [INFO] PAPER-001.InteractiveBrokersInstrumentProvider: Initializing instruments...[0m
+[1m2026-07-27T18:57:26.727756000Z[0m [INFO] PAPER-001.InteractiveBrokersInstrumentProvider: Loading instruments: SOL/USD.ZEROHASH, ETH/USD.ZEROHASH, BTC/USD.ZEROHASH...[0m
+[1m2026-07-27T18:57:26.728025000Z[0m [INFO] PAPER-001.InteractiveBrokersInstrumentProvider: Adding instrument=CryptoPerpetual(id=SOL/USD.ZEROHASH, raw_symbol=SOL.USD, asset_class=CRYPTOCURRENCY, instrument_class=SWAP, quote_currency=USD, is_inverse=True, price_precision=2, price_increment=0.01, size_precision=8, size_increment=0.00000001, multiplier=1, lot_size=1, margin_init=0, margin_maint=0, maker_fee=0, taker_fee=0, info={'contract': {'secType': 'CRYPTO', 'conId': 766135595, 'exchange': 'ZEROHASH', 'primaryExchange': '', 'symbol': 'SOL', 'localSymbol': 'SOL.USD', 'currency': 'USD', 'tradingClass': 'SOL', 'lastTradeDateOrContractMonth': '', 'lastTradeDate': '', 'multiplier': '', 'strike': 1.7976931348623157e+308, 'right': '', 'includeExpired': False, 'secIdType': '', 'secId': '', 'description': '', 'issuerId': '', 'comboLegsDescrip': '', 'comboLegs': [], 'deltaNeutralContract': None, 'build_futures_chain': None, 'build_options_chain': None, 'options_chain_exchange': None, 'min_expiry_days': None, 'max_expiry_days': None}, 'marketName': 'SOL', 'minTick': 0.01, 'orderTypes': 'AD,ADJUST,ALERT,BASKET,BENCHPX,CASHQTY,COND,DAY,DEACT,DEACTDIS,DEACTEOD,GAT,GTC,GTD,GTT,IOC,LMT,MKT,NMIN,NONALGO,WHATIF', 'validExchanges': 'ZEROHASH', 'priceMagnifier': 1, 'underConId': 0, 'longName': 'Solana cryptocurrency', 'contractMonth': '', 'industry': '', 'category': '', 'subcategory': '', 'timeZoneId': 'US/Eastern', 'tradingHours': '20260726:0300-20260727:1600;20260727:1601-20260728:1600;20260728:1601-20260729:1600;20260729:1601-20260730:1600;20260730:1601-20260731:1600', 'liquidHours': '20260726:0300-20260727:1600;20260727:1601-20260728:1600;20260728:1601-20260729:1600;20260729:1601-20260730:1600;20260730:1601-20260731:1600', 'evRule': '', 'evMultiplier': 0, 'mdSizeMultiplier': 1, 'aggGroup': 0, 'underSymbol': '', 'underSecType': '', 'marketRuleIds': '2836', 'secIdList': [], 'realExpirationDate': '', 'lastTradeTime': '', 'stockType': '', 'minSize': '1E-8', 'sizeIncrement': '1E-8', 'suggestedSizeIncrement': '1E-8', 'minAlgoSize': '0', 'lastPricePrecision': '170141183460469231731687303715884105727', 'lastSizePrecision': '170141183460469231731687303715884105727', 'cusip': '', 'ratings': '', 'descAppend': '', 'bondType': '', 'couponType': '', 'callable': False, 'putable': False, 'coupon': 0, 'convertible': False, 'maturity': '', 'issueDate': '', 'nextOptionDate': '', 'nextOptionType': '', 'nextOptionPartial': False, 'notes': '', 'fundName': '', 'fundFamily': '', 'fundType': '', 'fundFrontLoad': '', 'fundBackLoad': '', 'fundBackLoadTimeInterval': '', 'fundManagementFee': '', 'fundClosed': False, 'fundClosedForNewInvestors': False, 'fundClosedForNewMoney': False, 'fundNotifyAmount': '', 'fundMinimumInitialPurchase': '', 'fundSubsequentMinimumPurchase': '', 'fundBlueSkyStates': '', 'fundBlueSkyTerritories': '', 'fundDistributionPolicyIndicator': ['None', 'None'], 'fundAssetType': ['None', 'None'], 'ineligibilityReasonList': None, 'eventContract1': '', 'eventContractDescription1': '', 'eventContractDescription2': ''}) from InteractiveBrokersInstrumentProvider[0m
+[1m2026-07-27T18:57:26.728178000Z[0m [INFO] PAPER-001.InteractiveBrokersInstrumentProvider: Adding instrument=CryptoPerpetual(id=ETH/USD.ZEROHASH, raw_symbol=ETH.USD, asset_class=CRYPTOCURRENCY, instrument_class=SWAP, quote_currency=USD, is_inverse=True, price_precision=2, price_increment=0.05, size_precision=8, size_increment=0.00000001, multiplier=1, lot_size=1, margin_init=0, margin_maint=0, maker_fee=0, taker_fee=0, info={'contract': {'secType': 'CRYPTO', 'conId': 541686654, 'exchange': 'ZEROHASH', 'primaryExchange': '', 'symbol': 'ETH', 'localSymbol': 'ETH.USD', 'currency': 'USD', 'tradingClass': 'ETH', 'lastTradeDateOrContractMonth': '', 'lastTradeDate': '', 'multiplier': '', 'strike': 1.7976931348623157e+308, 'right': '', 'includeExpired': False, 'secIdType': '', 'secId': '', 'description': '', 'issuerId': '', 'comboLegsDescrip': '', 'comboLegs': [], 'deltaNeutralContract': None, 'build_futures_chain': None, 'build_options_chain': None, 'options_chain_exchange': None, 'min_expiry_days': None, 'max_expiry_days': None}, 'marketName': 'ETH', 'minTick': 0.05, 'orderTypes': 'AD,ADJUST,ALERT,BASKET,BENCHPX,CASHQTY,COND,DAY,DEACT,DEACTDIS,DEACTEOD,GAT,GTC,GTD,GTT,IOC,LMT,MKT,NMIN,NONALGO,WHATIF', 'validExchanges': 'ZEROHASH', 'priceMagnifier': 1, 'underConId': 0, 'longName': 'Ethereum cryptocurrency', 'contractMonth': '', 'industry': '', 'category': '', 'subcategory': '', 'timeZoneId': 'US/Eastern', 'tradingHours': '20260726:0300-20260727:1600;20260727:1601-20260728:1600;20260728:1601-20260729:1600;20260729:1601-20260730:1600;20260730:1601-20260731:1600', 'liquidHours': '20260726:0300-20260727:1600;20260727:1601-20260728:1600;20260728:1601-20260729:1600;20260729:1601-20260730:1600;20260730:1601-20260731:1600', 'evRule': '', 'evMultiplier': 0, 'mdSizeMultiplier': 1, 'aggGroup': 0, 'underSymbol': '', 'underSecType': '', 'marketRuleIds': '2823', 'secIdList': [], 'realExpirationDate': '', 'lastTradeTime': '', 'stockType': '', 'minSize': '1E-8', 'sizeIncrement': '1E-8', 'suggestedSizeIncrement': '1E-8', 'minAlgoSize': '0', 'lastPricePrecision': '170141183460469231731687303715884105727', 'lastSizePrecision': '170141183460469231731687303715884105727', 'cusip': '', 'ratings': '', 'descAppend': '', 'bondType': '', 'couponType': '', 'callable': False, 'putable': False, 'coupon': 0, 'convertible': False, 'maturity': '', 'issueDate': '', 'nextOptionDate': '', 'nextOptionType': '', 'nextOptionPartial': False, 'notes': '', 'fundName': '', 'fundFamily': '', 'fundType': '', 'fundFrontLoad': '', 'fundBackLoad': '', 'fundBackLoadTimeInterval': '', 'fundManagementFee': '', 'fundClosed': False, 'fundClosedForNewInvestors': False, 'fundClosedForNewMoney': False, 'fundNotifyAmount': '', 'fundMinimumInitialPurchase': '', 'fundSubsequentMinimumPurchase': '', 'fundBlueSkyStates': '', 'fundBlueSkyTerritories': '', 'fundDistributionPolicyIndicator': ['None', 'None'], 'fundAssetType': ['None', 'None'], 'ineligibilityReasonList': None, 'eventContract1': '', 'eventContractDescription1': '', 'eventContractDescription2': ''}) from InteractiveBrokersInstrumentProvider[0m
+[1m2026-07-27T18:57:26.728312000Z[0m [INFO] PAPER-001.InteractiveBrokersInstrumentProvider: Adding instrument=CryptoPerpetual(id=BTC/USD.ZEROHASH, raw_symbol=BTC.USD, asset_class=CRYPTOCURRENCY, instrument_class=SWAP, quote_currency=USD, is_inverse=True, price_precision=2, price_increment=0.25, size_precision=8, size_increment=0.00000001, multiplier=1, lot_size=1, margin_init=0, margin_maint=0, maker_fee=0, taker_fee=0, info={'contract': {'secType': 'CRYPTO', 'conId': 541686651, 'exchange': 'ZEROHASH', 'primaryExchange': '', 'symbol': 'BTC', 'localSymbol': 'BTC.USD', 'currency': 'USD', 'tradingClass': 'BTC', 'lastTradeDateOrContractMonth': '', 'lastTradeDate': '', 'multiplier': '', 'strike': 1.7976931348623157e+308, 'right': '', 'includeExpired': False, 'secIdType': '', 'secId': '', 'description': '', 'issuerId': '', 'comboLegsDescrip': '', 'comboLegs': [], 'deltaNeutralContract': None, 'build_futures_chain': None, 'build_options_chain': None, 'options_chain_exchange': None, 'min_expiry_days': None, 'max_expiry_days': None}, 'marketName': 'BTC', 'minTick': 0.25, 'orderTypes': 'AD,ADJUST,ALERT,BASKET,BENCHPX,CASHQTY,COND,DAY,DEACT,DEACTDIS,DEACTEOD,GAT,GTC,GTD,GTT,IOC,LMT,MKT,NMIN,NONALGO,WHATIF', 'validExchanges': 'ZEROHASH', 'priceMagnifier': 1, 'underConId': 0, 'longName': 'Bitcoin cryptocurrency', 'contractMonth': '', 'industry': '', 'category': '', 'subcategory': '', 'timeZoneId': 'US/Eastern', 'tradingHours': '20260726:0300-20260727:1600;20260727:1601-20260728:1600;20260728:1601-20260729:1600;20260729:1601-20260730:1600;20260730:1601-20260731:1600', 'liquidHours': '20260726:0300-20260727:1600;20260727:1601-20260728:1600;20260728:1601-20260729:1600;20260729:1601-20260730:1600;20260730:1601-20260731:1600', 'evRule': '', 'evMultiplier': 0, 'mdSizeMultiplier': 1, 'aggGroup': 0, 'underSymbol': '', 'underSecType': '', 'marketRuleIds': '2806', 'secIdList': [], 'realExpirationDate': '', 'lastTradeTime': '', 'stockType': '', 'minSize': '1E-8', 'sizeIncrement': '1E-8', 'suggestedSizeIncrement': '1E-8', 'minAlgoSize': '0', 'lastPricePrecision': '170141183460469231731687303715884105727', 'lastSizePrecision': '170141183460469231731687303715884105727', 'cusip': '', 'ratings': '', 'descAppend': '', 'bondType': '', 'couponType': '', 'callable': False, 'putable': False, 'coupon': 0, 'convertible': False, 'maturity': '', 'issueDate': '', 'nextOptionDate': '', 'nextOptionType': '', 'nextOptionPartial': False, 'notes': '', 'fundName': '', 'fundFamily': '', 'fundType': '', 'fundFrontLoad': '', 'fundBackLoad': '', 'fundBackLoadTimeInterval': '', 'fundManagementFee': '', 'fundClosed': False, 'fundClosedForNewInvestors': False, 'fundClosedForNewMoney': False, 'fundNotifyAmount': '', 'fundMinimumInitialPurchase': '', 'fundSubsequentMinimumPurchase': '', 'fundBlueSkyStates': '', 'fundBlueSkyTerritories': '', 'fundDistributionPolicyIndicator': ['None', 'None'], 'fundAssetType': ['None', 'None'], 'ineligibilityReasonList': None, 'eventContract1': '', 'eventContractDescription1': '', 'eventContractDescription2': ''}) from InteractiveBrokersInstrumentProvider[0m
+[1m2026-07-27T18:57:26.728317000Z[0m [INFO] PAPER-001.InteractiveBrokersInstrumentProvider: Loaded 3 instruments[0m
+[1m2026-07-27T18:57:26.728318000Z[0m [INFO] PAPER-001.InteractiveBrokersInstrumentProvider: Initialized instruments[0m
+[1m2026-07-27T18:57:26.728344000Z[0m [INFO] PAPER-001.ExecClient-IB: FAULTED[0m
+[1m2026-07-27T18:57:26.728378000Z[0m [92m[INFO] PAPER-001.DataClient-IB: Connected[0m
+[1m2026-07-27T18:57:26.728427000Z[0m [1;31m[ERROR] PAPER-001.ExecClient-IB: Error on '_connect'
+ValueError(Account `DUR143045` not found in the connected TWS/Gateway: available accounts are set())
+[0m
+[1m2026-07-27T18:57:26.728629000Z[0m [1;33m[WARN] PAPER-001.InteractiveBrokersClient-001: Market data farm connection is OK:usopt.nj (code: 2104, req_id=-1)[0m
+[1m2026-07-27T18:57:26.728703000Z[0m [1;33m[WARN] PAPER-001.InteractiveBrokersClient-001: Market data farm connection is OK:usfarm.nj (code: 2104, req_id=-1)[0m
+[1m2026-07-27T18:57:26.728768000Z[0m [1;33m[WARN] PAPER-001.InteractiveBrokersClient-001: Market data farm connection is OK:usfarm (code: 2104, req_id=-1)[0m
+[1m2026-07-27T18:57:26.728831000Z[0m [1;33m[WARN] PAPER-001.InteractiveBrokersClient-001: HMDS data farm connection is OK:euhmds (code: 2106, req_id=-1)[0m
+[1m2026-07-27T18:57:26.728890000Z[0m [1;33m[WARN] PAPER-001.InteractiveBrokersClient-001: HMDS data farm connection is OK:fundfarm (code: 2106, req_id=-1)[0m
+[1m2026-07-27T18:57:26.728946000Z[0m [1;33m[WARN] PAPER-001.InteractiveBrokersClient-001: HMDS data farm connection is OK:ushmds (code: 2106, req_id=-1)[0m
+[1m2026-07-27T18:57:26.729001000Z[0m [1;33m[WARN] PAPER-001.InteractiveBrokersClient-001: Sec-def data farm connection is OK:secdefil (code: 2158, req_id=-1)[0m
+[1m2026-07-27T18:58:13.261714000Z[0m [1;33m[WARN] PAPER-001.TradingNode: Received SIGINT, shutting down[0m
+[1m2026-07-27T18:58:13.261733000Z[0m [INFO] PAPER-001.TradingNode: STOPPING[0m
+[1m2026-07-27T18:58:13.261754000Z[0m [94m[INFO] PAPER-001.MLStrategy: No user state to save[0m
+[1m2026-07-27T18:58:13.261797000Z[0m [INFO] PAPER-001.DataClient-IB: STOPPED[0m
+[1m2026-07-27T18:58:13.261807000Z[0m [INFO] PAPER-001.DataEngine: Disconnecting all clients...[0m
+[1m2026-07-27T18:58:13.261808000Z[0m [INFO] PAPER-001.DataClient-IB: Disconnecting...[0m
+[1m2026-07-27T18:58:13.261815000Z[0m [INFO] PAPER-001.ExecEngine: Disconnecting all clients...[0m
+[1m2026-07-27T18:58:13.261818000Z[0m [INFO] PAPER-001.ExecClient-IB: Disconnecting...[0m
+[1m2026-07-27T18:58:13.261825000Z[0m [94m[INFO] PAPER-001.TradingNode: Awaiting engine disconnections (10.0s timeout)...[0m
+[1m2026-07-27T18:58:13.261872000Z[0m [INFO] PAPER-001.InteractiveBrokersClient-001: STOPPED[0m
+[1m2026-07-27T18:58:13.261882000Z[0m [92m[INFO] PAPER-001.DataClient-IB: Disconnected[0m
+[1m2026-07-27T18:58:13.261890000Z[0m [92m[INFO] PAPER-001.ExecClient-IB: Disconnected[0m
+[1m2026-07-27T18:58:13.261913000Z[0m [INFO] PAPER-001.DataEngine: STOPPED[0m
+[1m2026-07-27T18:58:13.261922000Z[0m [INFO] PAPER-001.RiskEngine: STOPPED[0m
+[1m2026-07-27T18:58:13.261932000Z[0m [INFO] PAPER-001.ExecEngine: Canceling position snapshots timer[0m
+[1m2026-07-27T18:58:13.261952000Z[0m [INFO] PAPER-001.ExecEngine: STOPPED[0m
+[1m2026-07-27T18:58:13.261959000Z[0m [INFO] PAPER-001.TradingNode: STOPPED[0m
+[1m2026-07-27T18:58:13.261968000Z[0m [INFO] PAPER-001.InteractiveBrokersClient-001: Stopping InteractiveBrokersClient (1)...[0m
+[1m2026-07-27T18:58:13.262100000Z[0m [INFO] PAPER-001.InteractiveBrokersClient-001: All tasks canceled successfully.[0m
+[1m2026-07-27T18:58:26.727537000Z[0m [1;33m[WARN] PAPER-001.TradingNode: Timed out (60.0s) waiting for engines to connect and initialize
+Status
+------
+DataEngine.check_connected() == False
+ExecEngine.check_connected() == False[0m
+[1m2026-07-27T18:58:26.727548000Z[0m [INFO] PAPER-001.TradingNode: RUNNING[0m
+[1m2026-07-27T18:58:26.727760000Z[0m [INFO] PAPER-001.DataClient-IB: DISPOSED[0m
+[1m2026-07-27T18:58:26.727765000Z[0m [INFO] PAPER-001.DataEngine: DISPOSED[0m
+[1m2026-07-27T18:58:26.727771000Z[0m [INFO] PAPER-001.RiskEngine: DISPOSED[0m
+[1m2026-07-27T18:58:26.728666000Z[0m [1;31m[ERROR] PAPER-001.ExecClient-IB: InvalidStateTrigger('FAULTED -> DISPOSE') state FAULTED[0m
+[1m2026-07-27T18:58:26.728671000Z[0m [1;31m[ERROR] PAPER-001.ExecClient-IB: InvalidStateTrigger('FAULTED -> DISPOSE_COMPLETED') state FAULTED[0m
+[1m2026-07-27T18:58:26.728675000Z[0m [INFO] PAPER-001.ExecEngine: DISPOSED[0m
+[1m2026-07-27T18:58:26.728709000Z[0m [INFO] PAPER-001.OrderEmulator: DISPOSED[0m
+[1m2026-07-27T18:58:26.728718000Z[0m [INFO] PAPER-001.PAPER-001: Cleared actors[0m
+[1m2026-07-27T18:58:26.728726000Z[0m [INFO] PAPER-001.MLStrategy: DISPOSED[0m
+[1m2026-07-27T18:58:26.728732000Z[0m [INFO] PAPER-001.PAPER-001: Cleared trading strategies[0m
+[1m2026-07-27T18:58:26.728733000Z[0m [INFO] PAPER-001.PAPER-001: Cleared execution algorithms[0m
+[1m2026-07-27T18:58:26.728737000Z[0m [INFO] PAPER-001.PAPER-001: DISPOSED[0m
+[1m2026-07-27T18:58:26.728752000Z[0m [INFO] PAPER-001.Cache: Reset[0m
+[1m2026-07-27T18:58:26.728796000Z[0m [INFO] PAPER-001.CacheDatabaseAdapter: Closed cache database adapter[0m
+[1m2026-07-27T18:58:26.728816000Z[0m [INFO] PAPER-001.MessageBus: Closed message bus[0m
+[1m2026-07-27T18:58:26.728819000Z[0m [INFO] PAPER-001.TradingNode: Shutting down executor[0m
+[1m2026-07-27T18:58:26.728907000Z[0m [INFO] PAPER-001.TradingNode: Closing event loop[0m
+[1m2026-07-27T18:58:26.728940000Z[0m [INFO] PAPER-001.TradingNode: loop.is_running=False[0m
+[1m2026-07-27T18:58:26.728941000Z[0m [INFO] PAPER-001.TradingNode: loop.is_closed=True[0m
+[1m2026-07-27T18:58:26.728942000Z[0m [INFO] PAPER-001.TradingNode: DISPOSED[0m

@@ -1,0 +1,142 @@
+[1m2026-07-27T20:44:32.619378000Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:44:32.619618000Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode:  NAUTILUS TRADER - Automated Algorithmic Trading Platform[0m
+[1m2026-07-27T20:44:32.619618001Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode:  by Nautech Systems Pty Ltd.[0m
+[1m2026-07-27T20:44:32.619618002Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode:  Copyright (C) 2015-2026. All rights reserved.[0m
+[1m2026-07-27T20:44:32.619618003Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:44:32.619618004Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: [0m
+[1m2026-07-27T20:44:32.619618005Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣴⣶⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[0m
+[1m2026-07-27T20:44:32.619619000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣰⣾⣿⣿⣿⠀⢸⣿⣿⣿⣿⣶⣶⣤⣀⠀⠀⠀⠀⠀[0m
+[1m2026-07-27T20:44:32.619619001Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⠀⠀⠀⢀⣴⡇⢀⣾⣿⣿⣿⣿⣿⠀⣾⣿⣿⣿⣿⣿⣿⣿⠿⠓⠀⠀⠀⠀[0m
+[1m2026-07-27T20:44:32.619619002Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⠀⠀⣰⣿⣿⡀⢸⣿⣿⣿⣿⣿⣿⠀⣿⣿⣿⣿⣿⣿⠟⠁⣠⣄⠀⠀⠀⠀[0m
+[1m2026-07-27T20:44:32.619619003Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⠀⢠⣿⣿⣿⣇⠀⢿⣿⣿⣿⣿⣿⠀⢻⣿⣿⣿⡿⢃⣠⣾⣿⣿⣧⡀⠀⠀[0m
+[1m2026-07-27T20:44:32.619619004Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⠠⣾⣿⣿⣿⣿⣿⣧⠈⠋⢀⣴⣧⠀⣿⡏⢠⡀⢸⣿⣿⣿⣿⣿⣿⣿⡇⠀[0m
+[1m2026-07-27T20:44:32.619619005Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⣀⠙⢿⣿⣿⣿⣿⣿⠇⢠⣿⣿⣿⡄⠹⠃⠼⠃⠈⠉⠛⠛⠛⠛⠛⠻⠇⠀[0m
+[1m2026-07-27T20:44:32.619620000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⢸⡟⢠⣤⠉⠛⠿⢿⣿⠀⢸⣿⡿⠋⣠⣤⣄⠀⣾⣿⣿⣶⣶⣶⣦⡄⠀⠀⠀[0m
+[1m2026-07-27T20:44:32.619620001Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠸⠀⣾⠏⣸⣷⠂⣠⣤⠀⠘⢁⣴⣾⣿⣿⣿⡆⠘⣿⣿⣿⣿⣿⣿⠀⠀⠀⠀[0m
+[1m2026-07-27T20:44:32.619620002Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⠀⠛⠀⣿⡟⠀⢻⣿⡄⠸⣿⣿⣿⣿⣿⣿⣿⡀⠘⣿⣿⣿⣿⠟⠀⠀⠀⠀[0m
+[1m2026-07-27T20:44:32.619620003Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⠀⠀⠀⣿⠇⠀⠀⢻⡿⠀⠈⠻⣿⣿⣿⣿⣿⡇⠀⢹⣿⠿⠋⠀⠀⠀⠀⠀[0m
+[1m2026-07-27T20:44:32.619620004Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: ⠀⠀⠀⠀⠀⠀⠋⠀⠀⠀⡘⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠁⠀⠀⠀⠀⠀⠀⠀[0m
+[1m2026-07-27T20:44:32.619620005Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: [0m
+[1m2026-07-27T20:44:32.619620006Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:44:32.619620007Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode:  SYSTEM SPECIFICATION[0m
+[1m2026-07-27T20:44:32.619620008Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:44:32.619620009Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: CPU architecture: Apple M4[0m
+[1m2026-07-27T20:44:32.619621000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: CPU(s): 10 @ 4464 MHz[0m
+[1m2026-07-27T20:44:32.619621001Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: OS: kernel-25.5.0 macOS 26.5.2 Tahoe[0m
+[1m2026-07-27T20:44:32.619632000Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:44:32.619632001Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode:  MEMORY USAGE[0m
+[1m2026-07-27T20:44:32.619632002Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:44:32.619643000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: RAM-Total: 32.00 GiB[0m
+[1m2026-07-27T20:44:32.619643001Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: RAM-Used: 21.67 GiB (67.72%)[0m
+[1m2026-07-27T20:44:32.619643002Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: RAM-Avail: 10.33 GiB (32.28%)[0m
+[1m2026-07-27T20:44:32.619644000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: Swap: disabled[0m
+[1m2026-07-27T20:44:32.619717000Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:44:32.619717001Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode:  IDENTIFIERS[0m
+[1m2026-07-27T20:44:32.619717002Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:44:32.619718000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: trader_id: PAPER-CRYPTO-001[0m
+[1m2026-07-27T20:44:32.619718001Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: machine_id: Mac.lan[0m
+[1m2026-07-27T20:44:32.619718002Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: instance_id: 4150a770-0ecb-422f-a49b-f635cb99718e[0m
+[1m2026-07-27T20:44:32.619719000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: PID: 21018[0m
+[1m2026-07-27T20:44:32.619719001Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:44:32.619719002Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode:  VERSIONING[0m
+[1m2026-07-27T20:44:32.619719003Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:44:32.620646000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: nautilus_trader: 1.229.0[0m
+[1m2026-07-27T20:44:32.620782000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: python: 3.12.13[0m
+[1m2026-07-27T20:44:32.620785000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: numpy: 2.5.0[0m
+[1m2026-07-27T20:44:32.620787000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: pandas: 3.0.4[0m
+[1m2026-07-27T20:44:32.620789000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: msgspec: 0.21.1[0m
+[1m2026-07-27T20:44:32.620790000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: pyarrow: 24.0.0[0m
+[1m2026-07-27T20:44:32.620791000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: pytz: 2026.2[0m
+[1m2026-07-27T20:44:32.620792000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: uvloop: 0.22.1[0m
+[1m2026-07-27T20:44:32.620793000Z[0m [36m[INFO] PAPER-CRYPTO-001.TradingNode: =================================================================[0m
+[1m2026-07-27T20:44:32.620809000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: Building system kernel[0m
+[1m2026-07-27T20:44:32.621412000Z[0m [INFO] PAPER-CRYPTO-001.CacheDatabaseAdapter: READY[0m
+[1m2026-07-27T20:44:32.621419000Z[0m [94m[INFO] PAPER-CRYPTO-001.CacheDatabaseAdapter: config.database=DatabaseConfig(type=redis, host=127.0.0.1, port=6379, username=None, password=None, ssl=False, connection_timeout=20, response_timeout=20, number_of_retries=3, exponent_base=2, max_delay=1000, factor=2)[0m
+[1m2026-07-27T20:44:32.621419001Z[0m [94m[INFO] PAPER-CRYPTO-001.CacheDatabaseAdapter: config.encoding='msgpack'[0m
+[1m2026-07-27T20:44:32.621420000Z[0m [94m[INFO] PAPER-CRYPTO-001.CacheDatabaseAdapter: config.timestamps_as_iso8601=False[0m
+[1m2026-07-27T20:44:32.621420001Z[0m [94m[INFO] PAPER-CRYPTO-001.CacheDatabaseAdapter: config.buffer_interval_ms=100[0m
+[1m2026-07-27T20:44:32.621420002Z[0m [94m[INFO] PAPER-CRYPTO-001.CacheDatabaseAdapter: config.flush_on_start=False[0m
+[1m2026-07-27T20:44:32.621421000Z[0m [94m[INFO] PAPER-CRYPTO-001.CacheDatabaseAdapter: config.use_trader_prefix=True[0m
+[1m2026-07-27T20:44:32.621421001Z[0m [94m[INFO] PAPER-CRYPTO-001.CacheDatabaseAdapter: config.use_instance_id=False[0m
+[1m2026-07-27T20:44:32.630773000Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.database=None[0m
+[1m2026-07-27T20:44:32.630777000Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.encoding='json'[0m
+[1m2026-07-27T20:44:32.630777001Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.timestamps_as_iso8601=False[0m
+[1m2026-07-27T20:44:32.630778000Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.buffer_interval_ms=None[0m
+[1m2026-07-27T20:44:32.630778001Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.autotrim_mins=None[0m
+[1m2026-07-27T20:44:32.630778002Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.use_trader_prefix=True[0m
+[1m2026-07-27T20:44:32.630779000Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.use_trader_id=True[0m
+[1m2026-07-27T20:44:32.630779001Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.use_instance_id=False[0m
+[1m2026-07-27T20:44:32.630779002Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.streams_prefix='stream'[0m
+[1m2026-07-27T20:44:32.630780000Z[0m [94m[INFO] PAPER-CRYPTO-001.MessageBus: config.types_filter=None[0m
+[1m2026-07-27T20:44:32.631584000Z[0m [INFO] PAPER-CRYPTO-001.Cache: READY[0m
+[1m2026-07-27T20:44:32.633284000Z[0m [INFO] PAPER-CRYPTO-001.DataEngine: READY[0m
+[1m2026-07-27T20:44:32.634117000Z[0m [94m[INFO] PAPER-CRYPTO-001.DataEngine: config.graceful_shutdown_on_exception=False[0m
+[1m2026-07-27T20:44:32.634376000Z[0m [INFO] PAPER-CRYPTO-001.RiskEngine: READY[0m
+[1m2026-07-27T20:44:32.635848000Z[0m [94m[INFO] PAPER-CRYPTO-001.RiskEngine: TradingState is ACTIVE[0m
+[1m2026-07-27T20:44:32.636117000Z[0m [INFO] PAPER-CRYPTO-001.Throttler-ORDER_SUBMIT_THROTTLER: READY[0m
+[1m2026-07-27T20:44:32.636281000Z[0m [94m[INFO] PAPER-CRYPTO-001.RiskEngine: Set MAX_ORDER_SUBMIT_RATE: 100/00:00:01[0m
+[1m2026-07-27T20:44:32.636295000Z[0m [INFO] PAPER-CRYPTO-001.Throttler-ORDER_MODIFY_THROTTLER: READY[0m
+[1m2026-07-27T20:44:32.636300000Z[0m [94m[INFO] PAPER-CRYPTO-001.RiskEngine: Set MAX_ORDER_MODIFY_RATE: 100/00:00:01[0m
+[1m2026-07-27T20:44:32.636314000Z[0m [94m[INFO] PAPER-CRYPTO-001.RiskEngine: config.graceful_shutdown_on_exception=False[0m
+[1m2026-07-27T20:44:32.636607000Z[0m [INFO] PAPER-CRYPTO-001.ExecEngine: READY[0m
+[1m2026-07-27T20:44:32.636734000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.snapshot_orders=True[0m
+[1m2026-07-27T20:44:32.636735000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.snapshot_positions=True[0m
+[1m2026-07-27T20:44:32.636736000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.snapshot_positions_interval_secs=60.0[0m
+[1m2026-07-27T20:44:32.636736001Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.allow_overfills=False[0m
+[1m2026-07-27T20:44:32.636755000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.reconciliation=True[0m
+[1m2026-07-27T20:44:32.636756000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.reconciliation_lookback_mins=None[0m
+[1m2026-07-27T20:44:32.636757000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.reconciliation_instrument_ids=None[0m
+[1m2026-07-27T20:44:32.636757001Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.filter_unclaimed_external_orders=False[0m
+[1m2026-07-27T20:44:32.636757002Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.filter_position_reports=False[0m
+[1m2026-07-27T20:44:32.636758000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.filtered_client_order_ids=None[0m
+[1m2026-07-27T20:44:32.636758001Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.inflight_check_interval_ms=2000[0m
+[1m2026-07-27T20:44:32.636758002Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.inflight_check_threshold_ms=5000[0m
+[1m2026-07-27T20:44:32.636759000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.inflight_check_retries=5[0m
+[1m2026-07-27T20:44:32.636759001Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.own_books_audit_interval_secs=None[0m
+[1m2026-07-27T20:44:32.636760000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.open_check_interval_secs=None[0m
+[1m2026-07-27T20:44:32.636760001Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.open_check_open_only=True[0m
+[1m2026-07-27T20:44:32.636760002Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.open_check_lookback_mins=60[0m
+[1m2026-07-27T20:44:32.636760003Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.open_check_threshold_ms=5000[0m
+[1m2026-07-27T20:44:32.636761000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.open_check_missing_retries=5[0m
+[1m2026-07-27T20:44:32.636761001Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.max_single_order_queries_per_cycle=10[0m
+[1m2026-07-27T20:44:32.636761002Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.single_order_query_delay_ms=100[0m
+[1m2026-07-27T20:44:32.636761003Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.position_check_interval_secs=None[0m
+[1m2026-07-27T20:44:32.636762000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.position_check_lookback_mins=60[0m
+[1m2026-07-27T20:44:32.636762001Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.position_check_threshold_ms=5000[0m
+[1m2026-07-27T20:44:32.636762002Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.position_check_retries=3[0m
+[1m2026-07-27T20:44:32.636763000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.reconciliation_startup_delay_secs=10.0[0m
+[1m2026-07-27T20:44:32.636763001Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.purge_closed_orders_interval_mins=None[0m
+[1m2026-07-27T20:44:32.636763002Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.purge_closed_orders_buffer_mins=None[0m
+[1m2026-07-27T20:44:32.636763003Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.purge_closed_positions_interval_mins=None[0m
+[1m2026-07-27T20:44:32.636764000Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.purge_closed_positions_buffer_mins=None[0m
+[1m2026-07-27T20:44:32.636764001Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.purge_account_events_interval_mins=None[0m
+[1m2026-07-27T20:44:32.636764002Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.purge_account_events_lookback_mins=None[0m
+[1m2026-07-27T20:44:32.636764003Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.purge_from_database=False[0m
+[1m2026-07-27T20:44:32.636764004Z[0m [94m[INFO] PAPER-CRYPTO-001.ExecEngine: config.graceful_shutdown_on_exception=False[0m
+[1m2026-07-27T20:44:32.638722000Z[0m [INFO] PAPER-CRYPTO-001.Cache: Cached 0 general objects from database[0m
+[1m2026-07-27T20:44:32.638858000Z[0m [INFO] PAPER-CRYPTO-001.Cache: Cached 0 currencies from database[0m
+[1m2026-07-27T20:44:32.638978000Z[0m [INFO] PAPER-CRYPTO-001.Cache: Cached 0 instruments from database[0m
+[1m2026-07-27T20:44:32.639275000Z[0m [INFO] PAPER-CRYPTO-001.Cache: Cached 0 accounts from database[0m
+[1m2026-07-27T20:44:32.639585000Z[0m [INFO] PAPER-CRYPTO-001.Cache: Cached 0 orders from database[0m
+[1m2026-07-27T20:44:32.639596000Z[0m [INFO] PAPER-CRYPTO-001.Cache: Cached 0 order lists from database[0m
+[1m2026-07-27T20:44:32.639677000Z[0m [INFO] PAPER-CRYPTO-001.Cache: Cached 0 positions from database[0m
+[1m2026-07-27T20:44:32.639691000Z[0m [INFO] PAPER-CRYPTO-001.Cache: Checking data integrity[0m
+[1m2026-07-27T20:44:32.639771000Z[0m [92m[INFO] PAPER-CRYPTO-001.Cache: Integrity check passed in 50μs[0m
+[1m2026-07-27T20:44:32.639899000Z[0m [INFO] PAPER-CRYPTO-001.ExecEngine: Loaded cache in 2ms[0m
+[1m2026-07-27T20:44:32.640157000Z[0m [INFO] PAPER-CRYPTO-001.OrderEmulator: READY[0m
+[1m2026-07-27T20:44:32.640456000Z[0m [INFO] PAPER-CRYPTO-001.PAPER-CRYPTO-001: READY[0m
+[1m2026-07-27T20:44:32.640467000Z[0m [INFO] PAPER-CRYPTO-001.TradingNode: Initialized in 25ms[0m
+[1m2026-07-27T20:44:32.640474000Z[0m [94m[INFO] PAPER-CRYPTO-001.TradingNode: has_cache_backing=True[0m
+[1m2026-07-27T20:44:32.640475000Z[0m [94m[INFO] PAPER-CRYPTO-001.TradingNode: has_msgbus_backing=False[0m
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/lindawang/Documents/Workspace/quant/run/run_live.py", line 334, in <module>
+    main()
+  File "/Users/lindawang/Documents/Workspace/quant/run/run_live.py", line 310, in main
+    node = build_node(
+           ^^^^^^^^^^^
+  File "/Users/lindawang/Documents/Workspace/quant/run/run_live.py", line 241, in build_node
+    strat_cfg = MLStrategyConfig(
+                ^^^^^^^^^^^^^^^^^
+TypeError: Unexpected keyword argument 'run_id'

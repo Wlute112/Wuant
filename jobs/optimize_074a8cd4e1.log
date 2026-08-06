@@ -1,0 +1,47 @@
+Enter the Huber regression refitting period in bars (e.g., 1, 12, 24): No input received; defaulting refit period to 1 (refit every bar).
+Structural feature/risk overrides from /Users/lindawang/Documents/Workspace/quant/jobs/optimize_074a8cd4e1_structural.json: {'use_regime_features': True, 'use_hmm_feature': True, 'regime_source': 'fit', 'hmm_source': 'fit', 'regime_raw_scale': 1.0, 'hmm_raw_scale': 1.0, 'risk_budget_pct': 0.01, 'max_trade_risk_pct': 0.0025, 'max_leverage': 1.0, 'daily_loss_limit_pct': 0.02, 'kill_switch_pct': 0.2, 'kill_warn_pct': 0.05, 'kelly_max_fraction': 0.9}
+Optuna sampler seed = 877339001
+Huber refit cadence = every 1 bar(s) (fixed, not tuned)
+warmup_bars = 150, min_train_bars = 120 (fixed, not tuned)
+In-sample:  quant/data/ibkr_bars_is.csv
+Out-of-sample: quant/data/ibkr_bars_oos.csv
+[I 2026-07-27 21:18:24,221] Using an existing study with name 'optimize_33e45bf29b' instead of creating a new one.
+Resuming study 'optimize_33e45bf29b': 72 trial(s) already recorded; adding more on top.
+Running 10 trials.
+  0%|          | 0/10 [00:00<?, ?it/s]                                      [I 2026-07-27 21:18:35,377] Trial 72 pruned. 
+  0%|          | 0/10 [00:11<?, ?it/s]Best trial: 5. Best value: -0.449744:   0%|          | 0/10 [00:11<?, ?it/s]Best trial: 5. Best value: -0.449744:  10%|█         | 1/10 [00:11<01:39, 11.10s/it]                                                                                    [I 2026-07-27 21:18:48,356] Trial 73 pruned. 
+Best trial: 5. Best value: -0.449744:  10%|█         | 1/10 [00:24<01:39, 11.10s/it]Best trial: 5. Best value: -0.449744:  10%|█         | 1/10 [00:24<01:39, 11.10s/it]Best trial: 5. Best value: -0.449744:  20%|██        | 2/10 [00:24<01:37, 12.21s/it]                                                                                    [I 2026-07-27 21:19:01,271] Trial 74 pruned. 
+Best trial: 5. Best value: -0.449744:  20%|██        | 2/10 [00:36<01:37, 12.21s/it]Best trial: 5. Best value: -0.449744:  20%|██        | 2/10 [00:36<01:37, 12.21s/it]Best trial: 5. Best value: -0.449744:  30%|███       | 3/10 [00:36<01:27, 12.53s/it]                                                                                    [I 2026-07-27 21:19:15,357] Trial 75 pruned. 
+Best trial: 5. Best value: -0.449744:  30%|███       | 3/10 [00:51<01:27, 12.53s/it]Best trial: 5. Best value: -0.449744:  30%|███       | 3/10 [00:51<01:27, 12.53s/it]Best trial: 5. Best value: -0.449744:  40%|████      | 4/10 [00:51<01:18, 13.14s/it]/Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/sklearn/linear_model/_huber.py:348: ConvergenceWarning: lbfgs failed to converge after 400 iteration(s) (status=1):
+STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+Increase the number of iterations to improve the convergence (max_iter=400).
+You might also want to scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+  self.n_iter_ = _check_optimize_result("lbfgs", opt_res, self.max_iter)
+/Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/sklearn/linear_model/_huber.py:348: ConvergenceWarning: lbfgs failed to converge after 400 iteration(s) (status=1):
+STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+Increase the number of iterations to improve the convergence (max_iter=400).
+You might also want to scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+  self.n_iter_ = _check_optimize_result("lbfgs", opt_res, self.max_iter)
+                                                                                    [I 2026-07-27 21:19:27,504] Trial 76 pruned. 
+Best trial: 5. Best value: -0.449744:  40%|████      | 4/10 [01:03<01:18, 13.14s/it]Best trial: 5. Best value: -0.449744:  40%|████      | 4/10 [01:03<01:18, 13.14s/it]Best trial: 5. Best value: -0.449744:  50%|█████     | 5/10 [01:03<01:03, 12.78s/it]                                                                                    [I 2026-07-27 21:19:43,008] Trial 77 pruned. 
+Best trial: 5. Best value: -0.449744:  50%|█████     | 5/10 [01:18<01:03, 12.78s/it]Best trial: 5. Best value: -0.449744:  50%|█████     | 5/10 [01:18<01:03, 12.78s/it]Best trial: 5. Best value: -0.449744:  60%|██████    | 6/10 [01:18<00:54, 13.71s/it]                                                                                    [I 2026-07-27 21:19:56,251] Trial 78 pruned. 
+Best trial: 5. Best value: -0.449744:  60%|██████    | 6/10 [01:31<00:54, 13.71s/it]Best trial: 5. Best value: -0.449744:  60%|██████    | 6/10 [01:31<00:54, 13.71s/it]Best trial: 5. Best value: -0.449744:  70%|███████   | 7/10 [01:31<00:40, 13.56s/it]                                                                                    [I 2026-07-27 21:20:07,840] Trial 79 pruned. 
+Best trial: 5. Best value: -0.449744:  70%|███████   | 7/10 [01:43<00:40, 13.56s/it]Best trial: 5. Best value: -0.449744:  70%|███████   | 7/10 [01:43<00:40, 13.56s/it]Best trial: 5. Best value: -0.449744:  80%|████████  | 8/10 [01:43<00:25, 12.93s/it]                                                                                    [I 2026-07-27 21:20:19,556] Trial 80 pruned. 
+Best trial: 5. Best value: -0.449744:  80%|████████  | 8/10 [01:55<00:25, 12.93s/it]Best trial: 5. Best value: -0.449744:  80%|████████  | 8/10 [01:55<00:25, 12.93s/it]Best trial: 5. Best value: -0.449744:  90%|█████████ | 9/10 [01:55<00:12, 12.55s/it]                                                                                    [I 2026-07-27 21:20:28,714] Trial 81 pruned. 
+Best trial: 5. Best value: -0.449744:  90%|█████████ | 9/10 [02:04<00:12, 12.55s/it]Best trial: 5. Best value: -0.449744:  90%|█████████ | 9/10 [02:04<00:12, 12.55s/it]Best trial: 5. Best value: -0.449744: 100%|██████████| 10/10 [02:04<00:00, 11.50s/it]Best trial: 5. Best value: -0.449744: 100%|██████████| 10/10 [02:04<00:00, 12.44s/it]
+
+Trials: 11 complete, 71 pruned early (82 run)
+
+=========== BEST (in-sample) ===========
+value: -0.44974377976686886
+params: {'n_lags': 5, 'horizon': 1, 'entry_threshold': 0.00010930916256381264, 'atr_period': 11, 'atr_stop_mult': 3.6218934808498537, 'use_limit_orders': False, 'limit_offset_bps': 6.642063972939532, 'use_kelly_sizing': False, 'kelly_fraction': 0.34392910596967025, 'max_open_positions': 1, 'cross_asset_lags': 0, 'spread_lags': 2, 'huber_alpha': 0.04911847914147847, 'huber_epsilon': 1.599620877654484}
+
+Saved best params -> quant/optimize/best_params.json
+
+=========== VALIDATION (out-of-sample) ===========
+oos score: -2.4156961729234747
+Saved run artifact -> quant/runs/optimize_074a8cd4e1.json

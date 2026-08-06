@@ -1,0 +1,146 @@
+.app {
+  min-height: 100%;
+  background: var(--color-void);
+}
+
+.app.is-live {
+  background: var(--color-live-warning);
+}
+
+.skip-link {
+  position: fixed;
+  top: var(--space-sm);
+  left: var(--space-sm);
+  z-index: 20;
+  transform: translateY(-150%);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-text-primary);
+  border-radius: var(--radius-sm);
+  color: var(--color-void);
+  background: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-label-size);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition: transform var(--duration-fast) var(--ease-out-expo);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+.app__main {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--space-lg) var(--space-xl) var(--space-xxl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.app__intro {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  padding: var(--space-sm) 0 var(--space-xs);
+}
+
+.app__intro h2 {
+  margin-top: var(--space-xs);
+}
+
+.app__intro-copy {
+  max-width: 48ch;
+  color: var(--color-text-dim);
+  text-align: right;
+}
+
+.app__connection-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-negative);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  background: var(--color-panel);
+}
+
+.app__connection-error button {
+  flex: 0 0 auto;
+  min-height: var(--control-min-height);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-text-primary);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  background: var(--color-panel-raised);
+  text-transform: uppercase;
+  font-size: var(--text-label-size);
+  letter-spacing: 0.1em;
+}
+
+.app__runs-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: var(--space-lg);
+}
+
+.app__runs-row.is-single {
+  grid-template-columns: 1fr;
+}
+
+/* Visual seam between the operate zone (Action Panel/Job Console/Runs) and
+   the instrument zone (channel strips) -- DESIGN.md's own 24px inter-strip
+   rhythm is preserved inside this wrapper via the same --space-lg gap. */
+.app__instruments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--color-hairline);
+}
+
+.app__ticker-select {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+@media (max-width: 1024px) {
+  .app__main {
+    padding: var(--space-md);
+  }
+
+  .app__runs-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .app__intro {
+    align-items: start;
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+
+  .app__intro-copy {
+    text-align: left;
+  }
+
+  .app__connection-error {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .app__connection-error button {
+    width: 100%;
+    min-height: var(--touch-target-size);
+  }
+
+  .app__ticker-select {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

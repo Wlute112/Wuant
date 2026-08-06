@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORK_DIR="$(cd "$ROOT_DIR/.." && pwd)"
+PYTHON_BIN="${QUANT_PYTHON:-$ROOT_DIR/.quant312/bin/python}"
+API_URL="http://127.0.0.1:${QUANT_API_PORT:-8000}"
+WEB_URL="http://127.0.0.1:${QUANT_WEB_PORT:-5173}"
+NO_BROWSER=0
+NO_REDIS=0
+INSTALL=0
+
+usage() {
+  printf 'Usage: %s [--no-browser] [--no-redis] [--install]\n' "$0"
+  printf '\nStarts Redis, the FastAPI dashboard, and the Vite frontend.\n'
+}
+
+while (($#)); do
+  case "$1" in
+    --no-browser) NO_BROWSER=1 ;;
+    --no-redis) NO_REDIS=1 ;;
+    --install) INSTALL=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) printf 'Unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+  esac
+  shift
+done
+
+die() { printf 'Error: %s\n' "$1" >&2; exit 1; }
+
+command -v npm >/dev/null 2>&1 || die "npm is required. Install Node.js, then run this command again."
+command -v curl >/dev/null 2>&1 || die "curl is required."
+
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  if [[ "${QUANT_PYTHON:-}" ]]; then
+    die "Python interpreter not found at $PYTHON_BIN."
+  fi
+  die "Python environment not found at $ROOT_DIR/.quant312/bin/python. Set QUANT_PYTHON to a usable Python interpreter."
+fi
+
+if ((INSTALL)); then
+  "$PYTHON_BIN" -m pip install -r "$ROOT_DIR/requirements.txt"
+fi
+
+if [[ ! -d "$ROOT_DIR/web/node_modules" ]]; then
+  (cd "$ROOT_DIR/web" && npm install)
+fi
+
+if (( ! NO_REDIS )); then
+  command -v redis-cli >/dev/null 2>&1 || die "redis-cli is required. Install Redis with 'brew install redis', or use --no-redis."
+  if ! redis-cli ping >/dev/null 2>&1; then
+    command -v brew >/dev/null 2>&1 || die "Redis is not running and Homebrew is unavailable. Start Redis or use --no-redis."
+    brew services start redis >/dev/null
+  fi
+  for _ in {1..20}; do
+    redis-cli ping >/dev/null 2>&1 && break
+    sleep 0.5
+  done
+  redis-cli ping >/dev/null 2>&1 || die "Redis did not become ready on 127.0.0.1:6379."
+fi
+
+API_LOG="${TMPDIR:-/tmp}/quant-dashboard-api.log"
+WEB_LOG="${TMPDIR:-/tmp}/quant-dashboard-web.log"
+API_PID=''
+WEB_PID=''
+
+cleanup() {
+  trap - EXIT INT TERM
+  [[ -n "$WEB_PID" ]] && kill "$WEB_PID" 2>/dev/null || true
+  [[ -n "$API_PID" ]] && kill "$API_PID" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+PYTHONPATH="$WORK_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+  "$PYTHON_BIN" -u -m uvicorn quant.api.main:app --host 127.0.0.1 \
+  --port "${QUANT_API_PORT:-8000}" >"$API_LOG" 2>&1 &
+API_PID=$!
+
+(cd "$ROOT_DIR/web" && exec npm run dev -- --host 127.0.0.1 --port "${QUANT_WEB_PORT:-5173}" >"$WEB_LOG" 2>&1) &
+WEB_PID=$!
+
+for _ in {1..40}; do
+  curl -fsS "$API_URL/api/health" >/dev/null 2>&1 && break
+  sleep 0.5
+done
+
+curl -fsS "$API_URL/api/health" >/dev/null 2>&1 || {
+  printf 'Error: dashboard API failed to start. See %s\n' "$API_LOG" >&2
+  exit 1
+}
+
+printf 'Dashboard: %s\nAPI logs:  %s\nWeb logs:  %s\n' "$WEB_URL" "$API_LOG" "$WEB_LOG"
+if (( ! NO_BROWSER )); then
+  open "$WEB_URL" >/dev/null 2>&1 || printf 'Open %s in your browser.\n' "$WEB_URL"
+fi
+printf 'Press Ctrl-C to stop the dashboard processes. Redis remains running.\n'
+
+while kill -0 "$API_PID" 2>/dev/null && kill -0 "$WEB_PID" 2>/dev/null; do
+  sleep 1
+done
+
+if ! kill -0 "$API_PID" 2>/dev/null; then
+  printf 'Error: dashboard API stopped. See %s\n' "$API_LOG" >&2
+else
+  printf 'Error: dashboard frontend stopped. See %s\n' "$WEB_LOG" >&2
+fi
+exit 1

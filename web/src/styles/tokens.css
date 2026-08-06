@@ -1,0 +1,55 @@
+/* Design tokens from DESIGN.md ("Strip Recorder"). Keep this file the single
+   source of truth -- components reference these custom properties, never a
+   raw hex or px value. */
+:root {
+  /* Neutrals */
+  --color-void: #0a0b0d;
+  --color-panel: #121418;
+  --color-panel-raised: #1a1d23;
+  --color-hairline: #2a2e37;
+  --color-paper: #16181d;
+  --color-text-primary: #e8e6df;
+  --color-text-dim: #828998;
+
+  /* Reserved channel colors -- see DESIGN.md's Reserved-Channel Rule */
+  --color-trace-amber: #ffb020;
+  --color-trace-cyan: #4fd8e0;
+  --color-trace-violet: #8b7cf6;
+
+  /* Threshold / semantic */
+  --color-threshold-warn: #d9a441;
+  --color-threshold-danger: #e0483f;
+  --color-live-warning: #9e1b1b;
+  --color-positive: #35c98d;
+  --color-negative: #e0483f;
+
+  /* Typography */
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --text-display-size: clamp(1.25rem, 1rem + 1vw, 1.75rem);
+  --text-label-size: 0.6875rem;
+  --text-body-size: 0.875rem;
+  --text-metric-size: 1.125rem;
+
+  /* Radius */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+
+  /* Spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-xxl: 48px;
+
+  /* Motion (used sparingly -- see DESIGN.md's No-Glow / single authored moment) */
+  --duration-fast: 150ms;
+  --duration-normal: 300ms;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Bezel height, referenced by the sticky instrument bar and scroll offsets */
+  --bezel-height: 56px;
+  --control-min-height: 36px;
+  --touch-target-size: 44px;
+}

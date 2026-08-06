@@ -1,0 +1,56 @@
+.metrics-panel {
+  background: var(--color-panel);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+}
+
+.metrics-panel__heading {
+  margin: 0;
+  margin-bottom: var(--space-sm);
+}
+
+.metrics-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-md);
+  margin: 0;
+}
+
+.metrics-panel__cell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.metrics-panel__cell dt,
+.metrics-panel__cell dd {
+  margin: 0;
+}
+
+.metrics-panel__value {
+  font-family: var(--font-mono);
+  font-size: var(--text-metric-size);
+  font-weight: 600;
+}
+
+@media (max-width: 600px) {
+  .metrics-panel__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 340px) {
+  .metrics-panel__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.metrics-panel__value.is-positive {
+  color: var(--color-positive);
+}
+
+.metrics-panel__value.is-negative {
+  color: var(--color-negative);
+}

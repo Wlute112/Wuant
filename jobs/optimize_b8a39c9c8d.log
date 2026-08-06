@@ -1,0 +1,88 @@
+Enter the Huber regression refitting period in bars (e.g., 1, 12, 24): No input received; defaulting refit period to 1 (refit every bar).
+Structural feature/risk overrides from /Users/lindawang/Documents/Workspace/quant/jobs/optimize_b8a39c9c8d_structural.json: {'use_regime_features': True, 'use_hmm_feature': True, 'regime_source': 'fit', 'hmm_source': 'fit', 'regime_raw_scale': 1.0, 'hmm_raw_scale': 1.0, 'risk_budget_pct': 0.01, 'max_trade_risk_pct': 0.0025, 'max_leverage': 1.0, 'daily_loss_limit_pct': 0.02, 'kill_switch_pct': 0.1, 'kill_warn_pct': 0.05, 'kelly_max_fraction': 0.5}
+Optuna sampler seed = 1323856970
+Huber refit cadence = every 1 bar(s) (fixed, not tuned)
+warmup_bars = 150, min_train_bars = 120 (fixed, not tuned)
+In-sample:  quant/data/sample_bars_is.csv
+Out-of-sample: quant/data/sample_bars_oos.csv
+[I 2026-07-24 14:52:17,335] A new study created in RDB with name: optimize_b8a39c9c8d
+Running 10 trials.
+  0%|          | 0/10 [00:00<?, ?it/s]/Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/sklearn/linear_model/_huber.py:348: ConvergenceWarning: lbfgs failed to converge after 400 iteration(s) (status=1):
+STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+Increase the number of iterations to improve the convergence (max_iter=400).
+You might also want to scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+  self.n_iter_ = _check_optimize_result("lbfgs", opt_res, self.max_iter)
+/Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/sklearn/linear_model/_huber.py:348: ConvergenceWarning: lbfgs failed to converge after 400 iteration(s) (status=1):
+STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+Increase the number of iterations to improve the convergence (max_iter=400).
+You might also want to scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+  self.n_iter_ = _check_optimize_result("lbfgs", opt_res, self.max_iter)
+/Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/sklearn/linear_model/_huber.py:348: ConvergenceWarning: lbfgs failed to converge after 400 iteration(s) (status=1):
+STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+Increase the number of iterations to improve the convergence (max_iter=400).
+You might also want to scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+  self.n_iter_ = _check_optimize_result("lbfgs", opt_res, self.max_iter)
+/Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/sklearn/linear_model/_huber.py:348: ConvergenceWarning: lbfgs failed to converge after 400 iteration(s) (status=1):
+STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+Increase the number of iterations to improve the convergence (max_iter=400).
+You might also want to scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+  self.n_iter_ = _check_optimize_result("lbfgs", opt_res, self.max_iter)
+/Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/sklearn/linear_model/_huber.py:348: ConvergenceWarning: lbfgs failed to converge after 400 iteration(s) (status=1):
+STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+Increase the number of iterations to improve the convergence (max_iter=400).
+You might also want to scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+  self.n_iter_ = _check_optimize_result("lbfgs", opt_res, self.max_iter)
+/Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/sklearn/linear_model/_huber.py:348: ConvergenceWarning: lbfgs failed to converge after 400 iteration(s) (status=1):
+STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+Increase the number of iterations to improve the convergence (max_iter=400).
+You might also want to scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+  self.n_iter_ = _check_optimize_result("lbfgs", opt_res, self.max_iter)
+/Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/sklearn/linear_model/_huber.py:348: ConvergenceWarning: lbfgs failed to converge after 400 iteration(s) (status=1):
+STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+Increase the number of iterations to improve the convergence (max_iter=400).
+You might also want to scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+  self.n_iter_ = _check_optimize_result("lbfgs", opt_res, self.max_iter)
+/Users/lindawang/Documents/Workspace/quant/.quant312/lib/python3.12/site-packages/sklearn/linear_model/_huber.py:348: ConvergenceWarning: lbfgs failed to converge after 400 iteration(s) (status=1):
+STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT
+
+Increase the number of iterations to improve the convergence (max_iter=400).
+You might also want to scale the data as shown in:
+    https://scikit-learn.org/stable/modules/preprocessing.html
+  self.n_iter_ = _check_optimize_result("lbfgs", opt_res, self.max_iter)
+                                      [I 2026-07-24 14:52:39,655] Trial 0 finished with value: -0.8967205900142488 and parameters: {'n_lags': 15, 'horizon': 4, 'entry_threshold': 0.0009035692859117148, 'atr_period': 16, 'atr_stop_mult': 1.6685497229057944, 'use_limit_orders': True, 'limit_offset_bps': 3.5474364521051984, 'use_kelly_sizing': False, 'kelly_fraction': 0.5265542282286597, 'max_open_positions': 2, 'cross_asset_lags': 2, 'spread_lags': 4, 'huber_alpha': 1.2887348617838044, 'huber_epsilon': 1.0789441580462946}. Best is trial 0 with value: -0.8967205900142488.
+  0%|          | 0/10 [00:22<?, ?it/s]Best trial: 0. Best value: -0.896721:   0%|          | 0/10 [00:22<?, ?it/s]Best trial: 0. Best value: -0.896721:  10%|█         | 1/10 [00:22<03:20, 22.32s/it]                                                                                    [I 2026-07-24 14:52:56,941] Trial 1 finished with value: -1.1950440990198663 and parameters: {'n_lags': 5, 'horizon': 4, 'entry_threshold': 0.002848573612140426, 'atr_period': 9, 'atr_stop_mult': 2.886579459654799, 'use_limit_orders': False, 'limit_offset_bps': 0.9780776797121983, 'use_kelly_sizing': False, 'kelly_fraction': 0.935134164134449, 'max_open_positions': 5, 'cross_asset_lags': 1, 'spread_lags': 3, 'huber_alpha': 0.10119689585957596, 'huber_epsilon': 2.4077580753768277}. Best is trial 0 with value: -0.8967205900142488.
+Best trial: 0. Best value: -0.896721:  10%|█         | 1/10 [00:39<03:20, 22.32s/it]Best trial: 0. Best value: -0.896721:  10%|█         | 1/10 [00:39<03:20, 22.32s/it]Best trial: 0. Best value: -0.896721:  20%|██        | 2/10 [00:39<02:34, 19.36s/it]                                                                                    [I 2026-07-24 14:53:20,590] Trial 2 finished with value: -1.9137168302917966 and parameters: {'n_lags': 5, 'horizon': 1, 'entry_threshold': 0.0008031464415017588, 'atr_period': 7, 'atr_stop_mult': 3.414876203288065, 'use_limit_orders': True, 'limit_offset_bps': 5.591533292466786, 'use_kelly_sizing': True, 'kelly_fraction': 0.671201394360496, 'max_open_positions': 5, 'cross_asset_lags': 3, 'spread_lags': 5, 'huber_alpha': 2.317476353123105, 'huber_epsilon': 2.087018533199708}. Best is trial 0 with value: -0.8967205900142488.
+Best trial: 0. Best value: -0.896721:  20%|██        | 2/10 [01:03<02:34, 19.36s/it]Best trial: 0. Best value: -0.896721:  20%|██        | 2/10 [01:03<02:34, 19.36s/it]Best trial: 0. Best value: -0.896721:  30%|███       | 3/10 [01:03<02:29, 21.32s/it]                                                                                    [I 2026-07-24 14:53:35,329] Trial 3 finished with value: -0.4282756846982439 and parameters: {'n_lags': 5, 'horizon': 5, 'entry_threshold': 0.0002605492224638063, 'atr_period': 11, 'atr_stop_mult': 2.520891603255083, 'use_limit_orders': True, 'limit_offset_bps': 5.265246182313314, 'use_kelly_sizing': False, 'kelly_fraction': 0.2917578053188853, 'max_open_positions': 2, 'cross_asset_lags': 5, 'spread_lags': 0, 'huber_alpha': 0.12581911418767805, 'huber_epsilon': 2.773757031356248}. Best is trial 3 with value: -0.4282756846982439.
+Best trial: 0. Best value: -0.896721:  30%|███       | 3/10 [01:17<02:29, 21.32s/it]Best trial: 3. Best value: -0.428276:  30%|███       | 3/10 [01:17<02:29, 21.32s/it]Best trial: 3. Best value: -0.428276:  40%|████      | 4/10 [01:17<01:52, 18.72s/it]                                                                                    [I 2026-07-24 14:53:52,580] Trial 4 finished with value: -0.5099575895973523 and parameters: {'n_lags': 8, 'horizon': 5, 'entry_threshold': 0.0027159284288287367, 'atr_period': 11, 'atr_stop_mult': 1.7608643479994002, 'use_limit_orders': True, 'limit_offset_bps': 0.6795304163271844, 'use_kelly_sizing': False, 'kelly_fraction': 0.9601965126695113, 'max_open_positions': 2, 'cross_asset_lags': 4, 'spread_lags': 3, 'huber_alpha': 1.5381935617831677, 'huber_epsilon': 1.3974872569731127}. Best is trial 3 with value: -0.4282756846982439.
+Best trial: 3. Best value: -0.428276:  40%|████      | 4/10 [01:35<01:52, 18.72s/it]Best trial: 3. Best value: -0.428276:  40%|████      | 4/10 [01:35<01:52, 18.72s/it]Best trial: 3. Best value: -0.428276:  50%|█████     | 5/10 [01:35<01:30, 18.19s/it]                                                                                    [I 2026-07-24 14:54:08,950] Trial 5 finished with value: -1.2726350139039042 and parameters: {'n_lags': 14, 'horizon': 5, 'entry_threshold': 0.0002312403013007314, 'atr_period': 14, 'atr_stop_mult': 3.518964050987979, 'use_limit_orders': False, 'limit_offset_bps': 0.5473404566105403, 'use_kelly_sizing': True, 'kelly_fraction': 0.9502038021075753, 'max_open_positions': 4, 'cross_asset_lags': 4, 'spread_lags': 1, 'huber_alpha': 0.13268106403594102, 'huber_epsilon': 2.2958591088570577}. Best is trial 3 with value: -0.4282756846982439.
+Best trial: 3. Best value: -0.428276:  50%|█████     | 5/10 [01:51<01:30, 18.19s/it]Best trial: 3. Best value: -0.428276:  50%|█████     | 5/10 [01:51<01:30, 18.19s/it]Best trial: 3. Best value: -0.428276:  60%|██████    | 6/10 [01:51<01:10, 17.57s/it]                                                                                    [I 2026-07-24 14:54:27,082] Trial 6 finished with value: -1.292165668750012 and parameters: {'n_lags': 11, 'horizon': 3, 'entry_threshold': 0.0005546384584356622, 'atr_period': 20, 'atr_stop_mult': 3.0580191253780606, 'use_limit_orders': False, 'limit_offset_bps': 2.3274725098257583, 'use_kelly_sizing': True, 'kelly_fraction': 0.8841248310471779, 'max_open_positions': 5, 'cross_asset_lags': 2, 'spread_lags': 2, 'huber_alpha': 2.405204123242556, 'huber_epsilon': 2.896563896758283}. Best is trial 3 with value: -0.4282756846982439.
+Best trial: 3. Best value: -0.428276:  60%|██████    | 6/10 [02:09<01:10, 17.57s/it]Best trial: 3. Best value: -0.428276:  60%|██████    | 6/10 [02:09<01:10, 17.57s/it]Best trial: 3. Best value: -0.428276:  70%|███████   | 7/10 [02:09<00:53, 17.75s/it]                                                                                    [I 2026-07-24 14:54:43,008] Trial 7 finished with value: -0.3541850573319791 and parameters: {'n_lags': 11, 'horizon': 1, 'entry_threshold': 0.0013909958323642664, 'atr_period': 12, 'atr_stop_mult': 3.9652090210634015, 'use_limit_orders': False, 'limit_offset_bps': 2.2449566820569467, 'use_kelly_sizing': False, 'kelly_fraction': 0.5947170254555161, 'max_open_positions': 1, 'cross_asset_lags': 0, 'spread_lags': 2, 'huber_alpha': 0.00013449285761496678, 'huber_epsilon': 1.5163051549983053}. Best is trial 7 with value: -0.3541850573319791.
+Best trial: 3. Best value: -0.428276:  70%|███████   | 7/10 [02:25<00:53, 17.75s/it]Best trial: 7. Best value: -0.354185:  70%|███████   | 7/10 [02:25<00:53, 17.75s/it]Best trial: 7. Best value: -0.354185:  80%|████████  | 8/10 [02:25<00:34, 17.17s/it]                                                                                    [I 2026-07-24 14:54:55,963] Trial 8 finished with value: -0.721843027812558 and parameters: {'n_lags': 6, 'horizon': 4, 'entry_threshold': 0.0017424536459683898, 'atr_period': 16, 'atr_stop_mult': 1.6288187028832746, 'use_limit_orders': True, 'limit_offset_bps': 0.665899654748759, 'use_kelly_sizing': True, 'kelly_fraction': 0.6767061532034587, 'max_open_positions': 2, 'cross_asset_lags': 2, 'spread_lags': 0, 'huber_alpha': 0.00729467815334612, 'huber_epsilon': 2.2171535820095873}. Best is trial 7 with value: -0.3541850573319791.
+Best trial: 7. Best value: -0.354185:  80%|████████  | 8/10 [02:38<00:34, 17.17s/it]Best trial: 7. Best value: -0.354185:  80%|████████  | 8/10 [02:38<00:34, 17.17s/it]Best trial: 7. Best value: -0.354185:  90%|█████████ | 9/10 [02:38<00:15, 15.85s/it]                                                                                    [I 2026-07-24 14:54:58,327] Trial 9 pruned. 
+Best trial: 7. Best value: -0.354185:  90%|█████████ | 9/10 [02:40<00:15, 15.85s/it]Best trial: 7. Best value: -0.354185:  90%|█████████ | 9/10 [02:40<00:15, 15.85s/it]Best trial: 7. Best value: -0.354185: 100%|██████████| 10/10 [02:40<00:00, 11.69s/it]Best trial: 7. Best value: -0.354185: 100%|██████████| 10/10 [02:40<00:00, 16.10s/it]
+
+Trials: 9 complete, 1 pruned early (10 run)
+
+=========== BEST (in-sample) ===========
+value: -0.3541850573319791
+params: {'n_lags': 11, 'horizon': 1, 'entry_threshold': 0.0013909958323642664, 'atr_period': 12, 'atr_stop_mult': 3.9652090210634015, 'use_limit_orders': False, 'limit_offset_bps': 2.2449566820569467, 'use_kelly_sizing': False, 'kelly_fraction': 0.5947170254555161, 'max_open_positions': 1, 'cross_asset_lags': 0, 'spread_lags': 2, 'huber_alpha': 0.00013449285761496678, 'huber_epsilon': 1.5163051549983053}
+
+Saved best params -> quant/optimize/best_params.json
+
+=========== VALIDATION (out-of-sample) ===========
+oos score: -1.482013836431852
+Saved run artifact -> quant/runs/optimize_b8a39c9c8d.json

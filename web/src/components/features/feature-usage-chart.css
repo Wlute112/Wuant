@@ -1,0 +1,101 @@
+.feature-usage-chart {
+  background: var(--color-panel);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.feature-usage-chart__heading {
+  margin: 0;
+  margin-bottom: var(--space-xs);
+}
+
+.feature-usage-chart__row {
+  display: grid;
+  grid-template-columns: 200px 1fr 60px 140px;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.feature-usage-chart__name {
+  font-size: var(--text-body-size);
+  font-family: var(--font-sans);
+}
+
+.feature-usage-chart__bar-track {
+  height: 6px;
+  background: var(--color-panel-raised);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.feature-usage-chart__bar {
+  height: 100%;
+  width: 100%;
+  transform-origin: left;
+  transform: scaleX(0.08);
+  transition: transform var(--duration-normal) var(--ease-out-expo),
+    background-color var(--duration-normal), opacity var(--duration-normal);
+}
+
+.feature-usage-chart__bar.is-off {
+  transform: scaleX(0.08);
+  background: var(--color-hairline);
+}
+
+.feature-usage-chart__bar.is-fit {
+  transform: scaleX(1);
+  background: var(--color-text-primary);
+}
+
+.feature-usage-chart__bar.is-raw {
+  transform: scaleX(1);
+  background: var(--color-text-primary);
+  opacity: 0.5;
+}
+
+.feature-usage-chart__bar.is-search {
+  transform: scaleX(1);
+  background: repeating-linear-gradient(
+    45deg,
+    var(--color-text-dim) 0px,
+    var(--color-text-dim) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+  opacity: 0.7;
+}
+
+.feature-usage-chart__state.is-off {
+  color: var(--color-text-dim);
+}
+
+.feature-usage-chart__state.is-fit {
+  color: var(--color-text-primary);
+}
+
+.feature-usage-chart__state.is-raw {
+  color: var(--color-text-dim);
+}
+
+.feature-usage-chart__state.is-search {
+  color: var(--color-text-dim);
+  font-style: italic;
+}
+
+.feature-usage-chart__detail {
+  font-size: var(--text-body-size);
+  color: var(--color-text-dim);
+  font-family: var(--font-mono);
+}
+
+@media (max-width: 768px) {
+  .feature-usage-chart__row {
+    grid-template-columns: 1fr;
+    gap: var(--space-xs);
+  }
+}

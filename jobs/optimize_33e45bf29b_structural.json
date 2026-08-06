@@ -1,0 +1,1 @@
+{"n_lags": 5, "cross_asset_lags": 0, "spread_lags": 0, "use_regime_features": true, "use_hmm_feature": true, "regime_source": "fit", "hmm_source": "fit", "regime_raw_scale": 1.0, "hmm_raw_scale": 1.0, "risk_budget_pct": 0.01, "max_trade_risk_pct": 0.0025, "max_leverage": 1.0, "daily_loss_limit_pct": 0.02, "kill_switch_pct": 0.2, "kill_warn_pct": 0.05, "kelly_max_fraction": 0.9}

@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import hmmlearn; print\\('hmmlearn', hmmlearn.__version__\\)\")",
+      "Bash(python3 -c \"import sklearn; print\\('sklearn', sklearn.__version__\\)\")",
+      "Bash(python3 -c \"import nautilus_trader; print\\('nautilus', nautilus_trader.__version__\\)\")",
+      "Bash(python3 -c \"import scipy; print\\('scipy', scipy.__version__\\)\")",
+      "Bash(python3 -c \"import numpy,pandas,sklearn,scipy; print\\('numpy',numpy.__version__,'pandas',pandas.__version__,'sklearn',sklearn.__version__,'scipy',scipy.__version__\\)\")",
+      "Bash(python3 -c \"import optuna; print\\('optuna',optuna.__version__\\)\")",
+      "Bash(python3 -c \"import nautilus_trader; print\\('nautilus',nautilus_trader.__version__\\)\")",
+      "Bash(../.venv/bin/pip list *)",
+      "WebSearch"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ ! -f \"${CLAUDE_PROJECT_DIR}/.claude/skills/impeccable/scripts/hook.mjs\" ] || node \"${CLAUDE_PROJECT_DIR}/.claude/skills/impeccable/scripts/hook.mjs\"",
+            "timeout": 5,
+            "statusMessage": "Checking UI changes"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ ! -f \"${CLAUDE_PROJECT_DIR}/.claude/skills/impeccable/scripts/hook.mjs\" ] || node \"${CLAUDE_PROJECT_DIR}/.claude/skills/impeccable/scripts/hook.mjs\"",
+            "timeout": 30,
+            "statusMessage": "Design deep pass"
+          }
+        ]
+      }
+    ]
+  },
+  "description": "Impeccable design detector: immediate-tier checks after Edit/Write/MultiEdit on UI files, full-rule deep pass on Stop."
+}
