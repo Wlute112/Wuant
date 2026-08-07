@@ -1,4 +1,5 @@
 .quant312/
+web/node_modules/
 .DS_Store
 __pycache__/
 .vscode/
