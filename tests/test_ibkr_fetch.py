@@ -37,3 +37,10 @@ def test_missing_merge_rejects_frequency_change(tmp_path):
             str(csv_path), ["ETH"], 1, "127.0.0.1", 7497, 1, "ZEROHASH",
             "MID", 1, "REALTIME", 1,
         ))
+
+
+def test_infer_bar_hours_rejects_non_whole_hour_csv():
+    with pytest.raises(ValueError, match="2.5-hour bars"):
+        _infer_bar_hours(
+            _bars(["2024-01-01 13:30:00", "2024-01-01 16:00:00"])
+        )

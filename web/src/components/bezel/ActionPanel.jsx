@@ -1,6 +1,7 @@
 import { cloneElement, isValidElement, useEffect, useId, useRef, useState } from "react";
 
 import { api } from "../../lib/api.js";
+import { regimeWindowForBarHours } from "../../lib/assetProfiles.js";
 import { formatTime } from "../../lib/format.js";
 import FeaturePanel, { DEFAULT_FEATURES, DEFAULT_SEARCH_MODES } from "../features/FeaturePanel.jsx";
 import RiskPanel, { DEFAULT_RISK, toRiskOverrides } from "../features/RiskPanel.jsx";
@@ -9,15 +10,12 @@ import "./action-panel.css";
 const LIVE_CONFIRM_PHRASE = "I UNDERSTAND THIS DEPLOYS REAL CAPITAL";
 const PAPER_PORTS = new Set([7497, 4002]);
 const SETTINGS_STORAGE_KEY = "quant-dashboard.action-settings.v1";
-
-// Mirrors strategies/risk.py's default rails. Paper/live can load a params
-// JSON through the native file picker; otherwise these defaults apply.
-const TABS = [
-  { key: "backtest", label: "Run Backtest" },
-  { key: "optimize", label: "Start Optuna Sweep" },
-  { key: "paper", label: "Paper Trading" },
-  { key: "live", label: "Live Trading", danger: true },
-];
+const UNKNOWN_LIVE_READINESS = {
+  live_capital_enabled: false,
+  code: "READINESS_STATUS_UNKNOWN",
+  gates: [],
+  incomplete: [],
+};
 
 function readPersistedSettings() {
   try {
@@ -55,13 +53,16 @@ function formatParamValue(v) {
 export default function ActionPanel({
   onJobStarted,
   onJobStopped,
-  onTabChange,
+  workflow = "backtest",
+  assetClass: selectedAssetClass,
+  assetProfiles = {},
+  onAssetClassChange,
   runs = [],
   jobs = [],
   brokerStatus = {},
 }) {
   const [persisted] = useState(readPersistedSettings);
-  const [tab, setTab] = useState(persisted.tab || "backtest");
+  const tab = workflow;
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(null);
   const [showAdvanced, setShowAdvanced] = useState(Boolean(persisted.showAdvanced));
@@ -76,13 +77,19 @@ export default function ActionPanel({
       ? "Waiting for account data…"
       : "IBKR not connected";
 
-  const [tickers, setTickers] = useState(persisted.tickers ?? "BTC,ETH,SOL,XRP,DOGE");
-  const [assetClass, setAssetClass] = useState(persisted.assetClass || "crypto");
+  const assetClass = selectedAssetClass || persisted.assetClass || "crypto";
+  const profile = assetProfiles[assetClass] || {};
+  const [tickers, setTickers] = useState(
+    persisted.tickers ?? (profile.defaults?.tickers || ["BTC", "ETH", "SOL", "XRP", "DOGE"]).join(","),
+  );
   const [csvPath, setCsvPath] = useState(persisted.csvPath ?? "");
   const [cash, setCash] = useState(persisted.cash ?? 5000);
   const [trials, setTrials] = useState(persisted.trials ?? 40);
   const [stopMode, setStopMode] = useState(persisted.stopMode || "trials"); // "trials" | "score"
   const [targetScore, setTargetScore] = useState(persisted.targetScore ?? 1.5);
+  const [finalTestFrac, setFinalTestFrac] = useState(persisted.finalTestFrac ?? 0.2);
+  const [walkForwardFolds, setWalkForwardFolds] = useState(persisted.walkForwardFolds ?? 5);
+  const [embargoBars, setEmbargoBars] = useState(persisted.embargoBars ?? 0);
   const [host, setHost] = useState(persisted.host ?? "127.0.0.1");
   const [port, setPort] = useState(persisted.port ?? 7497);
   const [livePort, setLivePort] = useState(persisted.livePort ?? "");
@@ -94,7 +101,14 @@ export default function ActionPanel({
   );
   const tradingParamsInput = useRef(null);
   const [primaryExchange, setPrimaryExchange] = useState(persisted.primaryExchange ?? "");
-  const [allowShorts, setAllowShorts] = useState(Boolean(persisted.allowShorts));
+  const [allowShorts, setAllowShorts] = useState(false);
+  const [barHours, setBarHours] = useState(persisted.barHours ?? profile.defaults?.bar_hours ?? 4);
+  const [includeExtendedHours, setIncludeExtendedHours] = useState(Boolean(persisted.includeExtendedHours));
+  const [liveConfirmation, setLiveConfirmation] = useState("");
+  const [liveReadiness, setLiveReadiness] = useState({
+    ...UNKNOWN_LIVE_READINESS,
+    loading: true,
+  });
 
   const [features, setFeatures] = useState({
     ...DEFAULT_FEATURES,
@@ -116,12 +130,83 @@ export default function ActionPanel({
   const [loadedParams, setLoadedParams] = useState(persisted.loadedParams ?? null);
   const [loadingParams, setLoadingParams] = useState(false);
   const [resumeRunId, setResumeRunId] = useState(persisted.resumeRunId ?? "");
-  const optimizeRuns = runs.filter((r) => r.kind === "optimize");
-  const paperJob = jobs.find((job) => job.kind === "paper" && job.status === "running");
+  const optimizeRuns = runs.filter((r) => r.kind === "optimize" && (r.asset_class || "crypto") === assetClass);
+  const paperJob = jobs.find(
+    (job) => job.kind === "paper" && job.status === "running" && (job.config?.asset_class || "crypto") === assetClass,
+  );
+  const previousAssetClass = useRef(assetClass);
+  const preserveProfileFields = useRef(false);
+
+  function applyProfileDefaults(nextAssetClass) {
+    const next = assetProfiles[nextAssetClass];
+    if (!next) return;
+    setTickers(next.defaults.tickers.join(","));
+    setCsvPath("");
+    setTargetScore(next.defaults.target_score);
+    setBarHours(next.defaults.bar_hours);
+    setIbkrBarHours(next.defaults.bar_hours);
+    setPrimaryExchange(next.defaults.primary_exchange || "");
+    setAllowShorts(false);
+    setIncludeExtendedHours(false);
+    setSourceRunId("");
+    setLoadedParams(null);
+    setResumeRunId("");
+    setTradingParams(null);
+    setTradingParamsName("");
+    if (tradingParamsInput.current) tradingParamsInput.current.value = "";
+    setFeatures((current) => ({
+      ...current,
+      regime_window: next.defaults.regime_window,
+      regime_bull_threshold: next.defaults.regime_bull_threshold,
+      regime_bear_threshold: next.defaults.regime_bear_threshold,
+    }));
+  }
+
+  function changeAssetClass(nextAssetClass) {
+    if (nextAssetClass === assetClass) return;
+    onAssetClassChange?.(nextAssetClass);
+  }
 
   useEffect(() => {
-    onTabChange?.(tab);
-  }, [onTabChange, tab]);
+    if (previousAssetClass.current === assetClass) return;
+    if (preserveProfileFields.current) {
+      preserveProfileFields.current = false;
+    } else {
+      applyProfileDefaults(assetClass);
+    }
+    previousAssetClass.current = assetClass;
+  }, [assetClass, assetProfiles]);
+
+  useEffect(() => {
+    setError(null);
+  }, [tab]);
+
+  useEffect(() => {
+    if (tab !== "live") return undefined;
+    let active = true;
+
+    async function refreshReadiness() {
+      try {
+        const status = await api.getLiveReadiness();
+        if (active) setLiveReadiness({ ...status, loading: false });
+      } catch (readinessError) {
+        if (active) {
+          setLiveReadiness({
+            ...UNKNOWN_LIVE_READINESS,
+            loading: false,
+            error: readinessError.message,
+          });
+        }
+      }
+    }
+
+    refreshReadiness();
+    const timer = window.setInterval(refreshReadiness, 30_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [tab]);
 
   useEffect(() => {
     try {
@@ -137,6 +222,9 @@ export default function ActionPanel({
           trials,
           stopMode,
           targetScore,
+          finalTestFrac,
+          walkForwardFolds,
+          embargoBars,
           host,
           port,
           livePort,
@@ -146,6 +234,8 @@ export default function ActionPanel({
           tradingParamsName,
           primaryExchange,
           allowShorts,
+          barHours,
+          includeExtendedHours,
           features,
           searchModes,
           risk,
@@ -171,6 +261,9 @@ export default function ActionPanel({
     trials,
     stopMode,
     targetScore,
+    finalTestFrac,
+    walkForwardFolds,
+    embargoBars,
     host,
     port,
     livePort,
@@ -180,6 +273,8 @@ export default function ActionPanel({
     tradingParamsName,
     primaryExchange,
     allowShorts,
+    barHours,
+    includeExtendedHours,
     features,
     searchModes,
     risk,
@@ -192,24 +287,6 @@ export default function ActionPanel({
     resumeRunId,
   ]);
 
-  function selectTab(nextTab) {
-    setTab(nextTab);
-    setError(null);
-  }
-
-  function handleTabKeyDown(event, currentIndex) {
-    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-    event.preventDefault();
-    let nextIndex = currentIndex;
-    if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + TABS.length) % TABS.length;
-    if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % TABS.length;
-    if (event.key === "Home") nextIndex = 0;
-    if (event.key === "End") nextIndex = TABS.length - 1;
-    const nextTab = TABS[nextIndex].key;
-    selectTab(nextTab);
-    document.getElementById(`workflow-tab-${nextTab}`)?.focus();
-  }
-
   async function handleTradingParamsFile(event) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -218,6 +295,26 @@ export default function ActionPanel({
       const parsed = JSON.parse(await file.text());
       if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
         throw new Error("the file must contain a JSON object");
+      }
+      if (parsed.asset_class && parsed.asset_class !== assetClass) {
+        throw new Error(
+          `profile mismatch: this file was optimized for ${parsed.asset_class}, but ${assetClass} is selected`,
+        );
+      }
+      if (parsed.bar_interval_minutes != null) {
+        const trainedMinutes = Number(parsed.bar_interval_minutes);
+        const trainedHours = trainedMinutes / 60;
+        if (![1, 2, 3, 4, 8, 24].includes(trainedHours)) {
+          throw new Error(
+            `the file was trained on ${trainedMinutes}-minute bars, which IBKR cannot stream continuously; retrain on 1/2/3/4/8-hour or daily bars`,
+          );
+        }
+        setBarHours(trainedHours);
+      } else if (parsed.ibkr_bar_hours) {
+        setBarHours(Number(parsed.ibkr_bar_hours));
+      }
+      if (parsed.include_extended_hours != null) {
+        setIncludeExtendedHours(Boolean(parsed.include_extended_hours));
       }
       setTradingParams(parsed);
       setTradingParamsName(file.name);
@@ -233,24 +330,6 @@ export default function ActionPanel({
     setTradingParams(null);
     setTradingParamsName("");
     if (tradingParamsInput.current) tradingParamsInput.current.value = "";
-  }
-
-  // Resuming reattaches to a prior sweep's Optuna study (see optimize.py's
-  // --resume-run-id) and keeps adding trials to it, so the search space MUST
-  // match the original run -- auto-fill tickers/asset class/cash from it to
-  // remove the most common way to accidentally mismatch it.
-  async function handleSelectResumeRun(runId) {
-    setResumeRunId(runId);
-    if (!runId) return;
-    setError(null);
-    try {
-      const run = await api.getRun(runId);
-      setTickers((run.tickers || []).join(","));
-      setAssetClass(run.asset_class || "crypto");
-      setCash(run.starting_cash ?? 5000);
-    } catch (err) {
-      setError(`Failed to load run ${runId} for resume: ${err.message}`);
-    }
   }
 
   // Loads an Optuna run's tuned hyperparameters (n_lags, horizon,
@@ -312,6 +391,7 @@ export default function ActionPanel({
         ibkr_client_id: Number(clientId),
         ibkr_years: Number(ibkrYears),
         ibkr_bar_hours: dataFetchMode === "replace" ? Number(ibkrBarHours) : null,
+        include_extended_hours: assetClass === "equity" && includeExtendedHours,
       },
     };
   }
@@ -320,6 +400,18 @@ export default function ActionPanel({
     setPending(true);
     setError(null);
     try {
+      if (tab === "live" && !liveReadiness.live_capital_enabled) {
+        throw new Error(
+          liveReadiness.error
+            ? `Live readiness is unknown: ${liveReadiness.error}`
+            : `Live capital is disabled (${liveReadiness.code}).`,
+        );
+      }
+      if (tab === "paper" && assetClass === "crypto") {
+        throw new Error(
+          "IBKR paper accounts do not support spot-crypto execution. Use the crypto backtest/demo feed or switch to Equity paper trading.",
+        );
+      }
       let job;
       if (tab === "backtest") {
         job = await api.startBacktest({
@@ -338,6 +430,9 @@ export default function ActionPanel({
           cash: Number(cash),
           trials: stopMode === "score" ? (trials ? Number(trials) : null) : Number(trials),
           score: stopMode === "score" ? Number(targetScore) : null,
+          final_test_frac: Number(finalTestFrac),
+          walk_forward_folds: Number(walkForwardFolds),
+          embargo_bars: Number(embargoBars),
           resume_run_id: resumeRunId || null,
           ...structuralPayload(),
         });
@@ -352,7 +447,9 @@ export default function ActionPanel({
           tickers: parseTickers(tickers) || ["BTC"],
           asset_class: assetClass,
           primary_exchange: primaryExchange,
-          allow_shorts: allowShorts,
+          allow_shorts: false,
+          bar_hours: Number(barHours),
+          include_extended_hours: assetClass === "equity" && includeExtendedHours,
           host,
           port: Number(port),
           client_id: Number(clientId),
@@ -370,14 +467,16 @@ export default function ActionPanel({
           tickers: parseTickers(tickers) || ["BTC"],
           asset_class: assetClass,
           primary_exchange: primaryExchange,
-          allow_shorts: allowShorts,
+          allow_shorts: false,
+          bar_hours: Number(barHours),
+          include_extended_hours: assetClass === "equity" && includeExtendedHours,
           host,
           port: Number(livePort),
           client_id: Number(clientId),
           account_id: accountId || null,
           cash: Number(cash),
           params: { ...(tradingParams || {}), ...toRiskOverrides(risk) },
-          confirm: LIVE_CONFIRM_PHRASE,
+          confirm: liveConfirmation,
         });
       }
       onJobStarted?.(job);
@@ -405,32 +504,17 @@ export default function ActionPanel({
   return (
     <section className="action-panel" aria-labelledby="action-panel-title">
       <h2 id="action-panel-title" className="sr-only">
-        Run controls
+        {tab === "backtest"
+          ? "Backtest controls"
+          : tab === "optimize"
+            ? "Optuna controls"
+            : tab === "paper"
+              ? "Paper trading controls"
+              : "Live trading controls"}
       </h2>
-      <div className="action-panel__tabs" role="tablist" aria-label="Trading workflow">
-        {TABS.map((t, index) => (
-          <button
-            key={t.key}
-            id={`workflow-tab-${t.key}`}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.key}
-            aria-controls={`workflow-panel-${t.key}`}
-            tabIndex={tab === t.key ? 0 : -1}
-            className={`action-panel__tab ${tab === t.key ? "is-active" : ""} ${t.danger ? "is-danger" : ""}`}
-            onClick={() => selectTab(t.key)}
-            onKeyDown={(event) => handleTabKeyDown(event, index)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
       <div
         id={`workflow-panel-${tab}`}
         className="action-panel__form"
-        role="tabpanel"
-        aria-labelledby={`workflow-tab-${tab}`}
       >
         {(tab === "backtest" || tab === "optimize") && (
           <>
@@ -439,7 +523,7 @@ export default function ActionPanel({
                 <input value={tickers} onChange={(e) => setTickers(e.target.value)} />
               </Field>
               <Field label="Asset class">
-                <select value={assetClass} onChange={(e) => setAssetClass(e.target.value)}>
+                <select value={assetClass} onChange={(e) => changeAssetClass(e.target.value)}>
                   <option value="crypto">Crypto</option>
                   <option value="equity">Equity</option>
                 </select>
@@ -474,18 +558,13 @@ export default function ActionPanel({
 
               {tab === "optimize" && (
                 <>
-                  {optimizeRuns.length > 0 && (
-                    <Field label="Resume Optuna run (optional)">
-                      <select value={resumeRunId} onChange={(e) => handleSelectResumeRun(e.target.value)}>
-                        <option value="">— start fresh —</option>
-                        {optimizeRuns.map((r) => (
-                          <option key={r.run_id} value={r.run_id}>
-                            {r.run_id} ({formatTime(r.finished_at)})
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                  )}
+                  <Field label="Resume interrupted study (optional)">
+                    <input
+                      value={resumeRunId}
+                      onChange={(e) => setResumeRunId(e.target.value)}
+                      placeholder="study run id"
+                    />
+                  </Field>
                   <Field label="Stop condition">
                     <select value={stopMode} onChange={(e) => setStopMode(e.target.value)}>
                       <option value="trials">Fixed trial count</option>
@@ -498,7 +577,7 @@ export default function ActionPanel({
                     </Field>
                   ) : (
                     <>
-                      <Field label="Target score (Sortino-like)">
+                      <Field label={`Optimization score target (${profile.scoring?.short_label || "ratio"} − activity)`}>
                         <input
                           type="number"
                           step={0.1}
@@ -516,6 +595,28 @@ export default function ActionPanel({
                       </Field>
                     </>
                   )}
+                  <Field label="Untouched final test">
+                    <select value={finalTestFrac} onChange={(e) => setFinalTestFrac(e.target.value)}>
+                      <option value={0.15}>Newest 15%</option>
+                      <option value={0.2}>Newest 20%</option>
+                    </select>
+                  </Field>
+                  <Field label="Walk-forward folds">
+                    <select value={walkForwardFolds} onChange={(e) => setWalkForwardFolds(e.target.value)}>
+                      {[5, 6, 7, 8].map((count) => (
+                        <option key={count} value={count}>{count} folds</option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Extra embargo bars">
+                    <input
+                      type="number"
+                      min={0}
+                      value={embargoBars}
+                      onChange={(e) => setEmbargoBars(e.target.value)}
+                      title="The effective embargo is never smaller than the trial's forecast horizon."
+                    />
+                  </Field>
                 </>
               )}
             </div>
@@ -547,9 +648,9 @@ export default function ActionPanel({
 
             {tab === "optimize" && resumeRunId && (
               <div className="action-panel__loaded-params label">
-                Resuming {resumeRunId} — tickers/asset class/cash auto-filled from that run.
-                Keep Feature/Risk settings identical too, or the accumulated study mixes
-                incompatible search spaces.
+                Resuming interrupted study {resumeRunId}. Data, universe, profile,
+                features, risk, and validation settings must match exactly. Finalized
+                studies cannot be resumed after their outer test has been consumed.
               </div>
             )}
 
@@ -594,16 +695,42 @@ export default function ActionPanel({
                       <Field label="Years of history">
                         <input type="number" value={ibkrYears} onChange={(e) => setIbkrYears(e.target.value)} />
                       </Field>
+                      {assetClass === "equity" && (
+                        <Field label="Include extended hours">
+                          <input
+                            type="checkbox"
+                            checked={includeExtendedHours}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setIncludeExtendedHours(checked);
+                              setFeatures((current) => ({
+                                ...current,
+                                regime_window: regimeWindowForBarHours(assetClass, ibkrBarHours, checked),
+                              }));
+                            }}
+                          />
+                        </Field>
+                      )}
                       {dataFetchMode === "replace" && (
                         <Field label="Replacement bar frequency">
-                          <select value={ibkrBarHours} onChange={(e) => setIbkrBarHours(e.target.value)}>
+                          <select
+                            value={ibkrBarHours}
+                            onChange={(e) => {
+                              const hours = Number(e.target.value);
+                              setIbkrBarHours(hours);
+                              setFeatures((current) => ({
+                                ...current,
+                                regime_window: regimeWindowForBarHours(assetClass, hours),
+                              }));
+                            }}
+                          >
                             <option value={1}>1 hour</option>
                             <option value={2}>2 hours</option>
                             <option value={3}>3 hours</option>
-                            <option value={4}>4 hours (default)</option>
+                            <option value={4}>4 hours</option>
                             <option value={8}>8 hours</option>
                             <option value={12}>12 hours</option>
-                            <option value={24}>24 hours (1 day)</option>
+                            <option value={24}>24 hours (profile default)</option>
                           </select>
                         </Field>
                       )}
@@ -612,8 +739,9 @@ export default function ActionPanel({
                   {dataFetchMode === "replace" && (
                     <div className="action-panel__loaded-params">
                       Replacement is destructive to the selected CSV: existing tickers and
-                      their old-frequency bars are removed. The strategy's regime/risk windows
-                      remain day-denominated and are not rescaled.
+                      their old-frequency bars are removed. The 20-session regime lookback is
+                      rescaled to {features.regime_window} completed bars; the daily-loss rail
+                      still resets on elapsed UTC days.
                     </div>
                   )}
                 </div>
@@ -625,9 +753,18 @@ export default function ActionPanel({
         {tab === "paper" && (
           <>
             <RiskPanel value={risk} onChange={setRisk} />
+            <div className="action-panel__session-note">
+              <span className="label">{profile.short_label} execution contract</span>
+              <span>{profile.market?.session} · {profile.market?.venue} · {profile.market?.quantity} · {profile.market?.fee_model}</span>
+            </div>
+            {assetClass === "crypto" && !paperJob && (
+              <div className="action-panel__availability-note" role="status">
+                IBKR paper accounts do not support spot-crypto execution. Crypto remains available for backtests and the demonstration tape; select Equity to start a broker paper session.
+              </div>
+            )}
             {!paperJob && <div className="action-panel__fields action-panel__fields--trading">
               <Field label="Asset class">
-                <select value={assetClass} onChange={(e) => setAssetClass(e.target.value)}>
+                <select value={assetClass} onChange={(e) => changeAssetClass(e.target.value)}>
                   <option value="crypto">Crypto</option>
                   <option value="equity">Equity / ETF</option>
                 </select>
@@ -644,11 +781,27 @@ export default function ActionPanel({
                       placeholder="SMART auto-qualification"
                     />
                   </Field>
-                  <Field label="Allow short positions">
+                  <Field label="Short positions (P1 locked)">
                     <input
                       type="checkbox"
-                      checked={allowShorts}
-                      onChange={(e) => setAllowShorts(e.target.checked)}
+                      checked={false}
+                      disabled
+                      aria-description="Short selling remains disabled until borrow, margin, recall, and short-sale restriction controls are complete."
+                      onChange={() => {}}
+                    />
+                  </Field>
+                  <Field label="Include extended hours">
+                    <input
+                      type="checkbox"
+                      checked={includeExtendedHours}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setIncludeExtendedHours(checked);
+                        setFeatures((current) => ({
+                          ...current,
+                          regime_window: regimeWindowForBarHours(assetClass, barHours, checked),
+                        }));
+                      }}
                     />
                   </Field>
                 </>
@@ -686,12 +839,24 @@ export default function ActionPanel({
                     placeholder="DU1234567"
                   />
                 </Field>
+                <Field label="Completed bar cadence">
+                  <BarHoursSelect
+                    value={barHours}
+                    onChange={(hours) => {
+                      setBarHours(hours);
+                      setFeatures((current) => ({
+                        ...current,
+                        regime_window: regimeWindowForBarHours(assetClass, hours, includeExtendedHours),
+                      }));
+                    }}
+                  />
+                </Field>
               </div>
             </details>}
             <div className="action-panel__actions">
               <button
                 className={paperJob ? "button-danger" : "button-primary"}
-                disabled={pending}
+                disabled={pending || (!paperJob && assetClass === "crypto")}
                 onClick={paperJob ? stopPaperTrading : submit}
               >
                 {pending
@@ -705,9 +870,29 @@ export default function ActionPanel({
         {tab === "live" && (
           <>
             <RiskPanel value={risk} onChange={setRisk} />
+            <div className="action-panel__readiness-lock" role="alert">
+              <span className="label">
+                {liveReadiness.loading
+                  ? "LIVE CAPITAL · CHECKING READINESS"
+                  : liveReadiness.live_capital_enabled
+                    ? "LIVE CAPITAL · READINESS APPROVED"
+                    : "LIVE CAPITAL · P0 LOCKED"}
+              </span>
+              <span>
+                {liveReadiness.error
+                  ? `Readiness status unavailable: ${liveReadiness.error}. Controls remain locked.`
+                  : liveReadiness.live_capital_enabled
+                    ? "All reviewed production-readiness gates passed."
+                    : `${liveReadiness.incomplete.length || "All"} production-readiness gates remain unapproved. ${liveReadiness.code}.`}
+              </span>
+            </div>
+            <div className="action-panel__session-note">
+              <span className="label">{profile.short_label} execution contract</span>
+              <span>{profile.market?.session} · {profile.market?.venue} · {profile.market?.quantity} · {profile.market?.fee_model}</span>
+            </div>
             <div className="action-panel__fields action-panel__fields--trading">
               <Field label="Asset class">
-                <select value={assetClass} onChange={(e) => setAssetClass(e.target.value)}>
+                <select value={assetClass} onChange={(e) => changeAssetClass(e.target.value)}>
                   <option value="crypto">Crypto</option>
                   <option value="equity">Equity / ETF</option>
                 </select>
@@ -724,11 +909,27 @@ export default function ActionPanel({
                       placeholder="SMART auto-qualification"
                     />
                   </Field>
-                  <Field label="Allow short positions">
+                  <Field label="Short positions (P1 locked)">
                     <input
                       type="checkbox"
-                      checked={allowShorts}
-                      onChange={(e) => setAllowShorts(e.target.checked)}
+                      checked={false}
+                      disabled
+                      aria-description="Short selling remains disabled until borrow, margin, recall, and short-sale restriction controls are complete."
+                      onChange={() => {}}
+                    />
+                  </Field>
+                  <Field label="Include extended hours">
+                    <input
+                      type="checkbox"
+                      checked={includeExtendedHours}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setIncludeExtendedHours(checked);
+                        setFeatures((current) => ({
+                          ...current,
+                          regime_window: regimeWindowForBarHours(assetClass, barHours, checked),
+                        }));
+                      }}
                     />
                   </Field>
                 </>
@@ -739,6 +940,17 @@ export default function ActionPanel({
                   fileName={tradingParamsName}
                   onChange={handleTradingParamsFile}
                   onClear={clearTradingParams}
+                />
+              </Field>
+              <Field label="Type the exact phrase to arm live trading" wide>
+                <input
+                  className="action-panel__confirm-input"
+                  value={liveConfirmation}
+                  onChange={(event) => setLiveConfirmation(event.target.value)}
+                  placeholder={LIVE_CONFIRM_PHRASE}
+                  autoComplete="off"
+                  spellCheck={false}
+                  disabled={!liveReadiness.live_capital_enabled}
                 />
               </Field>
             </div>
@@ -754,6 +966,7 @@ export default function ActionPanel({
                     placeholder="7496"
                     value={livePort}
                     onChange={(e) => setLivePort(e.target.value)}
+                    disabled={!liveReadiness.live_capital_enabled}
                   />
                 </Field>
                 <Field label="Client ID">
@@ -762,11 +975,37 @@ export default function ActionPanel({
                 <Field label="Live account ID">
                   <input value={accountId} onChange={(e) => setAccountId(e.target.value)} />
                 </Field>
+                <Field label="Completed bar cadence">
+                  <BarHoursSelect
+                    value={barHours}
+                    onChange={(hours) => {
+                      setBarHours(hours);
+                      setFeatures((current) => ({
+                        ...current,
+                        regime_window: regimeWindowForBarHours(assetClass, hours, includeExtendedHours),
+                      }));
+                    }}
+                  />
+                </Field>
               </div>
             </details>
             <div className="action-panel__actions">
-              <button className="button-danger" disabled={pending || !Number(livePort) || PAPER_PORTS.has(Number(livePort))} onClick={submit}>
-                {pending ? "Arming…" : "Start Live Trading"}
+              <button
+                className="button-danger"
+                disabled={
+                  pending ||
+                  !liveReadiness.live_capital_enabled ||
+                  liveConfirmation !== LIVE_CONFIRM_PHRASE ||
+                  !Number(livePort) ||
+                  PAPER_PORTS.has(Number(livePort))
+                }
+                onClick={submit}
+              >
+                {pending
+                  ? "Arming…"
+                  : liveReadiness.live_capital_enabled
+                    ? "Start Live Trading"
+                    : "Live Trading Locked"}
               </button>
             </div>
           </>
@@ -779,6 +1018,19 @@ export default function ActionPanel({
         </div>
       )}
     </section>
+  );
+}
+
+function BarHoursSelect({ value, onChange }) {
+  return (
+    <select value={value} onChange={(event) => onChange(Number(event.target.value))}>
+      <option value={1}>1 hour</option>
+      <option value={2}>2 hours</option>
+      <option value={3}>3 hours</option>
+      <option value={4}>4 hours</option>
+      <option value={8}>8 hours</option>
+      <option value={24}>1 day (profile default)</option>
+    </select>
   );
 }
 

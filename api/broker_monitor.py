@@ -1,22 +1,103 @@
-"""Read-only Interactive Brokers API connection monitor.
+"""Read-only Interactive Brokers account and live-bar monitor.
 
 This deliberately uses a separate client id from paper/live TradingNode jobs.
-It performs the IB API handshake and waits for managedAccounts, but never
-subscribes to market data or submits orders.
+It performs the IB API handshake, monitors account health, and maintains a
+small LRU set of ``keepUpToDate`` historical-bar subscriptions for dashboard
+charts. It never submits or modifies orders.
 """
 from __future__ import annotations
 
+import math
 import os
+import re
 import threading
 import time
+from collections import OrderedDict
 from datetime import datetime, timezone
 
 from ibapi.client import EClient
+from ibapi.contract import Contract
 from ibapi.wrapper import EWrapper
+
+
+_BAR_HOURS = {1, 2, 3, 4, 8, 24}
+_SYMBOL_PATTERN = re.compile(r"^[A-Z0-9][A-Z0-9.-]{0,14}$")
+_MAX_BAR_SUBSCRIPTIONS = 8
+_MAX_BARS = 750
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _normalize_symbol(symbol: str) -> str:
+    normalized = str(symbol or "").strip().upper()
+    if not _SYMBOL_PATTERN.fullmatch(normalized):
+        raise ValueError("ticker must contain 1-15 letters, numbers, dots, or hyphens")
+    return normalized
+
+
+def _bar_contract(symbol: str, asset_class: str) -> Contract:
+    contract = Contract()
+    contract.symbol = symbol
+    contract.currency = "USD"
+    if asset_class == "crypto":
+        contract.secType = "CRYPTO"
+        contract.exchange = "ZEROHASH"
+    elif asset_class == "equity":
+        contract.secType = "STK"
+        contract.exchange = "SMART"
+    else:
+        raise ValueError("asset_class must be 'crypto' or 'equity'")
+    return contract
+
+
+def _bar_request_settings(asset_class: str, bar_hours: int) -> tuple[str, str, str, int]:
+    hours = int(bar_hours)
+    if hours not in _BAR_HOURS:
+        raise ValueError("bar_hours must be one of 1, 2, 3, 4, 8, or 24")
+    bar_size = "1 day" if hours == 24 else f"{hours} hour" + ("" if hours == 1 else "s")
+    duration = "1 Y" if hours == 24 else "30 D"
+    what_to_show = "MIDPOINT" if asset_class == "crypto" else "TRADES"
+    return bar_size, duration, what_to_show, hours
+
+
+def _bar_timestamp(value) -> str:
+    text = str(value).strip()
+    if text.isdigit() and len(text) == 8:
+        parsed = datetime.strptime(text, "%Y%m%d").replace(tzinfo=timezone.utc)
+    elif text.isdigit():
+        parsed = datetime.fromtimestamp(int(text), tz=timezone.utc)
+    else:
+        normalized = text.replace("  ", " ")
+        try:
+            parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+        except ValueError:
+            parsed = datetime.strptime(normalized[:17], "%Y%m%d %H:%M:%S").replace(
+                tzinfo=timezone.utc,
+            )
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
+def _bar_session_date(value) -> str | None:
+    """Return IB's exchange-session date without applying a timezone shift."""
+    text = str(value).strip()
+    if not (text.isdigit() and len(text) == 8):
+        return None
+    try:
+        return datetime.strptime(text, "%Y%m%d").date().isoformat()
+    except ValueError:
+        return None
+
+
+def _finite_number(value, default: float = 0.0) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return number if math.isfinite(number) else default
 
 
 class _Probe(EWrapper, EClient):
@@ -49,6 +130,8 @@ class _Probe(EWrapper, EClient):
             errorCode, errorString = args[:2]
         else:
             return
+        if self.monitor.set_request_error(reqId, errorCode, errorString):
+            return
         # Informational IB messages are not connection loss.
         if errorCode not in {2104, 2106, 2107, 2158}:
             self.monitor.set_error(f"IBKR {errorCode}: {errorString}")
@@ -61,6 +144,21 @@ class _Probe(EWrapper, EClient):
     def connectionClosed(self) -> None:  # noqa: N802 - IB API callback
         self.monitor.set_disconnected("IBKR socket closed")
 
+    def contractDetails(self, reqId, contractDetails) -> None:  # noqa: N802
+        self.monitor.add_contract_details(reqId, contractDetails)
+
+    def contractDetailsEnd(self, reqId) -> None:  # noqa: N802
+        self.monitor.complete_contract_details(reqId)
+
+    def historicalData(self, reqId, bar) -> None:  # noqa: N802
+        self.monitor.receive_historical_bar(reqId, bar, forming=False)
+
+    def historicalDataUpdate(self, reqId, bar) -> None:  # noqa: N802
+        self.monitor.receive_historical_bar(reqId, bar, forming=True)
+
+    def historicalDataEnd(self, reqId, start, end) -> None:  # noqa: N802
+        self.monitor.complete_historical_backfill(reqId)
+
 
 class BrokerMonitor:
     def __init__(self) -> None:
@@ -69,6 +167,10 @@ class BrokerMonitor:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._probe: _Probe | None = None
+        self._next_request_id = 8100
+        self._bar_subscriptions: dict[str, dict] = {}
+        self._contract_requests: dict[int, str] = {}
+        self._bar_requests: dict[int, str] = {}
         self._accounts: list[str] = []
         self._account_values: dict[str, dict[str, dict[str, str]]] = {}
         explicit_port = os.environ.get("IBKR_PORT", os.environ.get("TWS_PORT"))
@@ -133,6 +235,20 @@ class BrokerMonitor:
         with self._lock:
             self._state["last_error"] = message
 
+    def set_request_error(self, req_id: int, code: int, message: str) -> bool:
+        with self._lock:
+            key = self._contract_requests.pop(req_id, None)
+            if key is None:
+                key = self._bar_requests.pop(req_id, None)
+            if key is None:
+                return False
+            entry = self._bar_subscriptions.get(key)
+            if entry is not None:
+                entry["status"] = "error"
+                entry["error"] = f"IBKR {code}: {message}"
+                entry["updated_at"] = _now()
+            return True
+
     def set_disconnected(self, message: str) -> None:
         if not self._stop.is_set():
             self._set_state("disconnected", message)
@@ -145,11 +261,304 @@ class BrokerMonitor:
     def _disconnect(self) -> None:
         probe = self._probe
         self._probe = None
+        with self._lock:
+            bar_request_ids = list(self._bar_requests)
+            self._bar_requests.clear()
+            self._contract_requests.clear()
+            for entry in self._bar_subscriptions.values():
+                if entry["status"] not in {"error", "idle"}:
+                    entry["status"] = "stale"
+                    entry["error"] = "IBKR connection unavailable; showing the last received bars"
         if probe is not None:
+            for req_id in bar_request_ids:
+                try:
+                    probe.cancelHistoricalData(req_id)
+                except Exception:  # noqa: BLE001 - disconnect must continue
+                    pass
             try:
                 probe.disconnect()
             except Exception:  # noqa: BLE001 - cleanup must continue
                 pass
+
+    def _request_id_locked(self) -> int:
+        request_id = self._next_request_id
+        self._next_request_id += 1
+        return request_id
+
+    @staticmethod
+    def _subscription_key(
+        symbol: str,
+        asset_class: str,
+        bar_hours: int,
+        include_extended_hours: bool,
+    ) -> str:
+        return ":".join(
+            (
+                asset_class,
+                symbol,
+                str(bar_hours),
+                "extended" if include_extended_hours else "rth",
+            )
+        )
+
+    def subscribe_bars(
+        self,
+        symbol: str,
+        *,
+        asset_class: str,
+        bar_hours: int,
+        include_extended_hours: bool = False,
+    ) -> dict:
+        normalized = _normalize_symbol(symbol)
+        bar_size, duration, what_to_show, hours = _bar_request_settings(
+            asset_class,
+            bar_hours,
+        )
+        if asset_class != "equity" and include_extended_hours:
+            raise ValueError("extended-hours selection applies only to equities")
+        key = self._subscription_key(
+            normalized,
+            asset_class,
+            hours,
+            include_extended_hours,
+        )
+        evicted_request_id = None
+        with self._lock:
+            entry = self._bar_subscriptions.get(key)
+            probe = self._probe
+            connected = bool(probe is not None and probe.isConnected())
+            if entry is None:
+                if len(self._bar_subscriptions) >= _MAX_BAR_SUBSCRIPTIONS:
+                    old_key = min(
+                        self._bar_subscriptions,
+                        key=lambda item: self._bar_subscriptions[item]["last_accessed"],
+                    )
+                    old_entry = self._bar_subscriptions.pop(old_key)
+                    evicted_request_id = old_entry.get("bar_request_id")
+                    if evicted_request_id is not None:
+                        self._bar_requests.pop(evicted_request_id, None)
+                entry = {
+                    "key": key,
+                    "symbol": normalized,
+                    "asset_class": asset_class,
+                    "bar_hours": hours,
+                    "bar_size": bar_size,
+                    "duration": duration,
+                    "what_to_show": what_to_show,
+                    "include_extended_hours": bool(include_extended_hours),
+                    "use_rth": asset_class == "equity" and not include_extended_hours,
+                    "status": "idle",
+                    "error": None,
+                    "bars": OrderedDict(),
+                    "created_at": _now(),
+                    "updated_at": None,
+                    "last_accessed": time.monotonic(),
+                    "contract_candidates": [],
+                    "qualified_contract": None,
+                    "contract_request_id": None,
+                    "bar_request_id": None,
+                }
+                self._bar_subscriptions[key] = entry
+            else:
+                entry["last_accessed"] = time.monotonic()
+            should_start = connected and entry["status"] in {"idle", "error", "stale"}
+            if not connected and not entry["bars"]:
+                entry["status"] = "disconnected"
+                entry["error"] = "IB Gateway or TWS is not connected"
+
+        if evicted_request_id is not None and probe is not None:
+            try:
+                probe.cancelHistoricalData(evicted_request_id)
+            except Exception:  # noqa: BLE001 - subscription replacement continues
+                pass
+        if should_start:
+            self._begin_contract_resolution(key, probe)
+        return self.bar_snapshot(
+            normalized,
+            asset_class=asset_class,
+            bar_hours=hours,
+            include_extended_hours=include_extended_hours,
+        )
+
+    def _begin_contract_resolution(self, key: str, probe: _Probe) -> None:
+        with self._lock:
+            entry = self._bar_subscriptions.get(key)
+            if entry is None:
+                return
+            request_id = self._request_id_locked()
+            entry["status"] = "qualifying"
+            entry["error"] = None
+            entry["contract_candidates"] = []
+            entry["contract_request_id"] = request_id
+            self._contract_requests[request_id] = key
+            contract = _bar_contract(entry["symbol"], entry["asset_class"])
+        try:
+            probe.reqContractDetails(request_id, contract)
+        except Exception as exc:  # noqa: BLE001 - report through snapshot
+            self.set_request_error(request_id, 0, str(exc))
+
+    def add_contract_details(self, request_id: int, details) -> None:
+        with self._lock:
+            key = self._contract_requests.get(request_id)
+            entry = self._bar_subscriptions.get(key) if key is not None else None
+            if entry is not None:
+                entry["contract_candidates"].append(details)
+
+    def complete_contract_details(self, request_id: int) -> None:
+        with self._lock:
+            key = self._contract_requests.pop(request_id, None)
+            entry = self._bar_subscriptions.get(key) if key is not None else None
+            if entry is None:
+                return
+            candidates = entry.pop("contract_candidates", [])
+            expected_type = "CRYPTO" if entry["asset_class"] == "crypto" else "STK"
+            exact = [
+                item
+                for item in candidates
+                if str(getattr(item.contract, "symbol", "")).upper() == entry["symbol"]
+                and getattr(item.contract, "secType", "") == expected_type
+                and getattr(item.contract, "currency", "USD") == "USD"
+            ]
+            if not exact:
+                entry["status"] = "error"
+                entry["error"] = f"No IBKR {expected_type} contract matched {entry['symbol']}"
+                entry["updated_at"] = _now()
+                return
+            details = exact[0]
+            contract = details.contract
+            entry["qualified_contract"] = contract
+            entry["primary_exchange"] = getattr(contract, "primaryExchange", "")
+            bar_request_id = self._request_id_locked()
+            entry["bar_request_id"] = bar_request_id
+            entry["status"] = "backfilling"
+            entry["error"] = None
+            self._bar_requests[bar_request_id] = key
+            probe = self._probe
+            request = (
+                bar_request_id,
+                contract,
+                "",
+                entry["duration"],
+                entry["bar_size"],
+                entry["what_to_show"],
+                int(entry["use_rth"]),
+                2,
+                True,
+                [],
+            )
+        if probe is None or not probe.isConnected():
+            self.set_request_error(bar_request_id, 0, "IBKR disconnected during contract qualification")
+            return
+        try:
+            probe.reqHistoricalData(*request)
+        except Exception as exc:  # noqa: BLE001 - report through snapshot
+            self.set_request_error(bar_request_id, 0, str(exc))
+
+    def receive_historical_bar(self, request_id: int, bar, *, forming: bool) -> None:
+        try:
+            timestamp = _bar_timestamp(bar.date)
+        except (TypeError, ValueError, OverflowError):
+            return
+        point = {
+            "ts": timestamp,
+            "open": _finite_number(bar.open),
+            "high": _finite_number(bar.high),
+            "low": _finite_number(bar.low),
+            "close": _finite_number(bar.close),
+            "volume": max(0.0, _finite_number(bar.volume)),
+            "complete": not forming,
+        }
+        session_date = _bar_session_date(bar.date)
+        if session_date is not None:
+            point["session_date"] = session_date
+        with self._lock:
+            key = self._bar_requests.get(request_id)
+            entry = self._bar_subscriptions.get(key) if key is not None else None
+            if entry is None:
+                return
+            bars = entry["bars"]
+            if forming and bars and timestamp not in bars:
+                last_key = next(reversed(bars))
+                bars[last_key]["complete"] = True
+            bars[timestamp] = point
+            bars.move_to_end(timestamp)
+            while len(bars) > _MAX_BARS:
+                bars.popitem(last=False)
+            entry["status"] = "streaming" if forming else entry["status"]
+            entry["error"] = None
+            entry["updated_at"] = _now()
+
+    def complete_historical_backfill(self, request_id: int) -> None:
+        with self._lock:
+            key = self._bar_requests.get(request_id)
+            entry = self._bar_subscriptions.get(key) if key is not None else None
+            if entry is not None:
+                entry["status"] = "streaming"
+                entry["error"] = None
+                entry["updated_at"] = _now()
+
+    def _restart_bar_subscriptions(self, probe: _Probe) -> None:
+        with self._lock:
+            keys = list(self._bar_subscriptions)
+            self._contract_requests.clear()
+            self._bar_requests.clear()
+            for entry in self._bar_subscriptions.values():
+                entry["status"] = "reconnecting"
+                entry["bar_request_id"] = None
+                entry["contract_request_id"] = None
+        for key in keys:
+            self._begin_contract_resolution(key, probe)
+
+    def bar_snapshot(
+        self,
+        symbol: str,
+        *,
+        asset_class: str,
+        bar_hours: int,
+        include_extended_hours: bool = False,
+    ) -> dict:
+        normalized = _normalize_symbol(symbol)
+        _, _, _, hours = _bar_request_settings(asset_class, bar_hours)
+        key = self._subscription_key(
+            normalized,
+            asset_class,
+            hours,
+            include_extended_hours,
+        )
+        with self._lock:
+            entry = self._bar_subscriptions.get(key)
+            if entry is None:
+                return {
+                    "source": "ib_gateway",
+                    "status": "not_subscribed",
+                    "symbol": normalized,
+                    "asset_class": asset_class,
+                    "bar_hours": hours,
+                    "bars": [],
+                    "as_of": None,
+                    "error": None,
+                }
+            entry["last_accessed"] = time.monotonic()
+            return {
+                "source": "ib_gateway",
+                "status": entry["status"],
+                "symbol": entry["symbol"],
+                "asset_class": entry["asset_class"],
+                "bar_hours": entry["bar_hours"],
+                "bar_size": entry["bar_size"],
+                "what_to_show": entry["what_to_show"],
+                "include_extended_hours": entry["include_extended_hours"],
+                "session_scope": "rth" if entry["use_rth"] else "all_hours",
+                "price_adjustment": (
+                    "split_adjusted_dividend_unadjusted"
+                    if entry["asset_class"] == "equity"
+                    else "not_applicable"
+                ),
+                "primary_exchange": entry.get("primary_exchange", ""),
+                "bars": list(entry["bars"].values()),
+                "as_of": entry["updated_at"],
+                "error": entry["error"],
+            }
 
     def _run(self) -> None:
         while not self._stop.is_set():
@@ -191,6 +600,7 @@ class BrokerMonitor:
                         self._state["last_connected_at"] = _now()
                         self._state["last_error"] = None
                         self._config["port"] = candidate_port
+                self._restart_bar_subscriptions(probe)
                 while not self._stop.is_set() and probe.isConnected():
                     self._wake.wait(timeout=2)
                     self._wake.clear()

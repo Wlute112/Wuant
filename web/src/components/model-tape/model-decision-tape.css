@@ -1,0 +1,269 @@
+.model-tape {
+  overflow: hidden;
+  background: var(--color-paper);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-md);
+}
+
+.model-tape.is-empty {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  color: var(--color-text-dim);
+  text-align: center;
+}
+
+.model-tape.is-empty p {
+  margin-top: var(--space-xs);
+}
+
+.model-tape__header,
+.model-tape__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-panel);
+}
+
+.model-tape__header {
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.model-tape__reading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  margin-top: var(--space-xs);
+  color: var(--color-text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-label-size);
+  font-variant-numeric: tabular-nums;
+}
+
+.model-tape__signal {
+  color: var(--color-text-primary);
+  letter-spacing: 0.1em;
+}
+
+.model-tape__signal.is-buy { color: var(--color-positive); }
+.model-tape__signal.is-sell,
+.model-tape__signal.is-exit { color: var(--color-negative); }
+
+.model-tape__legend {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-md);
+  color: var(--color-text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-label-size);
+}
+
+.model-tape__legend span::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 2px;
+  margin-right: 5px;
+  vertical-align: middle;
+  background: var(--color-text-primary);
+}
+
+.model-tape__legend .is-predicted::before {
+  height: 8px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--color-positive) 36%, transparent) 50%, color-mix(in srgb, var(--color-negative) 36%, transparent) 50%);
+  border: 1px dashed var(--color-text-dim);
+}
+.model-tape__legend .is-entry::before { background: var(--color-trace-cyan); }
+.model-tape__legend .is-target::before { background: var(--color-positive); }
+.model-tape__legend .is-stop::before { background: var(--color-negative); }
+.model-tape__legend .is-hmm::before { background: var(--color-trace-violet); }
+
+.model-tape__jump {
+  padding: 0;
+  color: var(--color-trace-cyan);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.model-tape__jump:hover,
+.model-tape__jump:focus-visible { text-decoration: underline; }
+
+.model-tape__canvas {
+  position: relative;
+  min-width: 0;
+}
+
+.model-tape__canvas svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 340px;
+  max-height: 620px;
+}
+
+.model-tape__plot-bg { fill: var(--color-void); }
+.model-tape__state-band { pointer-events: none; opacity: 0.055; }
+.model-tape__state-band.is-bull { fill: var(--color-positive); }
+.model-tape__state-band.is-bear { fill: var(--color-negative); }
+.model-tape__state-band.is-sideways { fill: var(--color-trace-violet); }
+.model-tape__grid { stroke: var(--color-hairline); stroke-width: 1; shape-rendering: crispEdges; }
+.model-tape__axis,
+.model-tape__pane-label {
+  fill: var(--color-text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-label-size);
+  font-variant-numeric: tabular-nums;
+}
+.model-tape__pane-label { letter-spacing: 1px; }
+.model-tape__wick { stroke-width: 1; }
+.model-tape__wick.is-up { stroke: var(--color-positive); }
+.model-tape__wick.is-down { stroke: var(--color-negative); }
+.model-tape__candle.is-up { fill: var(--color-positive); }
+.model-tape__candle.is-down { fill: var(--color-negative); }
+.model-tape__wick.is-forming {
+  stroke-width: 1.5;
+  stroke-dasharray: 3 2;
+}
+.model-tape__candle.is-forming {
+  stroke: var(--color-text-primary);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+.model-tape__forecast { pointer-events: none; }
+.model-tape__forecast-wick {
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+  opacity: 0.42;
+  vector-effect: non-scaling-stroke;
+}
+.model-tape__forecast-wick.is-up { stroke: var(--color-positive); }
+.model-tape__forecast-wick.is-down { stroke: var(--color-negative); }
+.model-tape__forecast-candle {
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+  opacity: 0.28;
+  vector-effect: non-scaling-stroke;
+}
+.model-tape__forecast-candle.is-up {
+  fill: var(--color-positive);
+  stroke: var(--color-positive);
+}
+.model-tape__forecast-candle.is-down {
+  fill: var(--color-negative);
+  stroke: var(--color-negative);
+}
+.model-tape__hit { fill: transparent; }
+
+.model-tape__hmm-window rect {
+  fill: none;
+  stroke: var(--color-trace-violet);
+  stroke-width: 1.25;
+  stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
+}
+.model-tape__hmm-window text,
+.model-tape__position-band text {
+  font-family: var(--font-mono);
+  font-size: var(--text-label-size);
+  letter-spacing: 0.06em;
+}
+.model-tape__hmm-window text { fill: var(--color-trace-violet); }
+.model-tape__position-band rect {
+  fill: color-mix(in srgb, var(--color-trace-cyan) 5%, transparent);
+  stroke: color-mix(in srgb, var(--color-trace-cyan) 38%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+.model-tape__position-band text {
+  fill: var(--color-trace-cyan);
+  opacity: 0.9;
+}
+
+.model-tape__reference line {
+  stroke-width: 1.5;
+  stroke-dasharray: 7 5;
+  vector-effect: non-scaling-stroke;
+}
+.model-tape__reference rect { fill: var(--color-panel); }
+.model-tape__reference text {
+  font-family: var(--font-mono);
+  font-size: var(--text-label-size);
+}
+.model-tape__reference.is-stop line { stroke: var(--color-negative); }
+.model-tape__reference.is-stop text { fill: var(--color-negative); }
+.model-tape__reference.is-target line { stroke: var(--color-positive); }
+.model-tape__reference.is-target text { fill: var(--color-positive); }
+.model-tape__reference.is-entry line { stroke: var(--color-trace-cyan); }
+.model-tape__reference.is-entry text { fill: var(--color-trace-cyan); }
+
+.model-tape__probability { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.model-tape__probability.is-bull { stroke: var(--color-positive); }
+.model-tape__probability.is-side { stroke: var(--color-trace-violet); }
+.model-tape__probability.is-bear { stroke: var(--color-negative); }
+
+.model-tape__marker text {
+  font-family: var(--font-mono);
+  font-size: var(--text-label-size);
+}
+.model-tape__marker.is-buy { fill: var(--color-positive); }
+.model-tape__marker.is-sell,
+.model-tape__marker.is-exit { fill: var(--color-negative); }
+.model-tape__crosshair { stroke: var(--color-text-primary); stroke-width: 1; opacity: 0.45; pointer-events: none; }
+
+.model-tape__tooltip {
+  position: absolute;
+  top: var(--space-md);
+  left: calc(var(--space-md) + 48px);
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  padding: var(--space-xs) var(--space-sm);
+  color: var(--color-text-dim);
+  background: var(--color-panel);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-label-size);
+  pointer-events: none;
+}
+.model-tape__tooltip strong { color: var(--color-text-primary); }
+
+.model-tape__footer {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--color-hairline);
+  color: var(--color-text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-label-size);
+}
+.model-tape__footer .is-reference-only { color: var(--color-threshold-warn); }
+.model-tape__footer .is-protected { color: var(--color-positive); }
+.model-tape__footer .is-demo { color: var(--color-text-primary); }
+.is-forming-reading { color: var(--color-trace-cyan); }
+
+.model-tape__window-overview {
+  display: flex;
+  height: 5px;
+  background: var(--color-void);
+  border-top: 1px solid var(--color-hairline);
+}
+.model-tape__window-overview span { flex: 1 1 0; min-width: 0; }
+.model-tape__window-overview .is-bull { background: var(--color-positive); }
+.model-tape__window-overview .is-bear { background: var(--color-negative); }
+.model-tape__window-overview .is-sideways { background: var(--color-trace-violet); }
+
+@media (max-width: 760px) {
+  .model-tape__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .model-tape__legend { justify-content: flex-start; }
+  .model-tape__canvas { overflow-x: auto; }
+  .model-tape__canvas svg { width: 920px; max-width: none; }
+  .model-tape__tooltip { position: sticky; left: var(--space-sm); width: fit-content; }
+}

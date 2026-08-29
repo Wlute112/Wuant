@@ -3,13 +3,13 @@
 - Omit conversational filler (e.g., "Let me check that").
 - Output only code changes, errors, and direct answers.
 
-# Two-Layer Quant System — Nautilus Trader + Interactive Brokers (Crypto)
+# Two-Layer Quant System — Nautilus Trader + Interactive Brokers
 
 A production-shaped rebuild of the research notebook into two cleanly decoupled
-layers, wired for **cryptocurrency** (spot BTC/ETH/SOL/... vs USD, IBKR Zero Hash
-venue) via **Nautilus Trader**, with **Optuna** hyperparameter optimization.
-Crypto is the focus because it trades **24/7** — no market-closed gaps, so the
-synthetic bars and real IBKR history are continuous calendar-day series.
+layers, wired for **crypto spot** (IBKR Zero Hash) and **US equities/ETFs**
+(IBKR SMART) via **Nautilus Trader**, with **Optuna** hyperparameter
+optimization. A canonical operating profile switches the scoring objective,
+calendar/session, routing, sizing precision, fees, universe, and regime defaults.
 
 ```
    ┌────────────────────┐      yhat       ┌────────────────────┐     order objects
@@ -77,7 +77,7 @@ quant/
 │   ├── run_backtest.py            # runnable backtest example
 │   ├── run_live.py                # paper/live TradingNode (same strategy)
 │   └── artifacts.py               # persists run results to quant/runs/*.json (dashboard reads these)
-├── optimize/optimize.py           # Optuna search w/ in-sample/out-of-sample split
+├── optimize/optimize.py           # purged nested walk-forward Optuna + outer holdout
 ├── api/                           # FastAPI backend for the reporting dashboard (Stage 6)
 ├── web/                           # React frontend for the reporting dashboard (Stage 6)
 └── requirements.txt
@@ -173,17 +173,17 @@ for disambiguation; without it, the adapter qualifies the SMART contract.
 
 ```bash
 python -m quant.optimize.optimize --csv quant/data/sample_bars.csv \
-    --trials 40 --train-frac 0.7 --seed 42
+    --trials 40 --final-test-frac 0.20 --walk-forward-folds 5 --seed 42
 ```
 
 ```bash
 python -m quant.optimize.optimize --csv quant/data/ibkr_bars.csv \
-    --trials 40 --train-frac 0.7 --seed 42
+    --trials 40 --final-test-frac 0.20 --walk-forward-folds 5 --seed 42
 ```
 
 **Two stopping modes.** By default (or with `--trials N`) the search runs a fixed
 number of trials. Pass `--score FLOAT` for **goal mode**: Optuna keeps proposing
-trials until a *completed* trial's `score_engine` value reaches the target, then
+trials until a *completed* trial's stability-aware walk-forward value reaches the target, then
 stops. `--trials` becomes an optional safety cap in goal mode (omit it to search
 uncapped — Ctrl-C to abort). The run prints whether the target was `REACHED`.
 
@@ -200,11 +200,22 @@ quant/data/equity_bars.csv --asset-class equity --tickers SPY QQQ --trials 40`.
 Each trial re-runs the *same* combined
 ML + strategy backtest from Stage 1 (the Huber model is still called on every
 bar) and just searches the strategy hyperparameters
-`n_lags, horizon, entry_threshold, atr_period, atr_stop_mult, use_limit_orders,
+`n_lags, horizon, training_window_bars, entry_threshold, atr_period, atr_stop_mult, use_limit_orders,
 limit_offset_bps, use_kelly_sizing, kelly_fraction, max_open_positions,
 cross_asset_lags, spread_lags, huber_alpha, huber_epsilon`.
-It optimizes on the **in-sample** window, then re-scores the best params on a
-held-out **out-of-sample** window so you can see overfitting.
+
+The newest 15–20% is an untouched outer test set. Earlier data is divided into
+5–8 chronological folds; every fold freezes the Huber fit before an embargo of
+`max(horizon, embargo_bars)` bars and enables trading only at validation start.
+Every trial runs across the full ticker universe under normal and 2x commission/
+slippage assumptions. The selection objective is
+`median(fold_ratio) - 0.5*std(fold_ratio) - turnover_penalty - cost_sensitivity_penalty`,
+and at least 60% of folds must be positive. Crypto uses net Sortino and equity
+uses net Sharpe. `training_window_bars` compares expanding history (`0`) against
+rolling windows derived from the configured warmup/minimum training size.
+The locked winner is evaluated on the outer test once under each cost assumption;
+the study is then immutable so later trials cannot tune against a seen holdout.
+Saved output remains promotion-blocked until shadow and paper behavior agree.
 
 **Fractional-Kelly conviction sizing.** When `use_kelly_sizing` is on, per-trade
 size scales with the strength of the edge relative to its variance:
@@ -272,12 +283,13 @@ Fetch:
 brew services start redis
 redis-cli ping
 export TWS_ACCOUNT=DU1234567
-python -m quant.run.run_live --tickers BTC ETH SOL --port 7497 \
-    --params quant/optimize/best_params.json
-
 python -m quant.run.run_live --asset-class equity --tickers SPY QQQ \
     --port 7497
 ```
+
+IBKR paper accounts do not support spot-crypto execution. Both the dashboard
+API and `run_live.py` reject crypto paper starts; use crypto backtests and the
+explicit demonstration tape instead.
 
 The paper/live runner uses Redis-backed Nautilus cache persistence by default,
 reconciles broker orders/positions at startup, restores model warmup and risk
@@ -286,27 +298,27 @@ first run without allowing those historical bars to trade. See
 “IBKR paper-trading setup” below. Use paper TWS port 7497 or paper Gateway
 port 4002.
 
-The dashboard Paper/Live forms expose the same asset-class selection, optional
-equity primary exchange, and short-selling opt-in. Strategy parameters are
+The dashboard Paper/Live forms expose the same asset-class selection and optional
+equity primary exchange. Short selling is locked until the P1 borrow, margin,
+recall, and short-sale restriction controls exist. Strategy parameters are
 selected with the browser's native JSON file picker; the frontend validates
 the JSON and sends its contents to the API, which writes a job-scoped params
 file for `run_live.py`. No server-side file path needs to be typed. The API
-also forwards `asset_class`, `primary_exchange`, and `allow_shorts`.
+also forwards `asset_class` and `primary_exchange`; execution remains long-only.
 
-## Stage 5 — Live trading (real money, explicit opt-in)
+## Stage 5 — Live trading (disabled pending readiness approval)
 
-Only after paper results match expectations:
-```bash
-python -m quant.run.run_live --tickers BTC ETH SOL --live --port 7496
-```
+Live capital is fail-closed in `run/readiness.py`, the CLI/node builder, API,
+and dashboard. There is no environment-variable bypass. See
+`PRODUCTION_READINESS.md` for the P0 gate register, validation campaign, and
+promotion process.
 
 # IBKR paper-trading setup
 
-The paper runner trades spot crypto or equities through the same `MLStrategy`
-used by the backtest. It persists orders, positions, account events, model
-warmup history, daily halts, and the permanent kill-switch in Redis. Crypto
-and equity use separate Nautilus trader/cache namespaces. Shorting is disabled
-by default; equity runs may opt in with `--allow-shorts`.
+The paper runner trades equities through the same `MLStrategy` used by the
+backtest. It persists orders, positions, account events, model warmup history,
+chart telemetry, daily halts, and the permanent kill-switch in Redis. Shorting
+is rejected until the P1 short-selling controls are complete.
 
 ## 1. Start persistence
 
@@ -334,7 +346,7 @@ redis-cli CONFIG REWRITE
 - Use port `7497` for paper TWS or `4002` for paper Gateway.
 - Disable read-only API mode so orders can be submitted.
 - Record the paper account id shown in TWS (commonly `DU...`).
-- Ensure crypto trading permission and market data are available.
+- Ensure equity trading permission and market data are available.
 
 IBKR paper fills are simulated and can differ from live fills.
 
@@ -345,19 +357,20 @@ From the directory containing `quant/`:
 ```bash
 export TWS_ACCOUNT=DU1234567
 quant/.quant312/bin/python -m quant.run.run_live \
-  --tickers BTC ETH SOL \
+  --asset-class equity \
+  --tickers QQQ \
   --host 127.0.0.1 \
   --port 7497 \
   --client-id 1 \
-  --cash 5000 \
   --params quant/optimize/best_params.json
 ```
 
-On first startup, the strategy requests historical daily bars to warm the
+On first startup, the strategy requests historical bars at the configured
+cadence to warm the
 model. Historical bars update model history but cannot place orders. Only new,
 completed streaming bars are evaluated for trading.
 
-Paper/live uses `MIDPOINT` daily bars because IBKR rejects Zero Hash
+Live crypto uses `MIDPOINT` bars because IBKR rejects Zero Hash
 `LAST`/`AGGTRADES` bars with `keepUpToDate=True` (API error 321). One-shot
 `LAST` history works, but cannot provide the continuing stream required by the
 strategy.
@@ -387,13 +400,17 @@ Logs should show all of the following before the session is considered ready:
 
 - the requested IBKR account was found;
 - execution reconciliation completed;
-- each requested `BASE/USD.ZEROHASH` instrument loaded;
-- daily-bar subscriptions started;
+- each requested SMART equity instrument loaded;
+- subscriptions at the configured bar cadence started;
 - Redis cache backing is enabled.
 
-This runner remains crypto-only. Equity paper/live routing is not implemented.
+The shared runner is shaped for either spot crypto or SMART-routed US
+equities/ETFs per process, but live-capital startup is disabled; paper is
+equity-only because of IBKR's spot-crypto limitation.
+Equity defaults to RTH `LAST` bars and whole shares; `--include-extended-hours`
+opts into pre/post-market data and supported outside-RTH orders.
 
-Paper/live spot crypto is long-only: bearish signals flatten an existing long
+Live spot crypto is long-only: bearish signals flatten an existing long
 and never open a naked short. Backtests retain their configured long/short
 behavior.
 
@@ -439,8 +456,8 @@ pieces, both additive — nothing above this line changed behavior:
 
 **Dashboard-controllable settings** (all optional overrides; omitting them keeps
 every existing default): Optuna sweeps can run a fixed trial count OR "goal
-mode" (run until a target Sortino-like score is reached, `--score`, already
-existed in `optimize.py` — the dashboard just exposes it); which alpha feature
+mode" (run until the selected profile's target score is reached, `--score` —
+Sortino for crypto, Sharpe for equity); which alpha feature
 blocks are on (AR/`n_lags`, regime transition-matrix, HMM, cross-asset
 ARDL+spread) and whether the regime/HMM features are **fit** (jointly weighted
 inside the Huber regression, original behavior) or **raw** (bypass the Huber
@@ -456,9 +473,11 @@ through `MLStrategyConfig` instead of being hardcoded at construction).
 (now also a STRUCTURAL_KEYS carrier, not just Optuna-tuned keys);
 `optimize.py` accepts them via a new `--structural-json <path>` file, applied
 identically to every trial and the final OOS validation (never searched by
-Optuna). The dashboard's "actual vs predicted price" overlay and Sortino
-ratio in the metrics panel both read from the same run artifact, reconstructed
-from the same walk-forward predictions used for the ML-performance panel.
+Optuna). The dashboard's model decision tape and profile-specific primary ratio
+both read from the same run artifact, reconstructed from the same walk-forward
+predictions used for the ML-performance panel. The profile switch also applies
+asset-specific universe, data path, bar cadence, session/routing, quantity,
+fee-model, and regime-threshold defaults.
 
 **IBKR auto-fetch on missing tickers**: both `run_backtest.py` and
 `optimize.py` accept `--fetch-missing` (plus
@@ -470,12 +489,12 @@ requirements/caveats as `ibkr_fetch.py`'s own CLI; off by default, and
 unverified against a live TWS in this environment. `--ibkr-bar-hours`
 (dashboard: the "Bar frequency" dropdown next to the IBKR fetch fields) sets
 the target bar width in hours for that fetch (1/2/3/4/8 native, or any
-integer multiple of one of those — see `ibkr_fetch.py`'s `_plan_bars`); it
-only changes the fetched CSV's granularity — the engine's own `BarType` label
-(`backtest_common.BAR_SUFFIX`) and the day-denominated regime/risk windows
-(20-day regime lookback, 24h daily-loss reset) are NOT rescaled to match, so a
-sub-daily fetch changes what a "day" means to those windows without warning
-beyond this note.
+integer multiple of one of those — see `ibkr_fetch.py`'s `_plan_bars`).
+Backtests infer a matching Nautilus `BarType`, persist the exact observed
+interval, and rescale the canonical 20-session regime lookback into completed
+bars. The daily-loss rail remains an elapsed 24-hour/UTC-day state machine
+rather than a bar counter. Research and execution params are rejected when
+their asset profile, session, or bar cadence metadata conflict.
 
 Run both from the SAME working directory every other command above uses
 (the directory containing `quant/`, not `quant/` itself):
@@ -486,12 +505,19 @@ quant/.quant312/bin/python -m uvicorn quant.api.main:app --reload --port 8000
 # frontend (terminal 2)
 cd quant/web && npm install && npm run dev   # http://localhost:5173
 ```
-Live/paper positions and risk panels currently serve realistic MOCK data
-(`api/live_mock.py`), clearly labeled "SIMULATED FEED" — Stage 4/5 paper/live
-trading doesn't yet report real position state anywhere the dashboard can
-read (see "Known simplifications" below), so those panels are wired for a
-real feed but show synthetic values until that exists. Backtest/Optuna
-reporting panels use real data from the run artifacts.
+Paper/live nodes write atomic job-scoped model telemetry JSON after every
+completed strategy bar. Separately, the dashboard's read-only IBKR monitor can
+qualify any searched `STK/SMART` or `CRYPTO/ZEROHASH` ticker and keeps a small
+LRU set of `reqHistoricalData(..., keepUpToDate=True)` subscriptions. This gives
+the chart an IB backfill plus updates to the current forming bar at the chosen
+1/2/3/4/8-hour or daily width. The frontend polls IB bars every two seconds and
+strategy telemetry every three seconds, merging them only when ticker and bar
+cadence match. Arbitrary symbols without strategy telemetry are explicitly
+labeled market-only. Active strategy symbols add yhat/signal, translucent
+green/red forward-close bars, HMM state/probabilities and fit-context box,
+position entry, and projected ATR stop/target lines. With no matching node,
+`api/live_mock.py` returns deterministic demonstration data clearly labeled as
+such. Backtest/Optuna panels use real run artifacts.
 
 ---
 
@@ -585,31 +611,29 @@ alignment/no-lookahead verification.
   (`--asset-class equity`) remain a flat ~$0.005/share commission
   (`PerContractFeeModel`), with IBKR's real per-order minimum/tiered schedule
   not modelled for that asset class.
-- **Bars:** daily OHLC only. Intraday/tick needs a different `BarSpecification`
-  and IBKR market-data subscriptions.
-- **Protective stops:** ATR stop distance currently controls position sizing,
-  but the strategy does not submit a broker-side stop order. Daily-loss and
-  drawdown controls remain active, but this must be implemented and exercised
-  in paper before promoting the system to live capital.
+- **Bars:** completed OHLC bars support daily and configured hourly cadences.
+  Tick/event-driven execution still needs a different data contract.
+- **Protective stops:** the shared broker path now creates an actual-fill-based
+  stop-market/take-profit OCA pair and resizes it after partial fills. This is
+  an unapproved implementation candidate until OCA transmit, modification,
+  restart, gap, session, and rejection behavior pass supported TWS/Gateway
+  paper tests. The dashboard labels protection active only after both orders
+  are acknowledged for the selected position.
 - **Instrument:** `make_crypto` defines **spot** crypto (`CurrencyPair`, BASE/USD,
   fractional size). For crypto **perps/futures** add `CryptoPerpetual` /
   `CryptoFuture` definitions with the correct multiplier + funding.
-- **Regime thresholds:** the 20-day Bull/Bear band (±2%), HMM refit cadence,
-  and the regime-feature smoothing/hysteresis defaults in `models/regime.py`
-  are all fixed, tuned implicitly for crypto's higher volatility — they are
-  **not** auto-adjusted per `--asset-class`. Running `--asset-class equity`
-  with these defaults will likely read mostly Sideways (index ETFs rarely
-  move ±2% over 20 days outside a real crisis); override
-  `regime_bull_threshold`/`regime_bear_threshold` in `PredictionConfig`
-  directly if you want equity-scaled regime labels.
+- **Regime defaults:** crypto uses a ±2% Bull/Bear band; equity uses ±1%.
+  The canonical 20-session lookback is rescaled for intraday bars. HMM refit
+  cadence and smoothing/hysteresis remain structural rather than Optuna-tuned.
 - **Equity trading calendar:** `generate_sample_bars.py --asset-class equity`
   skips weekends (`_business_days`) but does not model a real exchange holiday
   calendar — a documented simplification, same spirit as the crypto generator
   being "a pipeline exerciser, not market reality."
 - **Equity live/paper scope:** `run_live.py` now supports SMART-routed US
-  stocks/ETFs with whole-share sizing, RTH-only data, and LAST daily bars.
-  Shorting is an explicit `--allow-shorts` opt-in and remains subject to IBKR
-  permissions, borrow availability, and margin rules. Options, futures,
+  stocks/ETFs with whole-share sizing, RTH-by-default data, and LAST bars at
+  the configured cadence.
+  Shorting is rejected until borrow, fee, recall, SSR, permission, and margin
+  controls exist. Options, futures,
   extended-hours equity trading, and mixed crypto/equity runs are not covered.
 - **Real API status:** `run_live.py` has been exercised end-to-end against
   paper TWS on port 7497: managed-account discovery, Zero Hash BTC/ETH/SOL
@@ -630,11 +654,14 @@ alignment/no-lookahead verification.
   kill-switch and reconciles open positions/orders against IBKR. Redis is an
   operational dependency; monitor and back up its append-only volume before
   live deployment.
-- **Dashboard live/paper data is mocked:** `api/live_mock.py` serves
-  realistic sample positions/risk state, not real ones — nothing in
-  `run_live.py` reports live position/risk state anywhere the dashboard (or
-  anything else) can read yet. `/api/jobs/paper` and `/api/jobs/live` DO
-  actually spawn the verified `run_live.py` paper/live path, but the resulting
-  positions won't show up in the Live Positions panel until that reporting
-  path is built.
+- **Dashboard live/paper telemetry:** a running `run_live.py` publishes a
+  job-scoped atomic snapshot after every completed bar. Position quantity,
+  mark/notional, available unrealized PnL, strategy signal/model diagnostics,
+  and risk state are real. A separate read-only IB client supplies searched
+  chart bars and forming-bar updates; it caches at most eight live subscriptions
+  and still requires the relevant IBKR market-data permissions. If no node is
+  running, the endpoint deliberately serves labeled demonstration data. ATR
+  stop/target lines remain model references unless telemetry confirms an
+  acknowledged broker OCA pair for that position. Forecast candles encode predicted close with a half-ATR visual
+  envelope; they are not independent model forecasts of high and low.
 ```

@@ -1,11 +1,10 @@
 """Job-orchestration routes: trigger backtest/optuna/paper/live as subprocess
 jobs, poll their status/logs, and cancel them.
 
-/api/jobs/live is the one route that can deploy real capital. It is guarded
-twice: the caller must send the exact LIVE_CONFIRM_PHRASE (the dashboard's
-"type to arm" control), and the port must not be the paper port -- mirroring
-run/run_live.py's own --live / port-7497 guard so a UI bug can never bypass
-it at the process level.
+/api/jobs/live is the one route shaped to deploy real capital. It is currently
+fail-closed by the production-readiness gate before confirmation, port, or
+subprocess handling. The confirmation phrase and port checks remain as
+independent defense-in-depth controls for a future reviewed activation.
 """
 from __future__ import annotations
 
@@ -21,6 +20,8 @@ from quant.api.schemas import (
     OptimizeJobRequest,
     PaperJobRequest,
 )
+from quant.run.asset_profiles import get_asset_profile
+from quant.run.readiness import live_readiness_status
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 manager: JobManager | None = None  # set by quant.api.main at startup
@@ -37,6 +38,15 @@ def _args_from(flag_value_pairs) -> list[str]:
             continue
         args.extend([flag, str(value)])
     return args
+
+
+def _safe_execution_config(req, *, redact_confirmation: bool = False) -> dict:
+    config = req.model_dump()
+    if config.get("account_id"):
+        config["account_id"] = "<redacted-account>"
+    if redact_confirmation and "confirm" in config:
+        config["confirm"] = "<redacted>"
+    return config
 
 
 def _write_params_file(
@@ -92,9 +102,12 @@ def start_backtest(req: BacktestJobRequest):
             ]
         )
         if req.ibkr.replace_bars:
-            args += _args_from([("--ibkr-bar-hours", req.ibkr.ibkr_bar_hours or 4)]) + ["--replace-bars"]
+            bar_hours = req.ibkr.ibkr_bar_hours or get_asset_profile(req.asset_class)["defaults"]["bar_hours"]
+            args += _args_from([("--ibkr-bar-hours", bar_hours)]) + ["--replace-bars"]
         else:
             args += ["--fetch-missing"]
+        if req.ibkr.include_extended_hours:
+            args += ["--include-extended-hours"]
     return manager.submit(
         "backtest", "quant.run.run_backtest", args, config=req.model_dump(), job_id=job_id
     )
@@ -116,7 +129,15 @@ def start_optimize(req: OptimizeJobRequest):
             ("--tickers", req.tickers),
             ("--trials", req.trials),
             ("--score", req.score),
-            ("--train-frac", req.train_frac),
+            ("--final-test-frac", req.final_test_frac),
+            ("--walk-forward-folds", req.walk_forward_folds),
+            ("--embargo-bars", req.embargo_bars),
+            ("--stability-std-weight", req.stability_std_weight),
+            ("--turnover-penalty-weight", req.turnover_penalty_weight),
+            ("--cost-sensitivity-weight", req.cost_sensitivity_weight),
+            ("--min-positive-fold-fraction", req.min_positive_fold_fraction),
+            ("--normal-slippage-probability", req.normal_slippage_probability),
+            ("--stress-cost-multiplier", req.stress_cost_multiplier),
             ("--cash", req.cash),
             ("--seed", req.seed),
             ("--warmup-bars", req.warmup_bars),
@@ -137,9 +158,12 @@ def start_optimize(req: OptimizeJobRequest):
             ]
         )
         if req.ibkr.replace_bars:
-            args += _args_from([("--ibkr-bar-hours", req.ibkr.ibkr_bar_hours or 4)]) + ["--replace-bars"]
+            bar_hours = req.ibkr.ibkr_bar_hours or get_asset_profile(req.asset_class)["defaults"]["bar_hours"]
+            args += _args_from([("--ibkr-bar-hours", bar_hours)]) + ["--replace-bars"]
         else:
             args += ["--fetch-missing"]
+        if req.ibkr.include_extended_hours:
+            args += ["--include-extended-hours"]
     return manager.submit(
         "optimize", "quant.optimize.optimize", args, config=req.model_dump(), job_id=job_id
     )
@@ -147,11 +171,23 @@ def start_optimize(req: OptimizeJobRequest):
 
 @router.post("/paper", status_code=202)
 def start_paper(req: PaperJobRequest):
+    if req.asset_class == "crypto":
+        raise HTTPException(
+            400,
+            "IBKR paper accounts do not support spot-crypto execution. "
+            "Use the crypto backtest/demo feed, or select Equity for broker paper trading.",
+        )
     if req.port in {7496, 4001}:
         raise HTTPException(
             400,
             f"Refusing to start a paper-trading job on LIVE port {req.port}. "
             "Use /api/jobs/live for live trading.",
+        )
+    if req.allow_shorts:
+        raise HTTPException(
+            400,
+            "Short selling is disabled until borrow, SSR, margin, recall, and "
+            "forced-buy-in controls are implemented.",
         )
     job_id = manager.new_job_id("paper")
     params_path = _write_params_file(job_id, req.params_path, req.params, {})
@@ -166,23 +202,43 @@ def start_paper(req: PaperJobRequest):
             ("--account-id", req.account_id),
             ("--cash", req.cash),
             ("--params", params_path),
+            ("--bar-hours", req.bar_hours),
             ("--redis-host", req.redis_host),
             ("--redis-port", req.redis_port),
         ]
     )
     if req.allow_shorts:
         args.append("--allow-shorts")
+    if req.include_extended_hours:
+        args.append("--include-extended-hours")
+    args += ["--telemetry-path", str(JOBS_DIR / f"{job_id}_telemetry.json")]
     return manager.submit(
         "paper",
         "quant.run.run_live",
         args,
-        config=req.model_dump(),
+        config=_safe_execution_config(req),
         job_id=job_id,
     )
 
 
 @router.post("/live", status_code=202)
 def start_live(req: LiveJobRequest):
+    readiness = live_readiness_status()
+    if not readiness["live_capital_enabled"]:
+        raise HTTPException(
+            503,
+            {
+                "code": readiness["code"],
+                "message": "Live capital is disabled until every P0 production-readiness gate passes.",
+                "incomplete": readiness["incomplete"],
+            },
+        )
+    if req.allow_shorts:
+        raise HTTPException(
+            400,
+            "Short selling is disabled until borrow, SSR, margin, recall, and "
+            "forced-buy-in controls are implemented.",
+        )
     if req.confirm != LIVE_CONFIRM_PHRASE:
         raise HTTPException(
             400,
@@ -208,14 +264,17 @@ def start_live(req: LiveJobRequest):
             ("--account-id", req.account_id),
             ("--cash", req.cash),
             ("--params", params_path),
+            ("--bar-hours", req.bar_hours),
             ("--redis-host", req.redis_host),
             ("--redis-port", req.redis_port),
         ]
     ) + ["--live"]
     if req.allow_shorts:
         args.append("--allow-shorts")
-    safe_config = req.model_dump()
-    safe_config["confirm"] = "<redacted>"
+    if req.include_extended_hours:
+        args.append("--include-extended-hours")
+    args += ["--telemetry-path", str(JOBS_DIR / f"{job_id}_telemetry.json")]
+    safe_config = _safe_execution_config(req, redact_confirmation=True)
     job = manager.submit(
         "live",
         "quant.run.run_live",

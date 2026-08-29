@@ -11,6 +11,9 @@ export const DEFAULT_FEATURES = {
   hmm_source: "fit",
   regime_raw_scale: 1.0,
   hmm_raw_scale: 1.0,
+  regime_window: 20,
+  regime_bull_threshold: 0.02,
+  regime_bear_threshold: -0.02,
 };
 
 // AR lags / cross-asset ARDL lags / cross-asset spread lags are Optuna's
@@ -121,26 +124,57 @@ export default function FeaturePanel({
             <span className="label">Regime (transition-matrix)</span>
           </label>
           {value.use_regime_features && (
-            <div className="feature-panel__sub">
-              <select
-                aria-label="Regime feature source"
-                value={value.regime_source}
-                onChange={(e) => set({ regime_source: e.target.value })}
-              >
-                <option value="fit">Fit (weighted in Huber)</option>
-                <option value="raw">Raw (bypass Huber)</option>
-              </select>
-              {value.regime_source === "raw" && (
+            <>
+              <div className="feature-panel__sub">
+                <select
+                  aria-label="Regime feature source"
+                  value={value.regime_source}
+                  onChange={(e) => set({ regime_source: e.target.value })}
+                >
+                  <option value="fit">Fit (weighted in Huber)</option>
+                  <option value="raw">Raw (bypass Huber)</option>
+                </select>
+                {value.regime_source === "raw" && (
+                  <input
+                    aria-label="Regime raw contribution scale"
+                    type="number"
+                    step={0.01}
+                    value={value.regime_raw_scale}
+                    onChange={(e) => set({ regime_raw_scale: Number(e.target.value) })}
+                    title="regime_raw_scale -- yhat contribution = regime_score * this"
+                  />
+                )}
+              </div>
+              <div className="feature-panel__regime-parameters">
                 <input
-                  aria-label="Regime raw contribution scale"
+                  aria-label="Regime lookback bars"
                   type="number"
-                  step={0.01}
-                  value={value.regime_raw_scale}
-                  onChange={(e) => set({ regime_raw_scale: Number(e.target.value) })}
-                  title="regime_raw_scale -- yhat contribution = regime_score * this"
+                  min={2}
+                  value={value.regime_window}
+                  onChange={(e) => set({ regime_window: Number(e.target.value) })}
+                  title="Regime lookback bars"
                 />
-              )}
-            </div>
+                <input
+                  aria-label="Bull regime return threshold"
+                  type="number"
+                  min={0.0001}
+                  step={0.001}
+                  value={value.regime_bull_threshold}
+                  onChange={(e) => set({ regime_bull_threshold: Number(e.target.value) })}
+                  title="Bull return threshold"
+                />
+                <input
+                  aria-label="Bear regime return threshold"
+                  type="number"
+                  max={-0.0001}
+                  step={0.001}
+                  value={value.regime_bear_threshold}
+                  onChange={(e) => set({ regime_bear_threshold: Number(e.target.value) })}
+                  title="Bear return threshold"
+                />
+              </div>
+              <span className="feature-panel__hint">Window · bull threshold · bear threshold</span>
+            </>
           )}
         </div>
 

@@ -34,20 +34,42 @@ import numpy as np
 
 from nautilus_trader.config import StrategyConfig
 from nautilus_trader.core.message import Event
-from nautilus_trader.model.data import Bar, BarType
+from nautilus_trader.model.data import Bar, BarType, QuoteTick, TradeTick
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.events import (
+    OrderAccepted,
+    OrderCancelRejected,
     OrderCanceled,
+    OrderDenied,
     OrderExpired,
     OrderFilled,
+    OrderPendingCancel,
+    OrderModifyRejected,
     OrderRejected,
+    OrderSubmitted,
+    OrderUpdated,
 )
-from nautilus_trader.model.identifiers import AccountId, InstrumentId
+from nautilus_trader.model.identifiers import AccountId, ClientOrderId, InstrumentId
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.trading.strategy import Strategy
 
 from quant.models.prediction_engine import PredictionConfig, PredictionEngine
+from quant.news.core import NewsFeatureReader, NewsFeatureSnapshot
+from quant.run.telemetry import LiveTelemetryRecorder
+from quant.strategies.execution_state import (
+    ExecutionLedger,
+    ExecutionSafetyController,
+    ExecutionSafetyState,
+    LifecycleStatus,
+    OrderRole,
+)
 from quant.strategies.risk import RiskConfig, RiskManager, TradingState
+from quant.strategies.sessions import (
+    ExchangeSessionCalendar,
+    SessionPhase,
+    SessionPolicy,
+    SessionPolicyMode,
+)
 
 
 class _PendingSignal(NamedTuple):
@@ -96,6 +118,11 @@ class MLStrategyConfig(StrategyConfig, frozen=True):
     # tickers/timeframe actually have. Must stay > 1.0 (sklearn requirement).
     huber_epsilon: float = 1.35
 
+    # 0 keeps the original expanding Huber fit. Positive values retain only
+    # the newest labeled feature rows at each refit, allowing Optuna's purged
+    # walk-forward objective to validate adaptation to changing regimes.
+    training_window_bars: int = 0
+
     # --- fractional-Kelly conviction sizing (Optuna-tuned) ---
     # When on, position size scales with the strength of the edge (|yhat|)
     # relative to its variance, times `kelly_fraction`. It only ever de-risks
@@ -119,6 +146,8 @@ class MLStrategyConfig(StrategyConfig, frozen=True):
     use_regime_features: bool = True  # transition-matrix bull-minus-bear score
     use_hmm_feature: bool = True      # GaussianHMM latent-state feature
     regime_window: int = 20           # rolling-return lookback for labelling
+    regime_bull_threshold: float = 0.02
+    regime_bear_threshold: float = -0.02
     # --- fit vs raw source for each regime feature (see models/prediction_engine.py) ---
     # "fit": jointly weighted inside the Huber regression (original behaviour).
     # "raw": bypasses the Huber fit and contributes value*scale to yhat directly.
@@ -135,6 +164,22 @@ class MLStrategyConfig(StrategyConfig, frozen=True):
     cross_asset_lags: int = 0
     spread_lags: int = 0
     cross_asset_symbols: tuple[str, ...] = ()
+
+    # --- causal live/historical news alpha -------------------------------
+    # The reader sees only articles whose first received_at timestamp is no
+    # later than the completed bar.  Raw mode contributes a tightly bounded
+    # return adjustment immediately; fit mode lets Huber estimate its weight.
+    use_news_features: bool = True
+    news_source: str = "raw"           # "fit" | "raw"
+    news_raw_scale: float = 0.001
+    news_score_clip: float = 1.0
+    news_data_path: str = ""
+    news_half_life_hours: float = 12.0
+    news_max_age_hours: float = 72.0
+    news_direct_weight: float = 1.0
+    news_industry_weight: float = 0.45
+    news_commodity_weight: float = 0.55
+    news_macro_weight: float = 0.20
 
     # --- refit cadence (fixed structural setting; NOT Optuna-tuned) ---
     # How often (in post-warmup bars) the Huber model is refit via
@@ -176,22 +221,74 @@ class MLStrategyConfig(StrategyConfig, frozen=True):
     kill_switch_pct: float = 0.10
     kill_warn_pct: float = 0.05
     kelly_max_fraction: float = 0.5
+    max_order_notional_pct: float = 0.10
+    max_symbol_exposure_pct: float = 0.25
+    max_sector_exposure_pct: float = 0.30
+    max_gross_exposure_pct: float = 1.0
+    max_concentration_pct: float = 1.0
+    price_collar_pct: float = 0.05
+
+    # --- live execution safety (runtime-owned; identical for paper/live) ---
+    execution_mode: str = "backtest"  # backtest | paper | live
+    asset_class: str = "crypto"
+    entry_time_in_force: str = "GTC"
+    stale_entry_bars: int = 1
+    rejection_suspend_threshold: int = 1
+    enable_broker_protection: bool = False
+    protection_target_rr: float = 2.0
+    risk_check_interval_secs: int = 0
+    max_market_data_age_secs: int = 15
+    startup_health_grace_secs: int = 30
+    cancel_ack_timeout_secs: int = 30
+    require_session_schedule: bool = False
+    session_policy: str = "RTH_ONLY"
+    opening_buffer_minutes: int = 5
+    closing_buffer_minutes: int = 5
+    no_new_entry_minutes_before_close: int = 15
+    participate_opening_auction: bool = False
+    participate_closing_auction: bool = False
+    cancel_entries_at_session_end: bool = True
     # Live/paper startup requests enough historical bars to warm the alpha
     # without submitting orders for that history. Ignored by backtests.
     request_historical_bars: bool = False
     bootstrap_lookback_days: int = 400
+    # Optional local paper/live telemetry bridge. Blank in backtests, so this
+    # has zero effect on simulation performance or strategy behavior.
+    telemetry_path: str = ""
+    telemetry_asset_class: str = "crypto"
+    telemetry_mode: str = "paper"
+    telemetry_include_extended_hours: bool = False
+    telemetry_max_points: int = 750
+    telemetry_target_rr: float = 2.0
+    # Adapter-specific order metadata is assembled by the runner. The strategy
+    # merely forwards opaque tags, preserving its venue-agnostic boundary.
+    order_tags: tuple[str, ...] = ()
+
+    # Backtest-only fold controls. They let the optimizer warm the model on a
+    # fold's training history, freeze it before the embargo, and enable orders
+    # only when validation begins. Zero leaves ordinary backtests unchanged.
+    backtest_model_fit_end_ns: int = 0
+    backtest_trade_start_ns: int = 0
 
 
 class MLStrategy(Strategy):
     def __init__(self, config: MLStrategyConfig):
         super().__init__(config)
         self._engines: dict[InstrumentId, PredictionEngine] = {}
-        # maxlen kept large so the in-backtest fit sees the SAME expanding
-        # history as the offline walk_forward() (which never truncates). A small
-        # cap here would silently drop old bars and desync the two paths.
+        # maxlen stays large even when Huber fitting uses a rolling window:
+        # regime/cross-asset features still need the full past, while
+        # PredictionEngine applies training_window_bars only to labeled fit rows.
         self._closes: dict[InstrumentId, deque] = defaultdict(
             lambda: deque(maxlen=100_000)
         )
+        self._bar_times: dict[InstrumentId, deque] = defaultdict(
+            lambda: deque(maxlen=100_000)
+        )
+        self._news_scores: dict[InstrumentId, deque] = defaultdict(
+            lambda: deque(maxlen=100_000)
+        )
+        self._news_meta: dict[InstrumentId, NewsFeatureSnapshot] = {}
+        self._news_reader: NewsFeatureReader | None = None
         self._highs: dict[InstrumentId, deque] = defaultdict(lambda: deque(maxlen=64))
         self._lows: dict[InstrumentId, deque] = defaultdict(lambda: deque(maxlen=64))
         self._prev_close: dict[InstrumentId, float] = {}
@@ -225,11 +322,40 @@ class MLStrategy(Strategy):
         # PredictionEngine's cfg.peer_symbols) -> InstrumentId, so per-bar peer
         # lookups for cross-asset features don't re-parse strings every bar.
         self._iid_by_raw: dict[str, InstrumentId] = {}
+        self._raw_by_iid: dict[InstrumentId, str] = {}
         self._last_bar_ns: dict[InstrumentId, int] = defaultdict(int)
         # Nautilus loads strategy state before on_start constructs the risk
         # manager and instrument maps, so on_load stages the decoded payload.
         self._loaded_state: dict | None = None
         self._account_equity_baseline: float | None = None
+        self._telemetry: LiveTelemetryRecorder | None = None
+        self._telemetry_failed = False
+        self._historical_telemetry_count = 0
+        # Model-derived reference levels for positions/orders. Telemetry marks
+        # them broker-guaranteed only after both OCA protection legs are
+        # acknowledged for the actual filled position.
+        self._position_references: dict[InstrumentId, dict] = {}
+        self._execution = ExecutionLedger()
+        self._execution_safety = ExecutionSafetyController(
+            max_rejections=max(1, int(config.rejection_suspend_threshold))
+        )
+        self._session_calendars: dict[InstrumentId, ExchangeSessionCalendar] = {}
+        self._last_session_phase: dict[InstrumentId, SessionPhase] = {}
+        self._last_mark: dict[InstrumentId, float] = {}
+        self._entry_submitted_bar: dict[str, int] = {}
+        self._pending_exits: dict[InstrumentId, str] = {}
+        self._protection_ids: dict[InstrumentId, dict[str, str]] = {}
+        self._startup_protection_pending: set[InstrumentId] = set()
+        self._started_at = None
+        self._risk_timer_name = f"RISK_SUPERVISOR-{self.id}"
+        self._staged_exit_timer_name = f"STAGED-EXIT-{self.id}"
+        self._staged_exit_started_at = None
+        self._staged_exit_active = False
+        self._reconciliation_state = (
+            "NOT_STARTED"
+            if config.execution_mode in {"paper", "live"}
+            else "NOT_APPLICABLE"
+        )
 
     # ---- lifecycle ------------------------------------------------------
     def on_start(self) -> None:
@@ -243,12 +369,42 @@ class MLStrategy(Strategy):
                 kill_switch_pct=self.config.kill_switch_pct,
                 kill_warn_pct=self.config.kill_warn_pct,
                 kelly_max_fraction=self.config.kelly_max_fraction,
+                max_order_notional_pct=self.config.max_order_notional_pct,
+                max_symbol_exposure_pct=self.config.max_symbol_exposure_pct,
+                max_sector_exposure_pct=self.config.max_sector_exposure_pct,
+                max_gross_exposure_pct=self.config.max_gross_exposure_pct,
+                max_concentration_pct=self.config.max_concentration_pct,
+                price_collar_pct=self.config.price_collar_pct,
             ),
         )
+        self._started_at = self.clock.utc_now()
         self._n_instruments = len(self.config.instrument_ids)
+        if self.config.use_news_features and self.config.news_data_path:
+            try:
+                self._news_reader = NewsFeatureReader(
+                    self.config.news_data_path,
+                    half_life_hours=self.config.news_half_life_hours,
+                    max_age_hours=self.config.news_max_age_hours,
+                    direct_weight=self.config.news_direct_weight,
+                    industry_weight=self.config.news_industry_weight,
+                    commodity_weight=self.config.news_commodity_weight,
+                    macro_weight=self.config.news_macro_weight,
+                )
+            except Exception as exc:  # noqa: BLE001 - news is additive, risk stays active
+                self.log.error(f"News feature reader unavailable; using neutral scores: {exc}")
+        if self.config.telemetry_path:
+            self._telemetry = LiveTelemetryRecorder(
+                self.config.telemetry_path,
+                asset_class=self.config.telemetry_asset_class,
+                mode=self.config.telemetry_mode,
+                bar_type=self.config.bar_type_suffix,
+                max_points=self.config.telemetry_max_points,
+                include_extended_hours=self.config.telemetry_include_extended_hours,
+            )
         for raw in self.config.instrument_ids:
             iid = InstrumentId.from_str(raw)
             self._iid_by_raw[raw] = iid
+            self._raw_by_iid[iid] = raw
             bt = BarType.from_str(f"{raw}{self.config.bar_type_suffix}")
             self._bar_types[iid] = bt
             # Each instrument's peer universe for cross-asset ARDL/spread
@@ -263,9 +419,12 @@ class MLStrategy(Strategy):
                     n_lags=self.config.n_lags,
                     horizon=self.config.horizon,
                     min_train_bars=self.config.min_train_bars,
+                    training_window_bars=self.config.training_window_bars,
                     use_regime_features=self.config.use_regime_features,
                     use_hmm_feature=self.config.use_hmm_feature,
                     regime_window=self.config.regime_window,
+                    regime_bull_threshold=self.config.regime_bull_threshold,
+                    regime_bear_threshold=self.config.regime_bear_threshold,
                     regime_source=self.config.regime_source,
                     hmm_source=self.config.hmm_source,
                     regime_raw_scale=self.config.regime_raw_scale,
@@ -273,13 +432,39 @@ class MLStrategy(Strategy):
                     cross_asset_lags=self.config.cross_asset_lags,
                     spread_lags=self.config.spread_lags,
                     peer_symbols=peers,
+                    use_news_features=self.config.use_news_features,
+                    news_source=self.config.news_source,
+                    news_raw_scale=self.config.news_raw_scale,
+                    news_score_clip=self.config.news_score_clip,
                     huber_alpha=self.config.huber_alpha,
                     huber_epsilon=self.config.huber_epsilon,
                 )
             )
             self.subscribe_bars(bt)
+            if self.config.execution_mode in {"paper", "live"}:
+                self.subscribe_quote_ticks(iid)
+                self.subscribe_trade_ticks(iid)
+                self.subscribe_instrument_status(iid)
+                self._initialize_session_calendar(iid)
             self.log.info(f"Subscribed {bt}")
         self._restore_loaded_state()
+        if self.config.require_session_schedule:
+            missing_schedules = [
+                str(iid) for iid in self._bar_types if iid not in self._session_calendars
+            ]
+            if missing_schedules:
+                self._execution_safety.mark_uncertain(
+                    "Required IBKR exchange sessions unavailable after state restore: "
+                    + ", ".join(missing_schedules),
+                    ts_ns=self.clock.timestamp_ns(),
+                )
+        self._adopt_reconciled_broker_orders()
+        if self.config.execution_mode in {"paper", "live"}:
+            self._reconciliation_state = (
+                "UNCERTAIN"
+                if self._execution_safety.state == ExecutionSafetyState.UNCERTAIN
+                else "STRATEGY_CACHE_RECONCILED"
+            )
         for iid, bt in self._bar_types.items():
             if (
                 self.config.request_historical_bars
@@ -291,20 +476,18 @@ class MLStrategy(Strategy):
                     - timedelta(days=self.config.bootstrap_lookback_days),
                 )
         self._reconcile_committed_notional()
+        self._reconcile_protection_after_restart()
+        if self.config.risk_check_interval_secs > 0:
+            self.clock.set_timer(
+                name=self._risk_timer_name,
+                interval=timedelta(seconds=self.config.risk_check_interval_secs),
+                callback=self.on_time_event,
+            )
 
     # ---- helpers --------------------------------------------------------
     def _equity(self) -> float:
         try:
-            acct = None
-            if self.config.account_id:
-                acct = self.portfolio.account(
-                    account_id=AccountId.from_str(self.config.account_id)
-                )
-            if acct is None and self._bar_types:
-                acct = self.portfolio.account(self._venue_for_any())
-            if acct is None:
-                accounts = self.cache.accounts()
-                acct = accounts[0] if len(accounts) == 1 else None
+            acct = self._account()
             if acct is not None:
                 bal = acct.balance_total()
                 if bal is not None:
@@ -326,6 +509,396 @@ class MLStrategy(Strategy):
     def _venue_for_any(self):
         first = next(iter(self._bar_types.values()))
         return first.instrument_id.venue
+
+    def _account(self):
+        try:
+            if self.config.account_id:
+                account = self.portfolio.account(
+                    account_id=AccountId.from_str(self.config.account_id)
+                )
+                if account is not None:
+                    return account
+            if self._bar_types:
+                account = self.portfolio.account(self._venue_for_any())
+                if account is not None:
+                    return account
+            accounts = self.cache.accounts()
+            return accounts[0] if len(accounts) == 1 else None
+        except Exception:  # noqa: BLE001 - callers fail closed in broker modes
+            return None
+
+    def _initialize_session_calendar(self, iid: InstrumentId) -> None:
+        if self.config.asset_class != "equity":
+            return
+        instrument = self.cache.instrument(iid)
+        info = getattr(instrument, "info", None) if instrument is not None else None
+        try:
+            policy = SessionPolicy(
+                mode=SessionPolicyMode(self.config.session_policy),
+                opening_buffer_minutes=self.config.opening_buffer_minutes,
+                closing_buffer_minutes=self.config.closing_buffer_minutes,
+                no_new_entry_minutes_before_close=(
+                    self.config.no_new_entry_minutes_before_close
+                ),
+                participate_opening_auction=self.config.participate_opening_auction,
+                participate_closing_auction=self.config.participate_closing_auction,
+                cancel_entries_at_session_end=self.config.cancel_entries_at_session_end,
+            )
+            calendar = ExchangeSessionCalendar.from_instrument_info(
+                info,
+                policy=policy,
+                max_market_data_age=timedelta(
+                    seconds=max(1, self.config.max_market_data_age_secs)
+                ),
+            )
+        except (TypeError, ValueError) as exc:
+            if self.config.require_session_schedule:
+                self._execution_safety.mark_uncertain(
+                    f"Cannot establish IBKR exchange session for {iid}: {exc}",
+                    ts_ns=self.clock.timestamp_ns(),
+                )
+                self.log.error(
+                    f"Trading suspended: cannot establish IBKR exchange session for {iid}: {exc}"
+                )
+            return
+        self._session_calendars[iid] = calendar
+        self._last_session_phase[iid] = calendar.phase_at(
+            self.clock.utc_now(),
+            enforce_data_health=False,
+        )
+
+    def _entry_tif(self) -> TimeInForce:
+        try:
+            return TimeInForce[self.config.entry_time_in_force.upper()]
+        except KeyError as exc:
+            raise ValueError(
+                f"unsupported entry_time_in_force {self.config.entry_time_in_force!r}"
+            ) from exc
+
+    def _broker_position_state(self, iid: InstrumentId) -> tuple[float, float | None]:
+        positions = self.cache.positions_open(
+            instrument_id=iid,
+            strategy_id=self.id,
+        )
+        if not positions:
+            net = self.portfolio.net_position(iid)
+            return (float(net) if net is not None else 0.0), None
+        signed = sum(float(position.signed_qty) for position in positions)
+        total = sum(abs(float(position.signed_qty)) for position in positions)
+        average = (
+            sum(
+                abs(float(position.signed_qty)) * float(position.avg_px_open)
+                for position in positions
+            )
+            / total
+            if total > 0
+            else None
+        )
+        return signed, average
+
+    def _adopt_reconciled_broker_orders(self) -> None:
+        if self.config.execution_mode not in {"paper", "live"}:
+            return
+        unknown: list[str] = []
+        for order in [
+            *self.cache.orders_open(strategy_id=self.id),
+            *self.cache.orders_inflight(strategy_id=self.id),
+        ]:
+            order_id = str(order.client_order_id)
+            if order_id in self._execution.orders:
+                continue
+            role = (
+                OrderRole.EMERGENCY_EXIT
+                if "MARKET_EXIT" in (order.tags or [])
+                else OrderRole.UNKNOWN
+            )
+            record = self._execution.register_order(
+                client_order_id=order_id,
+                instrument_id=str(order.instrument_id),
+                side=order.side.name,
+                requested_quantity=order.quantity.as_double(),
+                role=role,
+                signal_version="RECONCILED_EXTERNAL",
+                ts_ns=self.clock.timestamp_ns(),
+            )
+            self._execution.apply_order_state(
+                order_id,
+                LifecycleStatus.ACKNOWLEDGED,
+                ts_ns=self.clock.timestamp_ns(),
+                venue_order_id=str(order.venue_order_id or ""),
+            )
+            if record.role == OrderRole.UNKNOWN:
+                unknown.append(order_id)
+        if unknown:
+            self._execution_safety.mark_uncertain(
+                f"Reconciliation found {len(unknown)} unclassified broker order(s): "
+                f"{', '.join(unknown)}",
+                ts_ns=self.clock.timestamp_ns(),
+            )
+
+    def _session_allows_entry(self, iid: InstrumentId, when: datetime) -> tuple[bool, str]:
+        calendar = self._session_calendars.get(iid)
+        if calendar is None:
+            if self.config.require_session_schedule:
+                return False, "SESSION_SCHEDULE_UNAVAILABLE"
+            return True, "NOT_REQUIRED"
+        allowed, reason = calendar.allows_new_entry(when)
+        if not allowed:
+            return False, reason
+        order_type = "LIMIT" if self.config.use_limit_orders else "MARKET"
+        return calendar.validates_order(
+            when,
+            order_type=order_type,
+            time_in_force=self.config.entry_time_in_force,
+            is_entry=True,
+        )
+
+    def _cancel_working_entry_orders(
+        self,
+        iid: InstrumentId | None = None,
+        *,
+        reason: str,
+    ) -> int:
+        canceled = 0
+        for record in self._execution.working_orders(
+            instrument_id=str(iid) if iid is not None else None,
+            roles={OrderRole.ENTRY},
+        ):
+            order = self.cache.order(ClientOrderId(record.client_order_id))
+            if order is None or order.is_closed:
+                continue
+            if record.status != LifecycleStatus.PENDING_CANCEL:
+                if self._cancel_order_safely(order, record, reason=reason):
+                    canceled += 1
+                    self.log.warning(
+                        f"Canceling working entry {record.client_order_id} for {record.instrument_id}: {reason}"
+                    )
+        return canceled
+
+    def _cancel_order_safely(self, order, record=None, *, reason: str) -> bool:
+        try:
+            self.cancel_order(order)
+        except Exception as exc:
+            self._execution_safety.suspend(
+                f"Local cancellation failed for {order.client_order_id}: {exc}",
+                code="LOCAL_CANCEL_FAILED",
+                ts_ns=self.clock.timestamp_ns(),
+                client_order_id=str(order.client_order_id),
+                instrument_id=str(order.instrument_id),
+            )
+            self.log.error(
+                f"Cancellation failed for {order.client_order_id} ({reason}): {exc}"
+            )
+            return False
+        if record is not None:
+            self._execution.apply_order_state(
+                record.client_order_id,
+                LifecycleStatus.PENDING_CANCEL,
+                ts_ns=self.clock.timestamp_ns(),
+            )
+        return True
+
+    def _supervise_risk(self, when: datetime) -> None:
+        if self._risk is None:
+            return
+        broker_mode = self.config.execution_mode in {"paper", "live"}
+        if broker_mode:
+            account = self._account()
+            try:
+                total_balance = account.balance_total() if account is not None else None
+                base_currency = getattr(account, "base_currency", None)
+            except Exception:  # noqa: BLE001 - fail closed below
+                total_balance = None
+                base_currency = None
+            account_failure = None
+            if account is None:
+                account_failure = "Broker account state is unavailable."
+            elif total_balance is None:
+                account_failure = "Broker total-equity data is unavailable."
+            elif base_currency is not None and str(base_currency) != "USD":
+                account_failure = (
+                    f"Unsupported broker base currency {base_currency}; USD is required."
+                )
+            if account_failure is not None:
+                if self._execution_safety.state != ExecutionSafetyState.UNCERTAIN:
+                    self._execution_safety.mark_uncertain(
+                        account_failure,
+                        ts_ns=self.clock.timestamp_ns(),
+                    )
+                    self._cancel_working_entry_orders(
+                        reason="broker account data unavailable or unsupported"
+                    )
+                return
+
+        equity = self._equity()
+        if self._session_calendars:
+            first_calendar = next(iter(self._session_calendars.values()))
+            previous_risk_state = self._risk.state
+            self._risk.on_new_session(first_calendar.session_key(when), when, equity)
+            if (
+                previous_risk_state == TradingState.HALTED_DAILY
+                and self._risk.state == TradingState.ACTIVE
+            ):
+                self._execution_safety.resume(
+                    "The next exchange session opened after the daily halt.",
+                    ts_ns=self.clock.timestamp_ns(),
+                )
+        else:
+            self._risk.on_new_day(when, equity)
+
+        prior_state = self._risk.state
+        state = self._risk.update_equity(when, equity)
+        if state != prior_state:
+            if state == TradingState.HALTED_DAILY:
+                self._begin_risk_exit("daily loss limit", permanent=False)
+            elif state == TradingState.DISABLED_KILL:
+                self._begin_risk_exit("max drawdown kill-switch", permanent=True)
+        elif state in {TradingState.HALTED_DAILY, TradingState.DISABLED_KILL}:
+            if (
+                state == TradingState.DISABLED_KILL
+                and self._execution_safety.state
+                not in {ExecutionSafetyState.EMERGENCY, ExecutionSafetyState.UNCERTAIN}
+            ):
+                self._execution_safety.begin_emergency(
+                    "Persisted max-drawdown kill-switch remains engaged.",
+                    ts_ns=self.clock.timestamp_ns(),
+                )
+            elif (
+                state == TradingState.HALTED_DAILY
+                and self._execution_safety.state == ExecutionSafetyState.ACTIVE
+            ):
+                self._execution_safety.freeze(
+                    "Persisted daily-loss halt remains engaged.",
+                    ts_ns=self.clock.timestamp_ns(),
+                )
+            if broker_mode and self._has_broker_exposure() and not (
+                self._staged_exit_active or self.is_exiting()
+            ):
+                self.market_exit()
+
+        unhealthy: list[str] = []
+        now_ns = self.clock.timestamp_ns()
+        grace_elapsed = (
+            self._started_at is not None
+            and when - self._started_at
+            >= timedelta(seconds=max(0, self.config.startup_health_grace_secs))
+        )
+        for iid, calendar in self._session_calendars.items():
+            phase = calendar.phase_at(when)
+            previous = self._last_session_phase.get(iid)
+            self._last_session_phase[iid] = phase
+            if (
+                self.config.cancel_entries_at_session_end
+                and previous not in {None, SessionPhase.CLOSED}
+                and phase == SessionPhase.CLOSED
+            ):
+                self._cancel_working_entry_orders(iid, reason="exchange session ended")
+            scheduled_phase = calendar.phase_at(when, enforce_data_health=False)
+            if phase in {SessionPhase.HALTED, SessionPhase.STALE}:
+                unhealthy.append(f"{iid}:{phase.value}")
+            elif (
+                grace_elapsed
+                and calendar.last_market_data_at is None
+                and scheduled_phase != SessionPhase.CLOSED
+            ):
+                unhealthy.append(f"{iid}:NO_MARKET_DATA")
+        if unhealthy:
+            if self._execution_safety.state == ExecutionSafetyState.ACTIVE:
+                self._execution_safety.freeze(
+                    f"Market-data/session health failed: {', '.join(unhealthy)}",
+                    ts_ns=now_ns,
+                )
+            self._cancel_working_entry_orders(reason="market-data/session health failure")
+        elif (
+            self._execution_safety.state == ExecutionSafetyState.FROZEN
+            and self._risk.state == TradingState.ACTIVE
+        ):
+            self._execution_safety.resume(
+                "Market-data/session health recovered.",
+                ts_ns=now_ns,
+            )
+
+        self._reconcile_committed_notional()
+        gross = sum(self._committed_notional.values())
+        if gross > self.config.max_gross_exposure_pct * equity + 1e-9:
+            self._begin_risk_exit("gross exposure limit breached", permanent=True)
+
+    def _has_broker_exposure(self) -> bool:
+        return bool(
+            self.cache.orders_open(strategy_id=self.id)
+            or self.cache.orders_inflight(strategy_id=self.id)
+            or self.cache.positions_open(strategy_id=self.id)
+        )
+
+    def on_time_event(self, _event) -> None:
+        self._supervise_risk(self.clock.utc_now())
+        self._activate_startup_protection()
+        self._refresh_telemetry_state()
+
+    def _activate_startup_protection(self) -> None:
+        if (
+            not self._startup_protection_pending
+            or self._risk.state != TradingState.ACTIVE
+            or self._execution_safety.state
+            not in {ExecutionSafetyState.ACTIVE, ExecutionSafetyState.FROZEN}
+            or self._staged_exit_active
+            or self.is_exiting()
+        ):
+            return
+        pending = tuple(self._startup_protection_pending)
+        self._startup_protection_pending.clear()
+        for iid in pending:
+            self._ensure_broker_protection(iid)
+
+    def _refresh_telemetry_state(self) -> None:
+        if self._telemetry is None or self._telemetry_failed:
+            return
+        try:
+            self._telemetry.refresh(
+                positions=self._telemetry_positions(),
+                risk=self._telemetry_risk(),
+                model=self._telemetry_model(),
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._telemetry_failed = True
+            self.log.error(f"Live telemetry disabled after state write failure: {exc}")
+
+    def on_quote_tick(self, tick: QuoteTick) -> None:
+        iid = tick.instrument_id
+        calendar = self._session_calendars.get(iid)
+        when = datetime.fromtimestamp(int(tick.ts_event) / 1_000_000_000, tz=timezone.utc)
+        if calendar is not None:
+            calendar.record_market_data(when)
+        self._last_mark[iid] = (float(tick.bid_price) + float(tick.ask_price)) / 2.0
+        self._supervise_risk(when)
+
+    def on_trade_tick(self, tick: TradeTick) -> None:
+        iid = tick.instrument_id
+        when = datetime.fromtimestamp(int(tick.ts_event) / 1_000_000_000, tz=timezone.utc)
+        calendar = self._session_calendars.get(iid)
+        if calendar is not None:
+            calendar.record_market_data(when)
+        self._last_mark[iid] = float(tick.price)
+        self._supervise_risk(when)
+
+    def on_instrument_status(self, status) -> None:
+        calendar = self._session_calendars.get(status.instrument_id)
+        if calendar is None:
+            return
+        action = getattr(getattr(status, "action", None), "name", "")
+        halted = action in {
+            "HALT",
+            "PAUSE",
+            "SUSPEND",
+            "NOT_AVAILABLE_FOR_TRADING",
+        } or not bool(getattr(status, "is_trading", True))
+        calendar.set_halt(halted, getattr(status, "reason", "") or action)
+        if halted:
+            self._cancel_working_entry_orders(
+                status.instrument_id,
+                reason=f"instrument status {action or 'not trading'}",
+            )
+        self._supervise_risk(self.clock.utc_now())
 
     def _atr(self, iid: InstrumentId) -> float | None:
         highs, lows, closes = self._highs[iid], self._lows[iid], self._closes[iid]
@@ -365,14 +938,404 @@ class MLStrategy(Strategy):
         return out
 
     def _flatten_all(self, reason: str) -> None:
+        """Synchronous backtest-only liquidation path."""
         self.log.warning(f"FLATTEN ALL -- {reason}")
         for iid in self._bar_types:
+            self.cancel_all_orders(iid)
             pos = self.portfolio.net_position(iid)
             if pos is not None and pos != 0:
                 self.close_all_positions(iid)
         # We are now flat: free every concurrency slot and reset committed gross
         # notional so entries can resume (after a temporary daily halt) clean.
         self._committed_notional.clear()
+
+    def _begin_risk_exit(self, reason: str, *, permanent: bool) -> None:
+        self._pending.clear()
+        if permanent:
+            self._execution_safety.begin_emergency(
+                reason,
+                ts_ns=self.clock.timestamp_ns(),
+            )
+        else:
+            self._execution_safety.freeze(reason, ts_ns=self.clock.timestamp_ns())
+        if self.config.execution_mode in {"paper", "live"}:
+            if not self.is_exiting():
+                self.market_exit()
+        else:
+            self._flatten_all(reason)
+
+    def market_exit(self) -> None:
+        """Cancel-confirm before invoking Nautilus's flatten-confirm sequence."""
+        if self.config.execution_mode not in {"paper", "live"}:
+            super().market_exit()
+            return
+        if self._staged_exit_active or self.is_exiting():
+            return
+        self._pending.clear()
+        self._staged_exit_active = True
+        self._staged_exit_started_at = self.clock.utc_now()
+        if self._execution_safety.state not in {
+            ExecutionSafetyState.EMERGENCY,
+            ExecutionSafetyState.FROZEN,
+            ExecutionSafetyState.SUSPENDED,
+            ExecutionSafetyState.UNCERTAIN,
+        }:
+            self._execution_safety.begin_shutdown(ts_ns=self.clock.timestamp_ns())
+        instruments = {
+            order.instrument_id
+            for order in [
+                *self.cache.orders_open(strategy_id=self.id),
+                *self.cache.orders_inflight(strategy_id=self.id),
+            ]
+        }
+        for instrument_id in instruments:
+            try:
+                self.cancel_all_orders(instrument_id)
+            except Exception as exc:
+                self._execution_safety.mark_uncertain(
+                    f"Cancel-all submission failed for {instrument_id}: {exc}",
+                    ts_ns=self.clock.timestamp_ns(),
+                )
+                self.log.error(f"Cancel-all failed for {instrument_id}: {exc}")
+        self._advance_staged_market_exit()
+        if self._staged_exit_active:
+            self.clock.set_timer(
+                name=self._staged_exit_timer_name,
+                interval=timedelta(milliseconds=100),
+                callback=self._on_staged_exit_timer,
+            )
+
+    def _on_staged_exit_timer(self, _event) -> None:
+        self._advance_staged_market_exit()
+
+    def _advance_staged_market_exit(self) -> None:
+        if not self._staged_exit_active:
+            return
+        open_orders = self.cache.orders_open(strategy_id=self.id)
+        inflight_orders = self.cache.orders_inflight(strategy_id=self.id)
+        if open_orders or inflight_orders:
+            if (
+                self._staged_exit_started_at is not None
+                and self.clock.utc_now() - self._staged_exit_started_at
+                >= timedelta(seconds=max(1, self.config.cancel_ack_timeout_secs))
+                and self._execution_safety.state != ExecutionSafetyState.UNCERTAIN
+            ):
+                self._execution_safety.mark_uncertain(
+                    f"Cancellation acknowledgement timed out with "
+                    f"{len(open_orders)} open and {len(inflight_orders)} inflight orders.",
+                    ts_ns=self.clock.timestamp_ns(),
+                )
+            return
+        if self._staged_exit_timer_name in self.clock.timer_names:
+            self.clock.cancel_timer(self._staged_exit_timer_name)
+        self._staged_exit_active = False
+        self._staged_exit_started_at = None
+        # No working order remains. The framework sequence now submits only
+        # emergency exits and waits for their fills before completing shutdown.
+        super().market_exit()
+
+    def on_market_exit(self) -> None:
+        self._pending.clear()
+        if self._execution_safety.state not in {
+            ExecutionSafetyState.EMERGENCY,
+            ExecutionSafetyState.FROZEN,
+        }:
+            self._execution_safety.begin_shutdown(ts_ns=self.clock.timestamp_ns())
+
+    def post_market_exit(self) -> None:
+        open_orders = self.cache.orders_open(strategy_id=self.id)
+        inflight_orders = self.cache.orders_inflight(strategy_id=self.id)
+        positions = self.cache.positions_open(strategy_id=self.id)
+        if open_orders or inflight_orders or positions:
+            details = (
+                f"Market exit unresolved: {len(open_orders)} open orders, "
+                f"{len(inflight_orders)} inflight orders, {len(positions)} positions."
+            )
+            self._execution_safety.mark_uncertain(
+                details,
+                ts_ns=self.clock.timestamp_ns(),
+            )
+            self.log.error(details)
+            return
+        self._committed_notional.clear()
+        self._protection_ids.clear()
+        if self._execution_safety.state == ExecutionSafetyState.STOPPING:
+            self._execution_safety.finish_shutdown(
+                clean=True,
+                ts_ns=self.clock.timestamp_ns(),
+            )
+
+    def _telemetry_positions(self) -> list[dict]:
+        positions = []
+        for iid, raw in self._raw_by_iid.items():
+            net = self.portfolio.net_position(iid)
+            qty = float(net) if net is not None else 0.0
+            if qty == 0.0 and self._committed_notional[iid] == 0.0:
+                continue
+            mark = float(self._closes[iid][-1]) if self._closes[iid] else 0.0
+            reference = self._position_references.get(iid, {})
+            avg_price = reference.get("entry_price")
+            entry_ts = reference.get("entry_ts")
+            unrealized_pnl = None
+            open_positions = self.cache.positions_open(
+                instrument_id=iid,
+                strategy_id=self.id,
+            )
+            if open_positions:
+                position = open_positions[0]
+                avg_price = float(position.avg_px_open)
+                entry_ts = datetime.fromtimestamp(
+                    int(position.ts_opened) / 1_000_000_000,
+                    tz=timezone.utc,
+                ).isoformat()
+                instrument = self.cache.instrument(iid)
+                if instrument is not None and mark > 0:
+                    try:
+                        unrealized_pnl = position.unrealized_pnl(
+                            instrument.make_price(mark)
+                        ).as_double()
+                    except Exception:  # noqa: BLE001 - optional display value
+                        unrealized_pnl = None
+            symbol = raw.split(".", 1)[0].split("/", 1)[0]
+            positions.append(
+                {
+                    "symbol": symbol,
+                    "side": "LONG" if qty > 0 else "SHORT" if qty < 0 else "PENDING",
+                    "qty": abs(qty),
+                    "avg_price": avg_price,
+                    "entry_ts": entry_ts,
+                    "mark_price": mark,
+                    "market_value": abs(qty) * mark,
+                    "notional": self._committed_notional[iid],
+                    "unrealized_pnl": unrealized_pnl,
+                    "stop_loss": reference.get("stop_loss"),
+                    "take_profit": reference.get("take_profit"),
+                    "reference_status": reference.get("status", "active"),
+                    "reference_signal": reference.get("signal"),
+                    "protection_guaranteed": bool(
+                        reference.get("protection_guaranteed", False)
+                    ),
+                    "protection_quantity": reference.get("protection_quantity"),
+                }
+            )
+        return positions
+
+    def _telemetry_risk(self) -> dict:
+        equity = self._equity()
+        readings = self._risk.telemetry(equity)
+        gross = sum(abs(value) for value in self._committed_notional.values())
+        readings.update(
+            {
+                "gross_leverage": gross / equity if equity > 0 else 0.0,
+                "rails": {
+                    "risk_budget_pct": self.config.risk_budget_pct * 100.0,
+                    "hard_cap_pct": self.config.max_trade_risk_pct * 100.0,
+                    "leverage_max": self.config.max_leverage,
+                    "daily_loss_limit_pct": self.config.daily_loss_limit_pct * 100.0,
+                    "drawdown_warn_pct": self.config.kill_warn_pct * 100.0,
+                    "kill_switch_pct": self.config.kill_switch_pct * 100.0,
+                    "max_order_notional_pct": self.config.max_order_notional_pct
+                    * 100.0,
+                    "max_symbol_exposure_pct": self.config.max_symbol_exposure_pct
+                    * 100.0,
+                    "max_sector_exposure_pct": self.config.max_sector_exposure_pct
+                    * 100.0,
+                    "max_gross_exposure_pct": self.config.max_gross_exposure_pct
+                    * 100.0,
+                    "price_collar_pct": self.config.price_collar_pct * 100.0,
+                },
+                "execution_state": self._execution_safety.state.value,
+                "reconciliation_state": (
+                    "UNCERTAIN"
+                    if self._execution_safety.state == ExecutionSafetyState.UNCERTAIN
+                    else self._reconciliation_state
+                ),
+                "entries_allowed": (
+                    self._execution_safety.entries_allowed and self._risk.can_open
+                ),
+                "operator_alerts": [
+                    {
+                        "severity": alert.severity,
+                        "code": alert.code,
+                        "message": alert.message,
+                        "ts_ns": alert.ts_ns,
+                        "client_order_id": alert.client_order_id,
+                        "instrument_id": alert.instrument_id,
+                    }
+                    for alert in self._execution_safety.alerts[-20:]
+                ],
+                "orders": [
+                    {
+                        "client_order_id": record.client_order_id,
+                        "venue_order_id": record.venue_order_id,
+                        "permanent_order_id": record.permanent_order_id,
+                        "instrument_id": record.instrument_id,
+                        "side": record.side,
+                        "role": record.role.value,
+                        "status": record.status.value,
+                        "quantity": float(record.requested_quantity),
+                        "filled_quantity": float(record.filled_quantity),
+                        "remaining_quantity": float(record.remaining_quantity),
+                        "average_fill_price": float(record.average_fill_price),
+                        "rejection_reason": record.rejection_reason,
+                    }
+                    for record in self._execution.orders.values()
+                ][-100:],
+                "fills": [
+                    {
+                        "execution_id": fill.execution_id,
+                        "client_order_id": fill.client_order_id,
+                        "instrument_id": fill.instrument_id,
+                        "side": fill.side,
+                        "quantity": float(fill.quantity),
+                        "price": float(fill.price),
+                        "ts_ns": fill.ts_ns,
+                        "correction_of": fill.correction_of,
+                    }
+                    for fill in sorted(
+                        self._execution.fills.values(),
+                        key=lambda item: item.sequence,
+                    )
+                ][-100:],
+            }
+        )
+        if self._session_calendars:
+            calendar = next(iter(self._session_calendars.values()))
+            now = self.clock.utc_now()
+            next_open, next_close = calendar.next_open_close(now)
+            last_data = calendar.last_market_data_at
+            readings["session"] = {
+                "phase": calendar.phase_at(now).value,
+                "session_key": calendar.session_key(now),
+                "timezone": calendar.timezone_id,
+                "next_open": next_open.isoformat() if next_open else None,
+                "next_close": next_close.isoformat() if next_close else None,
+                "data_age_seconds": (
+                    max((now - last_data).total_seconds(), 0.0)
+                    if last_data is not None
+                    else None
+                ),
+            }
+        return readings
+
+    def _telemetry_model(self) -> dict:
+        return {
+            "entry_threshold": self.config.entry_threshold,
+            "horizon": self.config.horizon,
+            "n_lags": self.config.n_lags,
+            "atr_period": self.config.atr_period,
+            "atr_stop_mult": self.config.atr_stop_mult,
+            "regime_window": self.config.regime_window,
+            "regime_bull_threshold": self.config.regime_bull_threshold,
+            "regime_bear_threshold": self.config.regime_bear_threshold,
+            "use_news_features": self.config.use_news_features,
+            "news_data_path": self.config.news_data_path,
+            "news_source": self.config.news_source,
+            "news_raw_scale": self.config.news_raw_scale,
+            "news_score_clip": self.config.news_score_clip,
+            "news_half_life_hours": self.config.news_half_life_hours,
+            "news_max_age_hours": self.config.news_max_age_hours,
+            "news_direct_weight": self.config.news_direct_weight,
+            "news_industry_weight": self.config.news_industry_weight,
+            "news_commodity_weight": self.config.news_commodity_weight,
+            "news_macro_weight": self.config.news_macro_weight,
+            "target_rr": self.config.telemetry_target_rr,
+            "protective_orders_submitted": any(
+                values.get("protection_guaranteed", False)
+                for values in self._position_references.values()
+            ),
+            "forecast_bar_basis": "predicted close with a half-ATR display envelope",
+        }
+
+    def _record_telemetry(
+        self,
+        bar: Bar,
+        ts: datetime,
+        *,
+        yhat: float | None,
+        atr: float | None,
+        flush: bool = True,
+    ) -> None:
+        if self._telemetry is None or self._telemetry_failed:
+            return
+        iid = bar.bar_type.instrument_id
+        close = float(bar.close)
+        diagnostics = self._engines[iid].current_diagnostics(list(self._closes[iid]))
+        news = self._news_meta.get(iid, NewsFeatureSnapshot())
+        signal = "WARMUP" if yhat is None else "HOLD"
+        direction = 0
+        if yhat is not None and yhat > self.config.entry_threshold:
+            signal, direction = "BUY", 1
+        elif yhat is not None and yhat < -self.config.entry_threshold:
+            if self.config.allow_short_positions:
+                signal, direction = "SELL", -1
+            else:
+                net = self.portfolio.net_position(iid)
+                signal = "EXIT" if net is not None and float(net) > 0 else "HOLD"
+                direction = -1 if signal == "EXIT" else 0
+        risk_distance = (
+            self.config.atr_stop_mult * float(atr)
+            if atr is not None and atr > 0 and direction
+            else None
+        )
+        stop = close - direction * risk_distance if risk_distance else None
+        target = (
+            close + direction * risk_distance * self.config.telemetry_target_rr
+            if risk_distance
+            else None
+        )
+        reference = self._position_references.get(iid)
+        if stop is None and reference is not None:
+            stop = reference.get("stop_loss")
+            target = reference.get("take_profit")
+        predicted_price = close * float(np.exp(yhat)) if yhat is not None else None
+        forecast = None
+        if predicted_price is not None:
+            envelope = max(float(atr or 0.0) * 0.5, 0.0)
+            forecast = {
+                "horizon_bars": self.config.horizon,
+                "open": close,
+                "close": predicted_price,
+                "high": max(close, predicted_price) + envelope,
+                "low": min(close, predicted_price) - envelope,
+                "basis": "huber_close_atr_envelope",
+            }
+        raw = self._raw_by_iid.get(iid, str(iid))
+        ticker = raw.split(".", 1)[0].split("/", 1)[0]
+        point = {
+            "ts": ts.isoformat(),
+            "open": float(bar.open),
+            "high": float(bar.high),
+            "low": float(bar.low),
+            "close": close,
+            "volume": float(bar.volume),
+            "predicted_price": predicted_price,
+            "forecast": forecast,
+            "predicted_return": yhat,
+            "signal": signal,
+            "entry_threshold": self.config.entry_threshold,
+            "atr": atr,
+            "stop_loss": stop,
+            "take_profit": target,
+            "position_reference": reference is not None,
+            "target_rr": self.config.telemetry_target_rr,
+            "news_score": news.score,
+            "news_article_count": news.article_count,
+            "news_top_headlines": list(news.top_headlines),
+            **diagnostics,
+        }
+        try:
+            self._telemetry.record(
+                ticker,
+                point,
+                positions=self._telemetry_positions(),
+                risk=self._telemetry_risk(),
+                model=self._telemetry_model(),
+                flush=flush,
+            )
+        except Exception as exc:  # noqa: BLE001 - telemetry must never stop trading
+            self._telemetry_failed = True
+            self.log.error(f"Live telemetry disabled after write failure: {exc}")
 
     def _append_bar(self, bar: Bar) -> bool:
         """Append a bar once, returning False for duplicates/out-of-order data."""
@@ -382,15 +1345,42 @@ class MLStrategy(Strategy):
             return False
         self._last_bar_ns[iid] = ts_ns
         self._closes[iid].append(float(bar.close))
+        self._bar_times[iid].append(ts_ns)
+        snapshot = NewsFeatureSnapshot()
+        if self._news_reader is not None:
+            raw = self._raw_by_iid.get(iid, str(iid))
+            try:
+                snapshot = self._news_reader.snapshot_at(raw, ts_ns / 1_000_000_000)
+            except Exception as exc:  # noqa: BLE001 - neutral news is fail-open
+                self.log.error(f"News feature read failed for {raw}; using neutral score: {exc}")
+        self._news_scores[iid].append(snapshot.score)
+        self._news_meta[iid] = snapshot
         self._highs[iid].append(float(bar.high))
         self._lows[iid].append(float(bar.low))
         self._prev_close[iid] = float(bar.close)
         return True
 
     def on_historical_data(self, data) -> None:
-        """Warm model history without evaluating signals or placing orders."""
-        if isinstance(data, Bar):
-            self._append_bar(data)
+        """Warm model and chart history without evaluating or trading it."""
+        if isinstance(data, Bar) and self._append_bar(data):
+            self._historical_telemetry_count += 1
+            ts = datetime.fromtimestamp(
+                int(data.ts_event) / 1_000_000_000,
+                tz=timezone.utc,
+            )
+            # Atomic fsync on every bootstrap bar is needlessly expensive.
+            # Flush each small batch; the first real-time bar always flushes
+            # the complete accumulated context again.
+            self._record_telemetry(
+                data,
+                ts,
+                yhat=None,
+                atr=self._atr(data.bar_type.instrument_id),
+                flush=(
+                    self._historical_telemetry_count == 1
+                    or self._historical_telemetry_count % 10 == 0
+                ),
+            )
 
     # ---- main event -----------------------------------------------------
     def on_bar(self, bar: Bar) -> None:
@@ -400,18 +1390,18 @@ class MLStrategy(Strategy):
             return
         ts = datetime.fromtimestamp(int(bar.ts_event) / 1_000_000_000, tz=timezone.utc)
 
-        # --- risk state machine (runs every bar) ---
-        equity = self._equity()
-        self._risk.on_new_day(ts, equity)
-        prev_state = self._risk.state
-        state = self._risk.update_equity(ts, equity)
-        if state != prev_state:
-            if state == TradingState.HALTED_DAILY:
-                self._flatten_all("daily 2% loss limit hit -> 24h halt")
-            elif state == TradingState.DISABLED_KILL:
-                self._flatten_all("max drawdown kill-switch -> permanent disable")
+        calendar = self._session_calendars.get(iid)
+        if calendar is not None:
+            calendar.record_market_data(ts)
+        self._last_mark[iid] = close
+        self._supervise_risk(ts)
         if self._risk.drawdown_warning:
             self.log.warning("Drawdown >= 5% warning threshold.")
+
+        # Publish the completed market bar immediately, even while the model is
+        # warming up. A second write below replaces this timestamp once yhat is
+        # available, so the dashboard never waits for training to see prices.
+        self._record_telemetry(bar, ts, yhat=None, atr=self._atr(iid))
 
         # Timestamp boundary: a bar with a new timestamp means the previous
         # timestamp's buffered signals are complete, so resolve them as one
@@ -426,7 +1416,8 @@ class MLStrategy(Strategy):
 
         # --- (re)train prediction engine on history seen so far (past only) ---
         # Refit through PredictionEngine.refit_on_history(), which uses the SAME
-        # windowing contract as walk_forward(): expanding fit on all past rows.
+        # windowing contract as walk_forward(): expanding or configured rolling
+        # fit over past-only labeled rows.
         # refit_on_history returns False until there is enough history to build a
         # feature row.
         #
@@ -441,22 +1432,43 @@ class MLStrategy(Strategy):
         # refits. cadence=1 reproduces the original refit-every-bar behaviour.
         eng = self._engines[iid]
         peer_closes = self._peer_closes(iid)
+        news_features = list(self._news_scores[iid])
         cadence = max(1, int(self.config.refit_every_n_bars))
         bar_index = self._bar_index[iid]
         self._bar_index[iid] += 1
         needs_baseline = not self._trained[iid]
-        if needs_baseline or bar_index % cadence == 0:
-            if not eng.refit_on_history(list(closes), peer_closes):
+        fit_allowed = (
+            self.config.backtest_model_fit_end_ns <= 0
+            or int(bar.ts_event) <= self.config.backtest_model_fit_end_ns
+        )
+        if fit_allowed and (needs_baseline or bar_index % cadence == 0):
+            if not eng.refit_on_history(
+                list(closes), peer_closes, news_features=news_features
+            ):
                 return
             self._trained[iid] = True
+        elif needs_baseline:
+            # A correctly planned fold always establishes a fit before its
+            # embargo. Fail closed if sparse/misaligned ticker history did not.
+            return
 
         # --- alpha: get yhat, then BUFFER (submission happens in the batch) ---
-        yhat = eng.predict_move(list(closes), peer_closes)
+        yhat = eng.predict_move(
+            list(closes), peer_closes, news_features=news_features
+        )
         if yhat is None:
             return
 
         atr = self._atr(iid)
         if atr is None or atr <= 0:
+            return
+
+        self._record_telemetry(bar, ts, yhat=float(yhat), atr=atr)
+
+        if (
+            self.config.backtest_trade_start_ns > 0
+            and int(bar.ts_event) < self.config.backtest_trade_start_ns
+        ):
             return
 
         # Do NOT submit here. Buffer this instrument's signal and let the
@@ -480,49 +1492,75 @@ class MLStrategy(Strategy):
         (unlimited) simply opens every qualifying signal, order-independent.
         """
         pending, self._pending = self._pending, {}
-        if not pending or not self._risk.can_open:
+        if (
+            not pending
+            or not self._risk.can_open
+            or not self._execution_safety.entries_allowed
+        ):
             return
 
         thr = self.config.entry_threshold
         equity = self._equity()
 
-        reversals: list[tuple[InstrumentId, OrderSide, _PendingSignal]] = []
         new_entries: list[tuple[InstrumentId, OrderSide, _PendingSignal]] = []
-        exits: list[InstrumentId] = []
         for iid, sig in pending.items():
-            net = self.portfolio.net_position(iid)
-            net = float(net) if net is not None else 0.0
+            net, _ = self._broker_position_state(iid)
+            desired_side: OrderSide | None = None
             if not self.config.allow_short_positions:
                 if net > 0 and sig.yhat < -thr:
-                    exits.append(iid)
+                    self._request_instrument_exit(iid, "bearish signal in long-only mode")
                     continue
                 if net < 0:
-                    # Flatten any externally-created short; do not reverse it
-                    # into a long in the same batch.
-                    exits.append(iid)
+                    self._request_instrument_exit(iid, "unauthorized short position")
                     continue
-                if sig.yhat < -thr:
+                if sig.yhat > thr:
+                    desired_side = OrderSide.BUY
+            elif sig.yhat > thr:
+                desired_side = OrderSide.BUY
+            elif sig.yhat < -thr:
+                desired_side = OrderSide.SELL
+
+            working_entries = self._execution.working_orders(
+                instrument_id=str(iid),
+                roles={OrderRole.ENTRY},
+            )
+            if working_entries:
+                stale = any(
+                    self._bar_index[iid]
+                    - self._entry_submitted_bar.get(record.client_order_id, 0)
+                    >= max(1, self.config.stale_entry_bars)
+                    for record in working_entries
+                )
+                changed = desired_side is None or any(
+                    record.side != desired_side.name for record in working_entries
+                )
+                if stale or changed:
+                    self._cancel_working_entry_orders(
+                        iid,
+                        reason="signal changed" if changed else "entry became stale",
+                    )
+                # A replacement is never submitted until every cancel is
+                # acknowledged, preventing duplicated exposure in cancel/fill races.
+                continue
+
+            if desired_side is None:
+                continue
+            if net != 0:
+                agrees = (net > 0 and desired_side == OrderSide.BUY) or (
+                    net < 0 and desired_side == OrderSide.SELL
+                )
+                if agrees:
                     continue
-            if sig.yhat > thr and net <= 0:
-                side = OrderSide.BUY
-            elif sig.yhat < -thr and net >= 0:
-                side = OrderSide.SELL
-            else:
-                continue  # HOLD, or signal already agrees with the open position
-            # A non-zero committed notional means the instrument already holds a
-            # slot, so reversing/adjusting it does not consume a new one.
-            if self._committed_notional[iid] != 0.0:
-                reversals.append((iid, side, sig))
-            else:
-                new_entries.append((iid, side, sig))
-
-        for iid in exits:
-            self.close_all_positions(iid)
-            self._committed_notional[iid] = 0.0
-            self.log.info(f"CLOSE {iid} -- bearish signal in long-only spot mode")
-
-        for iid, side, sig in reversals:
-            self._enter(iid, side, sig.close, sig.atr, equity, sig.yhat)
+                self._request_instrument_exit(iid, "signal reversal")
+                continue
+            if iid in self._pending_exits:
+                continue
+            when = self._pending_ts or self.clock.utc_now()
+            session_allowed, session_reason = self._session_allows_entry(iid, when)
+            if not session_allowed:
+                self.log.warning(f"Entry blocked for {iid}: {session_reason}")
+                continue
+            new_entries.append((iid, desired_side, sig))
 
         # Highest conviction first. The cap check inside the loop stops handing
         # out slots once they are full, so weaker signals are dropped this bar.
@@ -531,6 +1569,75 @@ class MLStrategy(Strategy):
             if self._committed_notional[iid] == 0.0 and not self._can_open_new_position():
                 continue
             self._enter(iid, side, sig.close, sig.atr, equity, sig.yhat)
+
+    def _request_instrument_exit(self, iid: InstrumentId, reason: str) -> None:
+        reference = self._position_references.get(iid)
+        if reference is not None:
+            reference["protection_guaranteed"] = False
+            reference["status"] = f"exit_pending:{reason}"
+        if iid not in self._pending_exits:
+            self._pending_exits[iid] = reason
+            self.log.warning(f"Safe exit requested for {iid}: {reason}")
+        if self.config.execution_mode == "backtest":
+            self.cancel_all_orders(iid)
+            self.close_all_positions(iid)
+            self._pending_exits.pop(iid, None)
+            self._committed_notional[iid] = 0.0
+            return
+        for order in [
+            *self.cache.orders_open(instrument_id=iid, strategy_id=self.id),
+            *self.cache.orders_inflight(instrument_id=iid, strategy_id=self.id),
+        ]:
+            if not order.is_closed:
+                record = self._execution.orders.get(str(order.client_order_id))
+                self._cancel_order_safely(order, record, reason=reason)
+        self._continue_pending_exit(iid)
+
+    def _continue_pending_exit(self, iid: InstrumentId) -> None:
+        reason = self._pending_exits.get(iid)
+        if reason is None:
+            return
+        working = [
+            *self.cache.orders_open(instrument_id=iid, strategy_id=self.id),
+            *self.cache.orders_inflight(instrument_id=iid, strategy_id=self.id),
+        ]
+        if any(not order.is_closed for order in working):
+            return
+        net, _ = self._broker_position_state(iid)
+        if net == 0:
+            self._pending_exits.pop(iid, None)
+            self._protection_ids.pop(iid, None)
+            self._committed_notional[iid] = 0.0
+            return
+        instrument = self.cache.instrument(iid)
+        if instrument is None:
+            self._execution_safety.mark_uncertain(
+                f"Cannot exit {iid}: instrument missing from cache.",
+                ts_ns=self.clock.timestamp_ns(),
+            )
+            return
+        side = OrderSide.SELL if net > 0 else OrderSide.BUY
+        try:
+            quantity = instrument.make_qty(abs(net))
+        except ValueError:
+            self._execution_safety.mark_uncertain(
+                f"Cannot exit {iid}: broker position quantity is invalid.",
+                ts_ns=self.clock.timestamp_ns(),
+            )
+            return
+        order = self.order_factory.market(
+            instrument_id=iid,
+            order_side=side,
+            quantity=quantity,
+            time_in_force=TimeInForce.IOC,
+            reduce_only=True,
+            tags=list(self.config.order_tags) or None,
+        )
+        self._register_and_submit_order(
+            order,
+            role=OrderRole.SIGNAL_EXIT,
+            signal_version=reason,
+        )
 
     def _open_position_count(self) -> int:
         """Instruments with a non-zero committed position (see _committed_notional)."""
@@ -576,6 +1683,51 @@ class MLStrategy(Strategy):
             return None
         return var_bar * float(self.config.horizon)
 
+    def _register_and_submit_order(
+        self,
+        order,
+        *,
+        role: OrderRole,
+        signal_version: str = "",
+        requested_quantity: float | None = None,
+    ) -> None:
+        order_id = str(order.client_order_id)
+        quantity = (
+            float(requested_quantity)
+            if requested_quantity is not None
+            else order.quantity.as_double()
+        )
+        self._execution.register_order(
+            client_order_id=order_id,
+            instrument_id=str(order.instrument_id),
+            side=order.side.name,
+            requested_quantity=quantity,
+            role=role,
+            signal_version=signal_version,
+            ts_ns=self.clock.timestamp_ns(),
+        )
+        try:
+            self.submit_order(order)
+        except Exception as exc:
+            self._execution.apply_order_state(
+                order_id,
+                LifecycleStatus.REJECTED,
+                ts_ns=self.clock.timestamp_ns(),
+                reason=str(exc),
+            )
+            self._execution_safety.on_rejection(
+                f"Local order submission failed: {exc}",
+                ts_ns=self.clock.timestamp_ns(),
+                client_order_id=order_id,
+                instrument_id=str(order.instrument_id),
+            )
+            raise
+        self._execution.apply_order_state(
+            order_id,
+            LifecycleStatus.SUBMITTED,
+            ts_ns=self.clock.timestamp_ns(),
+        )
+
     # ---- order construction (objects, not raw buy()) -------------------
     def _enter(
         self,
@@ -586,6 +1738,8 @@ class MLStrategy(Strategy):
         equity: float,
         yhat: float,
     ):
+        if not self._risk.can_open or not self._execution_safety.entries_allowed:
+            return
         stop_dist = self.config.atr_stop_mult * atr
         stop_price = price - stop_dist if side == OrderSide.BUY else price + stop_dist
         # Book-level leverage=1: cap this trade's notional to the gross-exposure
@@ -638,30 +1792,61 @@ class MLStrategy(Strategy):
         if target_qty.as_double() <= 0:
             return
 
-        # A reversal order must first flatten the existing position and then
-        # establish the new risk-sized target. The committed exposure remains
-        # the target quantity, not the larger transition-order quantity.
-        net = self.portfolio.net_position(iid)
-        net = float(net) if net is not None else 0.0
-        reversing = (side == OrderSide.BUY and net < 0) or (
-            side == OrderSide.SELL and net > 0
-        )
-        try:
-            qty = instrument.make_qty(
-                target_qty.as_double() + abs(net) if reversing else target_qty.as_double()
-            )
-        except ValueError:
-            return
+        qty = target_qty
 
+        limit_px = None
+        submission_price = price
         if self.config.use_limit_orders:
             off = price * (self.config.limit_offset_bps / 10_000.0)
             limit_px = price - off if side == OrderSide.BUY else price + off
+            submission_price = limit_px
+
+        target_notional = target_qty.as_double() * submission_price
+        gross_after = sum(
+            value for current, value in self._committed_notional.items() if current != iid
+        ) + target_notional
+        violations = self._risk.pretrade_violations(
+            equity=equity,
+            order_notional=target_notional,
+            symbol_exposure_after=target_notional,
+            gross_exposure_after=gross_after,
+            order_price=submission_price,
+            reference_price=self._last_mark.get(iid, price),
+        )
+        if violations:
+            self.log.error(f"Entry rejected by pre-trade risk for {iid}: {', '.join(violations)}")
+            return
+
+        if self.config.execution_mode in {"paper", "live"}:
+            account = self._account()
+            base_currency = getattr(account, "base_currency", None) if account else None
+            if base_currency is not None and str(base_currency) != "USD":
+                self._execution_safety.suspend(
+                    f"Unsupported account base currency {base_currency}; USD is required.",
+                    code="ACCOUNT_CURRENCY_MISMATCH",
+                    ts_ns=self.clock.timestamp_ns(),
+                    instrument_id=str(iid),
+                )
+                return
+            try:
+                free_balance = account.balance_free() if account is not None else None
+                free_funds = free_balance.as_double() if free_balance is not None else None
+            except Exception:  # noqa: BLE001 - fail closed below
+                free_funds = None
+            if side == OrderSide.BUY and (
+                free_funds is None or float(free_funds) < target_notional
+            ):
+                self.log.error(f"Entry rejected for {iid}: available funds unavailable/insufficient")
+                return
+
+        if self.config.use_limit_orders:
             order = self.order_factory.limit(
                 instrument_id=iid,
                 order_side=side,
                 quantity=qty,
                 price=instrument.make_price(limit_px),
-                time_in_force=TimeInForce.GTC,
+                time_in_force=self._entry_tif(),
+                tags=list(self.config.order_tags) or None,
             )
         else:
             # IBKR requires market BUYs for spot crypto to use a quote-currency
@@ -684,17 +1869,45 @@ class MLStrategy(Strategy):
                 time_in_force=(
                     TimeInForce.IOC
                     if getattr(instrument, "is_inverse", False)
-                    else TimeInForce.GTC
+                    else self._entry_tif()
                 ),
                 quote_quantity=quote_quantity,
+                tags=list(self.config.order_tags) or None,
             )
-        self.submit_order(order)
+        signal_version = (
+            f"{self._pending_ts.isoformat()}:{side.name}"
+            if self._pending_ts is not None
+            else side.name
+        )
+        self._register_and_submit_order(
+            order,
+            role=OrderRole.ENTRY,
+            signal_version=signal_version,
+            requested_quantity=target_qty.as_double(),
+        )
+        self._entry_submitted_bar[str(order.client_order_id)] = self._bar_index[iid]
         # Record the committed gross notional synchronously so BOTH the
         # concurrency cap and the book-level leverage guard see this holding
         # immediately, before the fill (and resulting net_position) lands. Using
         # the ordered qty * price is a conservative synchronous proxy; on a
         # reversal it replaces (not stacks on) the instrument's prior notional.
         self._committed_notional[iid] = target_qty.as_double() * price
+        direction = 1 if side == OrderSide.BUY else -1
+        self._position_references[iid] = {
+            "side": "LONG" if direction > 0 else "SHORT",
+            "signal": side.name,
+            "entry_price": price,
+            "entry_ts": self._pending_ts.isoformat() if self._pending_ts is not None else None,
+            "stop_loss": stop_price,
+            "take_profit": price
+            + direction * stop_dist * self.config.telemetry_target_rr,
+            "atr": atr,
+            "status": (
+                "broker_protection_pending_fill"
+                if self.config.enable_broker_protection
+                else "model_reference"
+            ),
+        }
         self.log.info(
             f"{side.name} {qty} {iid} @~{price:.2f} stop~{stop_price:.2f} "
             f"(risk-sized, leverage=1)"
@@ -713,6 +1926,14 @@ class MLStrategy(Strategy):
                 instrument_id=current,
                 strategy_id=self.id,
             ):
+                record = self._execution.orders.get(str(order.client_order_id))
+                if record is not None and record.role in {
+                    OrderRole.STOP_LOSS,
+                    OrderRole.TAKE_PROFIT,
+                    OrderRole.SIGNAL_EXIT,
+                    OrderRole.EMERGENCY_EXIT,
+                }:
+                    continue
                 qty = getattr(order, "leaves_qty", order.quantity).as_double()
                 if order.is_quote_quantity:
                     notional += abs(qty)
@@ -721,30 +1942,537 @@ class MLStrategy(Strategy):
                     px = order_px.as_double() if order_px is not None else fallback_px
                     notional += abs(qty * px)
             self._committed_notional[current] = notional
+            if notional == 0.0:
+                self._position_references.pop(current, None)
+
+    def _oca_tags(self, group: str) -> list[str]:
+        tags = list(self.config.order_tags)
+        payload = {}
+        retained: list[str] = []
+        for tag in tags:
+            if tag.startswith("IBOrderTags:") and not payload:
+                try:
+                    payload = json.loads(tag.removeprefix("IBOrderTags:"))
+                except json.JSONDecodeError:
+                    retained.append(tag)
+            else:
+                retained.append(tag)
+        payload.update({"ocaGroup": group, "ocaType": 1})
+        retained.append(f"IBOrderTags:{json.dumps(payload, separators=(',', ':'))}")
+        return retained
+
+    def _cancel_protection(self, iid: InstrumentId, reason: str) -> None:
+        for record in self._execution.working_orders(
+            instrument_id=str(iid),
+            roles={OrderRole.STOP_LOSS, OrderRole.TAKE_PROFIT},
+        ):
+            order = self.cache.order(ClientOrderId(record.client_order_id))
+            if order is not None and not order.is_closed:
+                self._cancel_order_safely(order, record, reason=reason)
+        reference = self._position_references.get(iid)
+        if reference is not None:
+            reference["protection_guaranteed"] = False
+            reference["status"] = f"broker_protection_canceling:{reason}"
+
+    def _ensure_broker_protection(self, iid: InstrumentId) -> None:
+        if not self.config.enable_broker_protection:
+            return
+        net, actual_average = self._broker_position_state(iid)
+        if net == 0:
+            self._cancel_protection(iid, "position flat")
+            self._protection_ids.pop(iid, None)
+            return
+        reference = self._position_references.get(iid)
+        if reference is None or not reference.get("atr"):
+            self._execution_safety.suspend(
+                f"Position {iid} has no persisted ATR context for broker protection.",
+                code="MISSING_PROTECTION_CONTEXT",
+                ts_ns=self.clock.timestamp_ns(),
+                instrument_id=str(iid),
+            )
+            self._request_instrument_exit(iid, "missing protection context")
+            return
+        ledger_position = self._execution.position(str(iid))
+        average = actual_average or float(ledger_position.average_entry_price)
+        if average <= 0:
+            self._execution_safety.suspend(
+                f"Position {iid} has no authoritative average fill price.",
+                code="MISSING_AVERAGE_FILL",
+                ts_ns=self.clock.timestamp_ns(),
+                instrument_id=str(iid),
+            )
+            self._request_instrument_exit(iid, "missing average fill")
+            return
+        instrument = self.cache.instrument(iid)
+        if instrument is None:
+            self._execution_safety.mark_uncertain(
+                f"Cannot protect {iid}: instrument missing from cache.",
+                ts_ns=self.clock.timestamp_ns(),
+            )
+            self._request_instrument_exit(iid, "instrument missing during protection")
+            return
+        distance = self.config.atr_stop_mult * float(reference["atr"])
+        direction = 1 if net > 0 else -1
+        stop_price = average - direction * distance
+        target_price = average + direction * distance * self.config.protection_target_rr
+        if stop_price <= 0 or target_price <= 0:
+            self._execution_safety.suspend(
+                f"Invalid protection prices for {iid}.",
+                code="INVALID_PROTECTION_PRICE",
+                ts_ns=self.clock.timestamp_ns(),
+                instrument_id=str(iid),
+            )
+            self._request_instrument_exit(iid, "invalid protection prices")
+            return
+        try:
+            quantity = instrument.make_qty(abs(net))
+            stop_trigger = instrument.make_price(stop_price)
+            target_limit = instrument.make_price(target_price)
+        except ValueError as exc:
+            self._execution_safety.suspend(
+                f"Cannot size protection for {iid}: {exc}",
+                code="INVALID_PROTECTION_QUANTITY",
+                ts_ns=self.clock.timestamp_ns(),
+                instrument_id=str(iid),
+            )
+            self._request_instrument_exit(iid, "invalid protection quantity")
+            return
+        exit_side = OrderSide.SELL if net > 0 else OrderSide.BUY
+        ids = self._protection_ids.get(iid, {})
+        stop_order = (
+            self.cache.order(ClientOrderId(ids["stop"])) if ids.get("stop") else None
+        )
+        target_order = (
+            self.cache.order(ClientOrderId(ids["target"])) if ids.get("target") else None
+        )
+        existing = [order for order in (stop_order, target_order) if order is not None]
+        if existing and len(existing) != 2:
+            self._execution_safety.suspend(
+                f"Incomplete broker protection pair for {iid}; flattening safely.",
+                code="INCOMPLETE_PROTECTION",
+                ts_ns=self.clock.timestamp_ns(),
+                instrument_id=str(iid),
+            )
+            self._request_instrument_exit(iid, "incomplete protection pair")
+            return
+        if len(existing) == 2 and any(order.is_closed for order in existing) and not all(
+            order.is_closed for order in existing
+        ):
+            self._execution_safety.suspend(
+                f"Only one protection order remains working for {iid}; flattening safely.",
+                code="ORPHANED_PROTECTION",
+                ts_ns=self.clock.timestamp_ns(),
+                instrument_id=str(iid),
+            )
+            self._request_instrument_exit(iid, "orphaned protection order")
+            return
+        if len(existing) == 2 and all(not order.is_closed for order in existing):
+            try:
+                self.modify_order(stop_order, quantity=quantity, trigger_price=stop_trigger)
+                self.modify_order(target_order, quantity=quantity, price=target_limit)
+                self._execution.amend_order(
+                    str(stop_order.client_order_id),
+                    requested_quantity=quantity.as_double(),
+                    ts_ns=self.clock.timestamp_ns(),
+                )
+                self._execution.amend_order(
+                    str(target_order.client_order_id),
+                    requested_quantity=quantity.as_double(),
+                    ts_ns=self.clock.timestamp_ns(),
+                )
+            except Exception as exc:
+                self._execution_safety.suspend(
+                    f"Protection resize failed for {iid}: {exc}",
+                    code="PROTECTION_RESIZE_FAILED",
+                    ts_ns=self.clock.timestamp_ns(),
+                    instrument_id=str(iid),
+                )
+                self._request_instrument_exit(iid, "protection resize failed")
+                return
+        else:
+            group = f"QOCA-{str(iid).replace('/', '_')}-{self.clock.timestamp_ns()}"
+            tags = self._oca_tags(group)
+            stop_order = self.order_factory.stop_market(
+                instrument_id=iid,
+                order_side=exit_side,
+                quantity=quantity,
+                trigger_price=stop_trigger,
+                time_in_force=TimeInForce.GTC,
+                reduce_only=True,
+                tags=tags,
+            )
+            target_order = self.order_factory.limit(
+                instrument_id=iid,
+                order_side=exit_side,
+                quantity=quantity,
+                price=target_limit,
+                time_in_force=TimeInForce.GTC,
+                reduce_only=True,
+                tags=tags,
+            )
+            for order, role in (
+                (stop_order, OrderRole.STOP_LOSS),
+                (target_order, OrderRole.TAKE_PROFIT),
+            ):
+                self._execution.register_order(
+                    client_order_id=str(order.client_order_id),
+                    instrument_id=str(iid),
+                    side=exit_side.name,
+                    requested_quantity=quantity.as_double(),
+                    role=role,
+                    signal_version=group,
+                    ts_ns=self.clock.timestamp_ns(),
+                )
+            order_list = self.order_factory.create_list([stop_order, target_order])
+            try:
+                self.submit_order_list(order_list)
+            except Exception as exc:
+                for order in (stop_order, target_order):
+                    self._execution.apply_order_state(
+                        str(order.client_order_id),
+                        LifecycleStatus.REJECTED,
+                        ts_ns=self.clock.timestamp_ns(),
+                        reason=str(exc),
+                    )
+                self._execution_safety.suspend(
+                    f"Broker protection submission failed for {iid}: {exc}",
+                    code="PROTECTION_SUBMIT_FAILED",
+                    ts_ns=self.clock.timestamp_ns(),
+                    instrument_id=str(iid),
+                )
+                self._request_instrument_exit(iid, "protection submission failed")
+                return
+            for order in (stop_order, target_order):
+                self._execution.apply_order_state(
+                    str(order.client_order_id),
+                    LifecycleStatus.SUBMITTED,
+                    ts_ns=self.clock.timestamp_ns(),
+                )
+            self._protection_ids[iid] = {
+                "stop": str(stop_order.client_order_id),
+                "target": str(target_order.client_order_id),
+                "oca_group": group,
+            }
+        reference.update(
+            {
+                "entry_price": average,
+                "stop_loss": float(stop_trigger),
+                "take_profit": float(target_limit),
+                "status": "broker_protection_pending_ack",
+                "protection_guaranteed": False,
+                "protection_quantity": abs(net),
+            }
+        )
+
+    def _refresh_protection_status(self, iid: InstrumentId) -> None:
+        ids = self._protection_ids.get(iid)
+        reference = self._position_references.get(iid)
+        if not ids or reference is None:
+            return
+        records = [
+            self._execution.orders.get(ids.get("stop", "")),
+            self._execution.orders.get(ids.get("target", "")),
+        ]
+        if all(
+            record is not None
+            and record.status
+            in {
+                LifecycleStatus.ACKNOWLEDGED,
+                LifecycleStatus.PARTIALLY_FILLED,
+                LifecycleStatus.FILLED,
+            }
+            for record in records
+        ):
+            reference["status"] = "broker_protected"
+            reference["protection_guaranteed"] = True
+
+    def _reconcile_protection_after_restart(self) -> None:
+        if not self.config.enable_broker_protection:
+            return
+        for iid in self._bar_types:
+            working = self._execution.working_orders(
+                instrument_id=str(iid),
+                roles={OrderRole.STOP_LOSS, OrderRole.TAKE_PROFIT},
+            )
+            stop = next((item for item in working if item.role == OrderRole.STOP_LOSS), None)
+            target = next(
+                (item for item in working if item.role == OrderRole.TAKE_PROFIT),
+                None,
+            )
+            if stop and target:
+                self._protection_ids[iid] = {
+                    "stop": stop.client_order_id,
+                    "target": target.client_order_id,
+                    "oca_group": stop.signal_version,
+                }
+            net, _ = self._broker_position_state(iid)
+            if net != 0:
+                # on_start may run before the Strategy reaches RUNNING. Defer
+                # broker submissions/modifications to the first supervisor
+                # timer after startup reconciliation completes.
+                self._startup_protection_pending.add(iid)
 
     def on_event(self, event: Event) -> None:
-        if isinstance(event, (OrderFilled, OrderCanceled, OrderRejected, OrderExpired)):
-            iid = getattr(event, "instrument_id", None)
-            if iid in self._bar_types:
-                self._reconcile_committed_notional(iid)
+        tracked_types = (
+            OrderSubmitted,
+            OrderAccepted,
+            OrderUpdated,
+            OrderPendingCancel,
+            OrderFilled,
+            OrderCanceled,
+            OrderExpired,
+            OrderRejected,
+            OrderDenied,
+            OrderCancelRejected,
+            OrderModifyRejected,
+        )
+        if not isinstance(event, tracked_types):
+            return
+        iid = getattr(event, "instrument_id", None)
+        client_order_id = getattr(event, "client_order_id", None)
+        if iid not in self._bar_types or client_order_id is None:
+            return
+        order_id = str(client_order_id)
+        record = self._execution.orders.get(order_id)
+        if record is None:
+            cached_order = self.cache.order(client_order_id)
+            if cached_order is not None and "MARKET_EXIT" in (cached_order.tags or []):
+                record = self._execution.register_order(
+                    client_order_id=order_id,
+                    instrument_id=str(iid),
+                    side=cached_order.side.name,
+                    requested_quantity=cached_order.quantity.as_double(),
+                    role=OrderRole.EMERGENCY_EXIT,
+                    signal_version="MARKET_EXIT",
+                    ts_ns=int(getattr(event, "ts_event", self.clock.timestamp_ns())),
+                )
+        if record is None:
+            if self.config.execution_mode in {"paper", "live"}:
+                self._execution_safety.mark_uncertain(
+                    f"Received broker event for unclaimed order {order_id} on {iid}.",
+                    ts_ns=int(getattr(event, "ts_event", self.clock.timestamp_ns())),
+                )
+                self._cancel_working_entry_orders(reason="unclaimed broker order")
+            self._reconcile_committed_notional(iid)
+            return
+
+        event_id = str(getattr(event, "event_id", ""))
+        ts_ns = int(getattr(event, "ts_event", self.clock.timestamp_ns()))
+        venue_order_id = str(getattr(event, "venue_order_id", "") or "")
+        permanent_order_id = ""
+        if "-" in venue_order_id:
+            candidate = venue_order_id.rsplit("-", 1)[-1]
+            if candidate.isdigit() and candidate != "0":
+                permanent_order_id = candidate
+        reason = str(getattr(event, "reason", "") or "")
+        try:
+            if isinstance(event, OrderSubmitted):
+                self._execution.apply_order_state(
+                    order_id,
+                    LifecycleStatus.SUBMITTED,
+                    event_id=event_id,
+                    ts_ns=ts_ns,
+                    venue_order_id=venue_order_id,
+                    permanent_order_id=permanent_order_id,
+                )
+            elif isinstance(event, OrderAccepted):
+                self._execution.apply_order_state(
+                    order_id,
+                    LifecycleStatus.ACKNOWLEDGED,
+                    event_id=event_id,
+                    ts_ns=ts_ns,
+                    venue_order_id=venue_order_id,
+                    permanent_order_id=permanent_order_id,
+                )
+            elif isinstance(event, OrderUpdated):
+                self._execution.amend_order(
+                    order_id,
+                    requested_quantity=event.quantity.as_double(),
+                    ts_ns=ts_ns,
+                )
+            elif isinstance(event, OrderPendingCancel):
+                self._execution.apply_order_state(
+                    order_id,
+                    LifecycleStatus.PENDING_CANCEL,
+                    event_id=event_id,
+                    ts_ns=ts_ns,
+                )
+            elif isinstance(event, OrderFilled):
+                info = getattr(event, "info", None) or {}
+                correction_of = str(info.get("correction_of", ""))
+                self._execution.apply_fill(
+                    client_order_id=order_id,
+                    execution_id=str(event.trade_id),
+                    instrument_id=str(iid),
+                    side=event.order_side.name,
+                    quantity=event.last_qty.as_double(),
+                    price=event.last_px.as_double(),
+                    ts_ns=ts_ns,
+                    event_id=event_id,
+                    correction_of=correction_of,
+                )
+            elif isinstance(event, OrderCanceled):
+                self._execution.apply_order_state(
+                    order_id,
+                    LifecycleStatus.CANCELED,
+                    event_id=event_id,
+                    ts_ns=ts_ns,
+                )
+            elif isinstance(event, OrderExpired):
+                self._execution.apply_order_state(
+                    order_id,
+                    LifecycleStatus.EXPIRED,
+                    event_id=event_id,
+                    ts_ns=ts_ns,
+                )
+            elif isinstance(event, (OrderRejected, OrderDenied)):
+                status = (
+                    LifecycleStatus.DENIED
+                    if isinstance(event, OrderDenied)
+                    else LifecycleStatus.REJECTED
+                )
+                self._execution.apply_order_state(
+                    order_id,
+                    status,
+                    event_id=event_id,
+                    ts_ns=ts_ns,
+                    reason=reason,
+                )
+                self._execution_safety.on_rejection(
+                    reason or f"{type(event).__name__} without reason",
+                    ts_ns=ts_ns,
+                    client_order_id=order_id,
+                    instrument_id=str(iid),
+                )
+                if not self._execution_safety.entries_allowed:
+                    self._cancel_working_entry_orders(
+                        reason="order rejection suspended strategy"
+                    )
+                if record.role in {OrderRole.STOP_LOSS, OrderRole.TAKE_PROFIT}:
+                    self._request_instrument_exit(iid, "broker protection rejected")
+            elif isinstance(event, OrderCancelRejected):
+                self._execution.apply_cancel_rejected(
+                    order_id,
+                    event_id=event_id,
+                    ts_ns=ts_ns,
+                    reason=reason,
+                )
+                self._execution_safety.on_cancel_rejected(
+                    reason or "Broker rejected order cancellation.",
+                    ts_ns=ts_ns,
+                    client_order_id=order_id,
+                    instrument_id=str(iid),
+                )
+            elif isinstance(event, OrderModifyRejected):
+                self._execution_safety.suspend(
+                    reason or "Broker rejected order modification.",
+                    code="ORDER_MODIFY_REJECTED",
+                    ts_ns=ts_ns,
+                    client_order_id=order_id,
+                    instrument_id=str(iid),
+                )
+                if record.role in {OrderRole.STOP_LOSS, OrderRole.TAKE_PROFIT}:
+                    self._request_instrument_exit(iid, "protection modification rejected")
+        except (KeyError, ValueError) as exc:
+            self._execution_safety.mark_uncertain(
+                f"Execution event could not be applied idempotently: {exc}",
+                ts_ns=ts_ns,
+            )
+            self.log.error(f"Execution ledger failure: {exc}")
+
+        self._reconcile_committed_notional(iid)
+        if isinstance(event, OrderFilled):
+            if record.role == OrderRole.ENTRY:
+                self._ensure_broker_protection(iid)
+            elif record.role in {
+                OrderRole.STOP_LOSS,
+                OrderRole.TAKE_PROFIT,
+                OrderRole.SIGNAL_EXIT,
+                OrderRole.EMERGENCY_EXIT,
+            }:
+                net, _ = self._broker_position_state(iid)
+                if net == 0:
+                    self._cancel_protection(iid, "exit filled")
+                    self._pending_exits.pop(iid, None)
+                elif record.role in {OrderRole.STOP_LOSS, OrderRole.TAKE_PROFIT}:
+                    self._ensure_broker_protection(iid)
+        if isinstance(event, (OrderAccepted, OrderUpdated)):
+            self._refresh_protection_status(iid)
+        if iid in self._pending_exits and isinstance(
+            event,
+            (OrderCanceled, OrderExpired, OrderRejected, OrderDenied, OrderFilled),
+        ):
+            self._continue_pending_exit(iid)
+        if self._staged_exit_active and isinstance(
+            event,
+            (
+                OrderCanceled,
+                OrderExpired,
+                OrderRejected,
+                OrderDenied,
+                OrderFilled,
+                OrderCancelRejected,
+            ),
+        ):
+            self._advance_staged_market_exit()
+        if self._telemetry is not None and not self._telemetry_failed:
+            try:
+                self._telemetry.refresh(
+                    positions=self._telemetry_positions(),
+                    risk=self._telemetry_risk(),
+                    model=self._telemetry_model(),
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._telemetry_failed = True
+                self.log.error(
+                    f"Live telemetry disabled after execution-event write failure: {exc}"
+                )
 
     def on_save(self) -> dict[str, bytes]:
         if self._risk is None:
             return {}
         payload = {
-            "version": 1,
+            "version": 5,
             "instrument_ids": sorted(self.config.instrument_ids),
             "risk": self._risk.snapshot(),
             "account_equity_baseline": self._account_equity_baseline,
+            "execution": self._execution.snapshot(),
+            "execution_safety": self._execution_safety.snapshot(),
+            "protection_ids": {
+                self._raw_by_iid[iid]: values
+                for iid, values in self._protection_ids.items()
+                if iid in self._raw_by_iid
+            },
+            "entry_submitted_bar": dict(self._entry_submitted_bar),
+            "pending_exits": {
+                self._raw_by_iid[iid]: reason
+                for iid, reason in self._pending_exits.items()
+                if iid in self._raw_by_iid
+            },
             "instruments": {
                 str(iid): {
                     "closes": list(self._closes[iid]),
+                    "bar_times": list(self._bar_times[iid]),
+                    "news_scores": list(self._news_scores[iid]),
                     "highs": list(self._highs[iid]),
                     "lows": list(self._lows[iid]),
                     "last_bar_ns": self._last_bar_ns[iid],
                     "bar_index": self._bar_index[iid],
                 }
                 for iid in self._bar_types
+            },
+            "telemetry_series": (
+                {
+                    ticker: list(points)
+                    for ticker, points in self._telemetry.points.items()
+                }
+                if self._telemetry is not None
+                else {}
+            ),
+            "position_references": {
+                self._raw_by_iid[iid]: values
+                for iid, values in self._position_references.items()
+                if iid in self._raw_by_iid
             },
         }
         return {"ml_strategy.json": json.dumps(payload).encode("utf-8")}
@@ -754,7 +2482,7 @@ class MLStrategy(Strategy):
         if raw is None:
             return
         payload = json.loads(raw.decode("utf-8"))
-        if payload.get("version") != 1:
+        if payload.get("version") not in {1, 2, 3, 4, 5}:
             raise ValueError(f"Unsupported MLStrategy state version: {payload.get('version')}")
         self._loaded_state = payload
 
@@ -780,17 +2508,97 @@ class MLStrategy(Strategy):
             self._risk.restore(payload["risk"])
         if raw_baseline is not None:
             self._account_equity_baseline = float(raw_baseline)
+        if payload.get("execution"):
+            self._execution = ExecutionLedger.from_snapshot(payload["execution"])
+        if payload.get("execution_safety"):
+            self._execution_safety = ExecutionSafetyController.from_snapshot(
+                payload["execution_safety"]
+            )
+            self._execution_safety.on_restart(ts_ns=self.clock.timestamp_ns())
+        self._entry_submitted_bar.update(
+            {
+                str(order_id): int(bar_index)
+                for order_id, bar_index in payload.get("entry_submitted_bar", {}).items()
+            }
+        )
         for raw, values in payload.get("instruments", {}).items():
             iid = self._iid_by_raw.get(raw)
             if iid is None:
                 continue
             self._closes[iid].extend(values.get("closes", ()))
+            self._bar_times[iid].extend(values.get("bar_times", ()))
+            saved_news = list(values.get("news_scores", ()))
+            if len(saved_news) < len(self._closes[iid]):
+                saved_news = [0.0] * (len(self._closes[iid]) - len(saved_news)) + saved_news
+            self._news_scores[iid].extend(saved_news[-len(self._closes[iid]):])
+            if self._news_scores[iid]:
+                self._news_meta[iid] = NewsFeatureSnapshot(score=self._news_scores[iid][-1])
             self._highs[iid].extend(values.get("highs", ()))
             self._lows[iid].extend(values.get("lows", ()))
             self._last_bar_ns[iid] = int(values.get("last_bar_ns", 0))
             self._bar_index[iid] = int(values.get("bar_index", 0))
+        for raw, values in payload.get("position_references", {}).items():
+            iid = self._iid_by_raw.get(raw)
+            if iid is not None and isinstance(values, dict):
+                self._position_references[iid] = values
+        for raw, values in payload.get("protection_ids", {}).items():
+            iid = self._iid_by_raw.get(raw)
+            if iid is not None and isinstance(values, dict):
+                self._protection_ids[iid] = {
+                    str(key): str(value) for key, value in values.items()
+                }
+        for raw, reason in payload.get("pending_exits", {}).items():
+            iid = self._iid_by_raw.get(raw)
+            if iid is not None:
+                self._pending_exits[iid] = str(reason)
+        if self._telemetry is not None:
+            self._telemetry.restore_series(payload.get("telemetry_series", {}))
+            if self._telemetry.points:
+                self._telemetry.refresh(
+                    positions=self._telemetry_positions(),
+                    risk=self._telemetry_risk(),
+                    model=self._telemetry_model(),
+                )
 
     def on_stop(self) -> None:
-        self._resolve_batch()
-        for bt in self._bar_types.values():
+        # Order resolution/submission is forbidden during on_stop. In broker
+        # modes StrategyConfig.manage_stop runs Nautilus's cancel-confirm-
+        # flatten-confirm market-exit sequence before this hook.
+        self._pending.clear()
+        if self._risk_timer_name in self.clock.timer_names:
+            self.clock.cancel_timer(self._risk_timer_name)
+        if self._staged_exit_timer_name in self.clock.timer_names:
+            self.clock.cancel_timer(self._staged_exit_timer_name)
+        if self.config.execution_mode in {"paper", "live"}:
+            open_orders = self.cache.orders_open(strategy_id=self.id)
+            inflight_orders = self.cache.orders_inflight(strategy_id=self.id)
+            positions = self.cache.positions_open(strategy_id=self.id)
+            if open_orders or inflight_orders or positions:
+                details = (
+                    f"Shutdown left {len(open_orders)} open broker orders, "
+                    f"{len(inflight_orders)} inflight orders, and "
+                    f"{len(positions)} residual positions."
+                )
+                self._execution_safety.finish_shutdown(
+                    clean=False,
+                    reason=details,
+                    ts_ns=self.clock.timestamp_ns(),
+                )
+                self.log.error(details)
+        if self._telemetry is not None and not self._telemetry_failed:
+            try:
+                self._telemetry.stop(
+                    positions=self._telemetry_positions(),
+                    risk=self._telemetry_risk(),
+                    model=self._telemetry_model(),
+                )
+            except Exception as exc:  # noqa: BLE001
+                self.log.error(f"Could not finalize live telemetry: {exc}")
+        if self._news_reader is not None:
+            self._news_reader.close()
+        for iid, bt in self._bar_types.items():
             self.unsubscribe_bars(bt)
+            if self.config.execution_mode in {"paper", "live"}:
+                self.unsubscribe_quote_ticks(iid)
+                self.unsubscribe_trade_ticks(iid)
+                self.unsubscribe_instrument_status(iid)

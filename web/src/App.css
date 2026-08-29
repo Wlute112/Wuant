@@ -38,6 +38,10 @@
   gap: var(--space-lg);
 }
 
+.app__main > * {
+  min-width: 0;
+}
+
 .app__intro {
   display: flex;
   align-items: end;
@@ -119,6 +123,10 @@
 }
 
 @media (max-width: 600px) {
+  .app__main {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
   .app__intro {
     align-items: start;
     flex-direction: column;
@@ -142,5 +150,242 @@
   .app__ticker-select {
     align-items: stretch;
     flex-direction: column;
+  }
+}
+
+/* Single-viewport operating deck. The document stops scrolling at desktop
+   widths; each docked instrument owns its own bounded scroll surface. */
+.app {
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.app__main {
+  position: relative;
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  margin: 0;
+  padding: 4px;
+  display: block;
+  overflow: hidden;
+}
+
+.app__connection-error {
+  position: absolute;
+  top: 50px;
+  left: 12px;
+  right: 12px;
+  z-index: 20;
+  background: var(--color-panel-raised);
+}
+
+.app__research-model {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--color-paper);
+}
+
+.app__research-model .app__ticker-select {
+  padding: 4px 6px;
+  background: var(--color-void);
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.app__research-model .app__ticker-select select {
+  min-height: 28px;
+  padding-block: 2px;
+}
+
+.app__research-model .model-tape {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 0;
+  border-radius: 0;
+}
+
+.app__research-model .model-tape__canvas {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.app__research-model .model-tape__canvas svg {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+}
+
+.dock-panel--controls .action-panel,
+.dock-panel--runs .run-list,
+.dock-panel--metrics .metrics-panel,
+.dock-panel--jobs .job-console,
+.dock-panel--channel .channel-strip {
+  min-height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+
+.dock-panel--controls .action-panel,
+.dock-panel--runs .run-list,
+.dock-panel--metrics .metrics-panel,
+.dock-panel--jobs .job-console {
+  padding: var(--panel-padding, 6px);
+}
+
+.dock-panel--controls .action-panel,
+.dock-panel--controls .action-panel__form {
+  gap: var(--space-sm);
+}
+
+.dock-panel--controls .action-panel__fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-sm);
+}
+
+.dock-panel--controls .action-panel__field.is-wide {
+  grid-column: span 2;
+}
+
+.dock-panel--controls .action-panel__advanced {
+  grid-template-columns: 1fr;
+}
+
+.dock-panel--runs .run-list__rows,
+.dock-panel--jobs .job-console__list,
+.dock-panel--jobs .job-console__output {
+  max-height: none;
+}
+
+.dock-panel--runs .run-list__rows {
+  flex: 1 1 auto;
+}
+
+.dock-panel--metrics .metrics-panel__grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-sm);
+}
+
+.dock-panel--metrics .metrics-panel__value {
+  font-size: var(--text-body-size);
+}
+
+.dock-panel--jobs .job-console {
+  height: 100%;
+  min-height: 0;
+  grid-template-columns: minmax(180px, 0.35fr) minmax(0, 1fr);
+  gap: var(--space-sm);
+}
+
+.dock-panel--channel .channel-strip {
+  height: 100%;
+  grid-template-columns: 105px minmax(0, 1fr);
+  gap: 6px;
+  padding: 5px;
+}
+
+.dock-panel--channel .channel-strip__rail {
+  padding-right: 6px;
+}
+
+.dock-panel--channel .channel-strip__rail .display {
+  font-size: var(--text-body-size);
+}
+
+.dock-panel--channel .channel-strip__trace {
+  min-height: 0;
+  margin-top: 28px;
+}
+
+.app__control-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 18;
+  width: min(520px, calc(100vw - 24px));
+  display: grid;
+  grid-template-rows: 38px minmax(0, 1fr);
+  color: var(--color-text-primary);
+  background: var(--color-panel);
+  border-left: 1px solid var(--color-text-dim);
+  transform: translateX(100%);
+  visibility: hidden;
+  transition: transform var(--duration-normal) var(--ease-out-expo), visibility 0s linear var(--duration-normal);
+}
+
+.app__control-drawer.is-open {
+  transform: translateX(0);
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.app__control-drawer > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: var(--space-sm);
+  background: var(--color-panel-raised);
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.app__control-drawer > header h2 {
+  font-family: var(--font-mono);
+  font-size: var(--text-label-size);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.app__control-drawer > header button {
+  width: 38px;
+  height: 37px;
+  padding: 0;
+  color: var(--color-text-primary);
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--color-hairline);
+  font-size: var(--text-metric-size);
+}
+
+.app__control-drawer-body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.app__control-drawer .action-panel {
+  min-height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+
+@media (max-width: 699px) {
+  .app {
+    height: auto;
+    min-height: 100dvh;
+    display: block;
+    overflow: visible;
+  }
+
+  .app__main {
+    overflow: visible;
+  }
+
+  .app__connection-error {
+    position: static;
+    margin-bottom: var(--space-sm);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app__control-drawer {
+    transition: none;
   }
 }

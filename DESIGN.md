@@ -117,7 +117,7 @@ pair so a breach is never confused with a data channel.
 ### Neutral
 - **Void** (`#0a0b0d`): page background, the space between instrument panels.
 - **Panel** (`#121418`): the instrument housing surface — cards, channel-strip backgrounds.
-- **Panel Raised** (`#1a1d23`): bezel controls, buttons, the top instrument bezel bar.
+- **Panel Raised** (`#1a1d23`): bezel controls, buttons, and the dock workspace toolbar.
 - **Hairline** (`#2a2e37`): 1px borders and graticule grid lines — never 0 or missing.
 - **Paper** (`#16181d`): the scrolling "paper roll" trace surface, one step lighter than Panel so it reads as a distinct material.
 - **Text Primary** (`#e8e6df`): numerals and bezel labels — warm off-white, never pure white (that would read as a screen, not an instrument).
@@ -146,17 +146,20 @@ pair so a breach is never confused with a data channel.
 
 ## Layout
 
-Single scrolling page, not a sidebar-plus-content shell: a top instrument
-bezel bar (fixed) holds run/job selection and action buttons; below it,
-full-width channel strips stack vertically, each one a horizontal band that
-scrolls its own trace area independently while the bezel labels stay pinned
-to the left edge. Density is high but rhythmic: 24px between channel strips,
-16px internal panel padding, 8px between a label and its value. Below
-1024px, channel strips remain full-width and stacked (never forced into a
-cramped multi-column grid); the right-hand "current reading" gauge moves
-above the trace area instead of beside it. Below 600px, workflow tabs form a
-two-column control bank, fields and job controls stack, metric grids reduce to
-two columns, and touch-capable input uses a 44px minimum target.
+Desktop is a single-viewport, TWS-style operating deck. Its compact workspace
+toolbar combines workflow navigation, the active workflow description, profile
+controls, and authoritative IBKR status without a separate application banner.
+A twelve-column by twelve-row dock surface holds the live
+chart, model score, risk rails, broker telemetry, news impact, positions, and
+model/execution action tape at once. Panels drag from their stamped title bar,
+resize from the lower corner, snap to grid cells, and compact when one panel
+overtakes another. The default layout uses 4px gutters and deliberately fills
+the usable viewport; Balanced and Comfortable density settings increase the
+gutter without changing information priority. Every panel owns its scrolling,
+so the document itself does not scroll on a desktop workstation. Layout,
+visibility, size, and density persist per workflow and asset profile in local
+storage. Below 700px the dock becomes a readable single-column stack and the
+document may scroll; touch-capable controls retain a 44px minimum target.
 
 ## Elevation & Depth
 
@@ -181,6 +184,12 @@ physical indicator lamps.
 
 ## Components
 
+### Dock Workspace
+- **Structure:** compact control toolbar + bounded 12×12 surface + machined panel frames. The toolbar begins with workflow navigation and the active workflow description, then places profile/session/panel controls and the IBKR indicator at the right. The live-chart pane owns the upper-left majority; model score and risk remain visible at upper right; news runs beneath them; positions and the action tape occupy the lower deck.
+- **Panel controls:** the full title bar is the drag handle, the lower-right corner resizes, × hides a panel, and the Panels menu restores hidden panels or resets the canonical TWS layout.
+- **Motion:** the grabbed panel follows the pointer directly. Displaced panels slide to their snapped cells with a 240ms exponential ease-out. Reduced-motion users get the same reflow without animation.
+- **Persistence:** each workflow/asset-profile pair stores layout coordinates, dimensions, hidden panels, and density locally after changes. Closing the application never resets the deck.
+
 ### Buttons
 - **Shape:** 4px radius, 1px Hairline border, mono Label typography, uppercase, tracked.
 - **Primary** (Run Backtest, Start Optuna Sweep): Panel Raised background, Trace Amber text/border at idle; on hover/focus the border brightens to full-saturation amber and the panel lightens one step — a "switch engaging" feel, never a shadow lift.
@@ -194,13 +203,20 @@ physical indicator lamps.
 - **Threshold bands:** translucent (~15% opacity) horizontal fills in threshold-warn/threshold-danger spanning the strip's full width at the value's real y-position, with a small stamped label tab at the left edge.
 - **Comparison mode:** overlaying a second run renders its trace at 40% opacity (ghosted) against the active run's full-opacity trace, same channel color.
 
+### Model Decision Tape
+- **Structure:** a real OHLC candlestick pane, translucent green/red model forecast candles, event markers anchored to their decision bar, and a dedicated lower HMM/transition-probability pane. Forecast candles encode the predicted close and use a half-ATR display envelope for the wick; they do not claim independently predicted OHLC. Bull/Bear/Sideways state is a faint background band, never a replacement for the probability traces or text state.
+- **Risk references:** an open position's entry, ATR stop, reward/risk target, and risk envelope use labeled references. The bars included in the visible GHMM fit context are enclosed by a violet dashed box. Every tape reads protection from the selected position's authoritative execution state: only an acknowledged broker OCA pair may be labeled active; pending, absent, unmatched, or unknown protection remains explicitly non-guaranteed model reference data.
+- **Live contract:** a separate read-only IBKR subscription supplies observed and forming bars; forming bars have a dashed outline. Strategy snapshots replace a same-timestamp warmup point when yhat becomes available. The dashboard polls IB bars every two seconds and strategy telemetry every three seconds, and only merges model points when ticker and cadence match. Arbitrary searched symbols are market-only. The UI must not imply tick-level strategy decisions.
+- **Accessibility:** the chart has a programmatic description and the current signal, yhat, HMM state, ATR, threshold, HMM window, timestamp, and protective-order status are also exposed as text.
+
 ### Job Console
 - **Style:** Paper background, Body typography in Text Primary, monospace timestamps in Text Dim, auto-scrolls to the newest line while a job is running.
 - **States:** loading, unknown, empty, running, completed, failed, and cancelled are written in text. Running uses a Text Primary indicator lamp; completed/failed/cancelled use positive/negative/Text Dim. Output auto-scrolls only while the selected job is running.
 
-### Instrument Bezel (top bar)
-- **Style:** Panel Raised background, 1px Hairline bottom border, holds the run/job selector and action buttons in a single row, pinned on scroll.
-- **Connection contract:** the bezel says Connecting or Status Unknown until both run and job feeds are confirmed. It never infers Idle from missing data.
+### Workspace Toolbar
+- **Style:** Panel Raised background with a 1px Hairline border. It is the only global control row; there is no separate title banner consuming viewport height.
+- **Navigation:** the workflow menu trigger sits immediately before the active Backtest, Optuna, Paper, or Live description so mode changes remain obvious.
+- **Connection contract:** the right-edge IBKR indicator says Connecting or Status Unknown until both run and job feeds are confirmed. It never infers Idle from missing data.
 
 ## Do's and Don'ts
 
@@ -208,7 +224,7 @@ physical indicator lamps.
 - **Do** reserve Trace Amber / Cyan / Violet exclusively for their one channel each (see the Reserved-Channel Rule).
 - **Do** use `tabular-nums` on every column of numbers.
 - **Do** position threshold bands at their real risk-rail value, and label every one.
-- **Do** pair the mock-live-data label with an explicit bezel-stamped "SIMULATED FEED" tag, never color alone.
+- **Do** pair demonstration live data with an explicit "DEMONSTRATION DATA · NO BROKER CONNECTION" tag, never color alone.
 - **Do** render disconnected or stale broker/API state as STATUS UNKNOWN; never substitute an empty or safe reading.
 - **Do** respect reduced-motion preferences component by component: stop pulsing lamps and skip trace drawing while retaining textual state.
 

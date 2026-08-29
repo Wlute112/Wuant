@@ -6,6 +6,7 @@ numpy>=1.26
 pandas>=2.1
 scikit-learn>=1.4
 hmmlearn>=0.3       # Gaussian HMM regime feature (models/regime.py)
+feedparser>=6.0     # resilient RSS/Atom parsing (news/rss.py)
 optuna>=3.6
 fastapi>=0.115      # dashboard API (quant/api/)
 uvicorn>=0.30        # ASGI server for the dashboard API

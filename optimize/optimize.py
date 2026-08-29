@@ -1,4 +1,4 @@
-"""Hyperparameter optimization with Optuna -- replaces the old LLM loop.
+"""Purged, nested walk-forward hyperparameter optimization with Optuna.
 
 Why Optuna, not an LLM: hyperparameter search is a numerical optimization
 problem. Optuna's TPE sampler is reproducible (fixed seed), efficient, and
@@ -7,16 +7,16 @@ convergence guarantees. (If you later want an LLM, use it for *higher-level*
 reasoning -- e.g. choosing which features to add -- not the numeric search.)
 
 Anti-overfitting discipline:
-  * Time-ordered split: optimize on the IN-SAMPLE window only, then the README
-    shows you re-running the chosen params on the held-out OUT-OF-SAMPLE window.
-  * Objective = Sortino-like score net of IBKR-Pro fees, with a small penalty
-    for excessive turnover so the optimizer can't win by overtrading. Sortino
-    (not Sharpe) charges only DOWNSIDE volatility, so a strategy is not punished
-    for upside dispersion -- see ``_sortino_from_curve``.
-  * Unpromising trials are pruned early: each trial streams the backtest in
-    time-slices and reports an intermediate Sortino to Optuna's MedianPruner,
-    which abandons parameter sets already lagging the median before they burn
-    the remaining bars -- see ``make_objective`` / the pruner in ``main``.
+  * The newest 20% is an outer test set which Optuna never sees.
+  * Every trial is evaluated over chronological expanding walk-forward folds.
+  * At least ``horizon`` bars are embargoed between each fit and validation.
+  * The model warms on fold history without trading, freezes before the
+    embargo, and submits orders only in the validation interval.
+  * Each fold is rerun with 2x commissions and slippage assumptions.
+  * Selection rewards median net risk-adjusted performance and penalizes fold
+    dispersion, turnover, and sensitivity to stressed costs. A trial must be
+    positive in most folds to qualify.
+  * The winning parameters are evaluated on the outer test once, after search.
 
 Reproducibility:
   * By DEFAULT the Optuna sampler now draws a FRESH random seed each run, so
@@ -25,7 +25,7 @@ Reproducibility:
 
 Usage:
     python -m quant.optimize.optimize --csv quant/data/sample_bars.csv \
-        --trials 40 --train-frac 0.7
+        --trials 40 --final-test-frac 0.2 --walk-forward-folds 5
     python -m quant.optimize.optimize --seed 42   # reproducible search
     # Goal mode: search until a trial's score hits a target, then stop.
     python -m quant.optimize.optimize --score 1.5             # uncapped
@@ -34,30 +34,88 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import secrets
-
+import tempfile
 import time
+from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import optuna
 import pandas as pd
 
 from quant.run.artifacts import save_optimize_artifact
-from quant.run.backtest_common import ASSET_CLASSES, build_and_run, build_engine, VENUE
+from quant.run.asset_profiles import get_asset_profile, strategy_defaults_for_asset
+from quant.run.backtest_common import (
+    ASSET_CLASSES,
+    VENUE,
+    build_and_run,
+    infer_bars_per_session,
+    infer_bar_interval_minutes_from_csv,
+)
+from quant.run.scoring import (
+    annualization_factor,
+    primary_ratio_from_curve,
+    sharpe_from_curve,
+    sortino_from_curve,
+)
+from quant.run.metrics import compute_metrics
 
 DEFAULT_TICKERS = ["BTC", "ETH", "SOL", "XRP", "DOGE"]  # crypto (24/7)
 EQUITY_DEFAULT_TICKERS = ["SPY", "QQQ", "DIA", "IWM"]  # liquid index ETFs
 
-# Number of intermediate checkpoints per trial (report + should_prune). More
-# checkpoints = earlier pruning but more equity-report calls; 6 gives ~monthly-
-# to-quarterly granularity on multi-year daily data. Trials with fewer bars than
-# this simply use one checkpoint per bar-slice.
-N_PRUNE_CHECKPOINTS = 6
+NO_QUALIFYING_FOLDS_SCORE = -1_000_000.0
+
+
+def _file_sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+@dataclass(frozen=True)
+class WalkForwardFold:
+    number: int
+    csv_path: str
+    validation_start_ns: int
+    validation_end_ns: int
+    validation_start_index: int
+    timestamps_ns: tuple[int, ...]
+
+    def model_fit_end_ns(self, embargo_bars: int) -> int:
+        fit_index = self.validation_start_index - embargo_bars - 1
+        if fit_index < 0:
+            raise ValueError(
+                f"fold {self.number} has no training data before {embargo_bars}-bar embargo"
+            )
+        return self.timestamps_ns[fit_index]
+
+
+@dataclass(frozen=True)
+class NestedWalkForwardData:
+    folds: tuple[WalkForwardFold, ...]
+    final_context_path: str
+    final_test_path: str
+    final_test_start_ns: int
+    final_test_end_ns: int
+    final_test_start_index: int
+    timestamps_ns: tuple[int, ...]
+    development_fraction: float
+
+    def final_model_fit_end_ns(self, embargo_bars: int) -> int:
+        fit_index = self.final_test_start_index - embargo_bars - 1
+        if fit_index < 0:
+            raise ValueError("no development data before the final-test embargo")
+        return self.timestamps_ns[fit_index]
 
 
 def _split_csv(csv_path: str, train_frac: float) -> tuple[str, str]:
-    """Write in-sample / out-of-sample CSVs split by time. Returns paths."""
+    """Backward-compatible one-shot splitter; the optimizer no longer uses it."""
     df = pd.read_csv(csv_path)
     # A CSV can contain date-only rows from the original daily file and
     # date-time rows added by ``--fetch-missing``.  Pandas otherwise infers the
@@ -75,7 +133,97 @@ def _split_csv(csv_path: str, train_frac: float) -> tuple[str, str]:
     return is_path, oos_path
 
 
-SECONDS_PER_YEAR = 365.25 * 24 * 3600  # wall-clock; session gaps ~cancel in the ratio
+def _prepare_nested_walk_forward(
+    csv_path: str,
+    tickers: list[str],
+    output_dir: str,
+    *,
+    final_test_frac: float,
+    n_folds: int,
+    min_initial_train_bars: int,
+    max_embargo_bars: int,
+) -> NestedWalkForwardData:
+    """Create reusable chronological fold CSVs and an untouched outer holdout."""
+    if not 0.0 < final_test_frac < 0.5:
+        raise ValueError("final_test_frac must be greater than 0 and less than 0.5")
+    if not 2 <= n_folds <= 10:
+        raise ValueError("walk-forward folds must be between 2 and 10")
+    if max_embargo_bars < 1:
+        raise ValueError("max_embargo_bars must be >= 1")
+
+    df = pd.read_csv(csv_path)
+    required = {"timestamp", "ticker", "open", "high", "low", "close", "volume"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"CSV missing required columns: {sorted(missing)}")
+    df["timestamp"] = pd.to_datetime(df["timestamp"], format="mixed", utc=True)
+    df = df[df["ticker"].isin(tickers)].sort_values(["timestamp", "ticker"])
+    if df.empty:
+        raise ValueError("CSV has no rows for the selected tickers")
+
+    timestamps = pd.Index(df["timestamp"].drop_duplicates().sort_values())
+    n_timestamps = len(timestamps)
+    final_count = max(1, int(math.ceil(n_timestamps * final_test_frac)))
+    development_count = n_timestamps - final_count
+    usable_for_validation = (
+        development_count - min_initial_train_bars - max_embargo_bars
+    )
+    validation_size = usable_for_validation // n_folds
+    if validation_size < 2:
+        required_count = (
+            min_initial_train_bars + max_embargo_bars + 2 * n_folds + final_count
+        )
+        raise ValueError(
+            "not enough chronological bars for purged walk-forward validation: "
+            f"found {n_timestamps}, need at least {required_count} for "
+            f"{n_folds} folds, {min_initial_train_bars} initial train bars, "
+            f"{max_embargo_bars} embargo bars, and the final holdout"
+        )
+
+    validation_origin = development_count - validation_size * n_folds
+    timestamps_ns = tuple(int(ts.value) for ts in timestamps)
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    folds = []
+    for number in range(1, n_folds + 1):
+        val_start_index = validation_origin + (number - 1) * validation_size
+        val_end_index = (
+            development_count - 1
+            if number == n_folds
+            else val_start_index + validation_size - 1
+        )
+        val_start = timestamps[val_start_index]
+        val_end = timestamps[val_end_index]
+        fold_path = output / f"fold_{number}.csv"
+        df[df["timestamp"] <= val_end].to_csv(fold_path, index=False)
+        folds.append(
+            WalkForwardFold(
+                number=number,
+                csv_path=str(fold_path),
+                validation_start_ns=int(val_start.value),
+                validation_end_ns=int(val_end.value),
+                validation_start_index=val_start_index,
+                timestamps_ns=timestamps_ns,
+            )
+        )
+
+    final_start = timestamps[development_count]
+    final_end = timestamps[-1]
+    final_context_path = output / "final_context.csv"
+    final_test_path = output / "final_test.csv"
+    df.to_csv(final_context_path, index=False)
+    df[df["timestamp"] >= final_start].to_csv(final_test_path, index=False)
+    return NestedWalkForwardData(
+        folds=tuple(folds),
+        final_context_path=str(final_context_path),
+        final_test_path=str(final_test_path),
+        final_test_start_ns=int(final_start.value),
+        final_test_end_ns=int(final_end.value),
+        final_test_start_index=development_count,
+        timestamps_ns=timestamps_ns,
+        development_fraction=development_count / n_timestamps,
+    )
+
 
 def _equity_series(engine):
     """Pull (values, ts_seconds) for the account-equity series.
@@ -107,76 +255,96 @@ def _equity_curve(engine) -> np.ndarray:
     vals, _ = _equity_series(engine)
     return vals if len(vals) > 2 else np.array([])
 
-def _annualization_factor(ts_seconds: np.ndarray) -> float:
-    """periods-per-year from the MEDIAN spacing of equity timestamps.
-
-    Frequency-robust (1-min / 1-hour / daily), resists fill-burst clustering,
-    falls back to 252 (daily) when timestamps are unusable. Replaces the
-    hard-coded sqrt(252) that over-annualized intraday bars (~20x for 1-min).
-    """
-    if ts_seconds.size < 2:
-        return 252.0
-    dt = np.diff(ts_seconds)
-    dt = dt[dt > 0]
-    if dt.size == 0:
-        return 252.0
-    mean_dt = float(np.median(dt))
-    if mean_dt <= 0:
-        return 252.0
-    return SECONDS_PER_YEAR / mean_dt
-
-DOWNSIDE_EPS = 1e-6  # clamp for sigma_down on an all-winners (no-loss) curve
+def _annualization_factor(ts_seconds: np.ndarray, asset_class: str = "crypto") -> float:
+    return annualization_factor(ts_seconds, asset_class)
 
 
-def _sortino_from_curve(curve: np.ndarray, ts: np.ndarray) -> float:
-    """Annualized Sortino-like score net of a turnover penalty.
-
-    Sortino replaces Sharpe's total-return standard deviation with DOWNSIDE
-    deviation ``sigma_down`` -- the root-mean-square of the negative return
-    steps only (``r_t < 0``), measured against a 0 minimum-acceptable-return.
-    Upside dispersion no longer penalizes the score: a strategy is charged only
-    for the losses it actually incurs.
-
-    Annualization reuses the same dynamic ``_annualization_factor(ts)`` derived
-    from real elapsed timestamps (frequency-robust), NOT a hard-coded 252/bar
-    grid. ``curve`` must have length >= 3 (the caller guarantees this).
-    """
-    rets = np.diff(curve) / curve[:-1]
-    downside = rets[rets < 0]
-    # sigma_down = sqrt(mean(r^2)) over the LOSING steps only (MAR = 0).
-    sigma_down = float(np.sqrt(np.mean(np.square(downside)))) if downside.size else 0.0
-    if sigma_down == 0.0:
-        # No losing steps at all. If the mean return is positive this is a
-        # (small-sample) all-winners curve -> clamp to a tiny epsilon so the
-        # ratio stays finite and large instead of dividing by zero. Otherwise
-        # (flat or negative mean) there is no positive edge to reward.
-        if rets.mean() > 0:
-            sigma_down = DOWNSIDE_EPS
-        else:
-            return 0.0
-    periods_per_year = _annualization_factor(ts)
-    sortino = (rets.mean() / sigma_down) * np.sqrt(periods_per_year)
-    turnover_penalty = 0.0005 * len(rets)  # discourage hyperactivity
-    return float(sortino - turnover_penalty)
+def _sortino_from_curve(
+    curve: np.ndarray, ts: np.ndarray, asset_class: str = "crypto"
+) -> float:
+    return sortino_from_curve(curve, ts, asset_class)
 
 
-def score_engine(engine, starting_cash: float) -> float:
-    """Sortino-like objective net of fees, with a turnover penalty.
+def _sharpe_from_curve(
+    curve: np.ndarray, ts: np.ndarray, asset_class: str = "equity"
+) -> float:
+    return sharpe_from_curve(curve, ts, asset_class)
 
-    Downside-deviation based (see ``_sortino_from_curve``); annualization is
-    derived from the ACTUAL elapsed time of the equity curve (was hard-coded
-    sqrt(252)). Returns a large negative sentinel when the trial placed no
-    trades so the optimizer strongly avoids do-nothing parameter sets.
-    """
+
+def score_engine(
+    engine,
+    starting_cash: float,
+    asset_class: str = "crypto",
+) -> float:
+    """Asset-profile objective net of modeled fees and light activity cost."""
     curve, ts = _equity_series(engine)
+    try:
+        fills = engine.trader.generate_order_fills_report()
+        n_trades = 0 if fills is None else len(fills)
+    except Exception:  # noqa: BLE001
+        n_trades = 0
     if len(curve) < 3:
-        try:
-            fills = engine.trader.generate_order_fills_report()
-            n_trades = 0 if fills is None else len(fills)
-        except Exception:  # noqa: BLE001
-            n_trades = 0
         return -1e6 if n_trades == 0 else 0.0
-    return _sortino_from_curve(curve, ts)
+    _metric, ratio = primary_ratio_from_curve(curve, ts, asset_class)
+    penalty = float(get_asset_profile(asset_class)["scoring"]["trade_penalty"])
+    return float(ratio - penalty * n_trades)
+
+
+@dataclass(frozen=True)
+class FoldPerformance:
+    ratio: float
+    turnover: float
+    trades: int
+
+
+def _engine_performance(
+    engine,
+    starting_cash: float,
+    asset_class: str,
+) -> FoldPerformance:
+    """Net risk-adjusted performance and turnover from one validation run."""
+    curve, ts = _equity_series(engine)
+    metrics = compute_metrics(engine, VENUE, starting_cash, asset_class)
+    if len(curve) < 3:
+        ratio = NO_QUALIFYING_FOLDS_SCORE if metrics.total_trades == 0 else 0.0
+    else:
+        _metric, ratio = primary_ratio_from_curve(curve, ts, asset_class)
+    return FoldPerformance(
+        ratio=float(ratio),
+        turnover=float(metrics.turnover_rate),
+        trades=int(metrics.total_trades),
+    )
+
+
+def stability_aware_score(
+    normal_ratios: list[float],
+    stressed_ratios: list[float],
+    turnovers: list[float],
+    *,
+    std_weight: float = 0.5,
+    turnover_weight: float = 0.01,
+    cost_sensitivity_weight: float = 0.5,
+    min_positive_fraction: float = 0.6,
+    require_positive_folds: bool = True,
+) -> float:
+    """Robust fold aggregation used as the Optuna objective."""
+    if not normal_ratios or len(normal_ratios) != len(stressed_ratios):
+        return NO_QUALIFYING_FOLDS_SCORE
+    normal = np.asarray(normal_ratios, dtype=float)
+    stressed = np.asarray(stressed_ratios, dtype=float)
+    turnover = np.asarray(turnovers, dtype=float)
+    if not np.all(np.isfinite(normal)) or not np.all(np.isfinite(stressed)):
+        return NO_QUALIFYING_FOLDS_SCORE
+
+    required_positive = max(1, math.ceil(len(normal) * min_positive_fraction))
+    if require_positive_folds and int(np.sum(normal > 0.0)) < required_positive:
+        return NO_QUALIFYING_FOLDS_SCORE
+
+    stability = float(np.median(normal) - std_weight * np.std(normal))
+    turnover_penalty = turnover_weight * float(np.median(turnover))
+    degradation = np.maximum(0.0, normal - stressed)
+    cost_penalty = cost_sensitivity_weight * float(np.median(degradation))
+    return stability - turnover_penalty - cost_penalty
 
 def _prompt_refit_every_n_bars() -> int:
     """Interactively read the Huber refit cadence (in bars) from the terminal.
@@ -209,7 +377,7 @@ def _prompt_refit_every_n_bars() -> int:
 
 
 def make_objective(
-    csv_path: str,
+    folds: tuple[WalkForwardFold, ...],
     tickers: list[str],
     starting_cash: float,
     refit_every_n_bars: int = 1,
@@ -217,7 +385,21 @@ def make_objective(
     warmup_bars: int = 150,
     min_train_bars: int = 120,
     structural_overrides: dict | None = None,
+    *,
+    embargo_bars: int = 0,
+    std_weight: float = 0.5,
+    turnover_weight: float = 0.01,
+    cost_sensitivity_weight: float = 0.5,
+    min_positive_fraction: float = 0.6,
+    stress_cost_multiplier: float = 2.0,
+    normal_slippage_probability: float = 0.05,
+    seed: int = 0,
 ):
+    window_floor = max(warmup_bars, min_train_bars)
+    training_windows = tuple(
+        sorted({0, window_floor, window_floor * 2, window_floor * 4, window_floor * 8})
+    )
+
     def objective(trial: optuna.Trial) -> float:
         overrides = dict(
             n_lags=trial.suggest_int("n_lags", 3, 15),
@@ -275,6 +457,13 @@ def make_objective(
             # robust to outliers/gaps). Linear, not log, scale -- the whole
             # range spans less than one order of magnitude.
             huber_epsilon=trial.suggest_float("huber_epsilon", 1.05, 3.0),
+            # Expanding history (0) competes directly against several rolling
+            # Huber fit windows. The same candidate is evaluated across every
+            # purged fold, so a short recent-regime fit must generalize rather
+            # than merely improving one period.
+            training_window_bars=trial.suggest_categorical(
+                "training_window_bars", training_windows
+            ),
             # --- refit cadence (FIXED structural setting, NOT tuned) ---
             # Statically bound from the interactive terminal input; identical for
             # every trial. Deliberately NOT a trial.suggest_* call -- Optuna must
@@ -299,56 +488,110 @@ def make_objective(
         # precedent as refit_every_n_bars/warmup_bars/min_train_bars above.
         if structural_overrides:
             overrides.update(structural_overrides)
-        # Build the engine but hold the data back so we can feed it in
-        # time-slices and inspect the equity curve between slices.
-        engine, all_bars = build_engine(
-            csv_path=csv_path,
-            tickers=tickers,
-            strategy_overrides=overrides,
-            starting_cash=starting_cash,
-            log_level="ERROR",
-            bypass_logging=True,
-            asset_class=asset_class,
+
+        horizon_embargo = max(int(overrides["horizon"]), int(embargo_bars))
+        normal_results: list[FoldPerformance] = []
+        stressed_results: list[FoldPerformance] = []
+        fold_records = []
+        for step, fold in enumerate(folds):
+            fold_overrides = {
+                **overrides,
+                "backtest_model_fit_end_ns": fold.model_fit_end_ns(horizon_embargo),
+                "backtest_trade_start_ns": fold.validation_start_ns,
+            }
+            fill_seed = seed + trial.number * 10_000 + fold.number
+            normal_engine = build_and_run(
+                csv_path=fold.csv_path,
+                tickers=tickers,
+                strategy_overrides=fold_overrides,
+                starting_cash=starting_cash,
+                log_level="ERROR",
+                bypass_logging=True,
+                asset_class=asset_class,
+                cost_multiplier=1.0,
+                slippage_probability=normal_slippage_probability,
+                fill_model_seed=fill_seed,
+            )
+            try:
+                normal = _engine_performance(
+                    normal_engine, starting_cash, asset_class
+                )
+            finally:
+                normal_engine.dispose()
+
+            stressed_engine = build_and_run(
+                csv_path=fold.csv_path,
+                tickers=tickers,
+                strategy_overrides=fold_overrides,
+                starting_cash=starting_cash,
+                log_level="ERROR",
+                bypass_logging=True,
+                asset_class=asset_class,
+                cost_multiplier=stress_cost_multiplier,
+                slippage_probability=min(1.0, normal_slippage_probability * 2.0),
+                fill_model_seed=fill_seed,
+            )
+            try:
+                stressed = _engine_performance(
+                    stressed_engine, starting_cash, asset_class
+                )
+            finally:
+                stressed_engine.dispose()
+
+            normal_results.append(normal)
+            stressed_results.append(stressed)
+            fold_records.append(
+                {
+                    "fold": fold.number,
+                    "validation_start": pd.Timestamp(
+                        fold.validation_start_ns, unit="ns", tz="UTC"
+                    ).isoformat(),
+                    "validation_end": pd.Timestamp(
+                        fold.validation_end_ns, unit="ns", tz="UTC"
+                    ).isoformat(),
+                    "embargo_bars": horizon_embargo,
+                    "normal_ratio": normal.ratio,
+                    "stressed_ratio": stressed.ratio,
+                    "turnover": normal.turnover,
+                    "trades": normal.trades,
+                }
+            )
+            interim = stability_aware_score(
+                [result.ratio for result in normal_results],
+                [result.ratio for result in stressed_results],
+                [result.turnover for result in normal_results],
+                std_weight=std_weight,
+                turnover_weight=turnover_weight,
+                cost_sensitivity_weight=cost_sensitivity_weight,
+                min_positive_fraction=min_positive_fraction,
+                require_positive_folds=False,
+            )
+            trial.report(interim, step)
+            if trial.should_prune():
+                trial.set_user_attr("walk_forward_folds", fold_records)
+                raise optuna.TrialPruned()
+
+        final_score = stability_aware_score(
+            [result.ratio for result in normal_results],
+            [result.ratio for result in stressed_results],
+            [result.turnover for result in normal_results],
+            std_weight=std_weight,
+            turnover_weight=turnover_weight,
+            cost_sensitivity_weight=cost_sensitivity_weight,
+            min_positive_fraction=min_positive_fraction,
         )
-        try:
-            n = len(all_bars)
-            if n == 0:
-                return score_engine(engine, starting_cash)
-
-            # Stream the bars in contiguous, time-ordered slices. After each
-            # slice, score the equity curve SO FAR and hand it to Optuna. The
-            # MedianPruner (configured in main) raises should_prune() once a
-            # trial trails the median of prior trials at the same checkpoint --
-            # so a losing / do-nothing parameter set is abandoned before it
-            # burns the remaining bars. This is the compute saving.
-            n_chunks = min(N_PRUNE_CHECKPOINTS, n)
-            for step in range(n_chunks):
-                lo = step * n // n_chunks
-                hi = (step + 1) * n // n_chunks
-                engine.add_data(all_bars[lo:hi])
-                engine.run(streaming=True)  # pause at data exhaustion, don't finalize
-                engine.clear_data()
-
-                curve, ts = _equity_series(engine)
-                if len(curve) < 3:
-                    # Warmup: the model has not traded enough for a meaningful
-                    # equity curve yet. Reporting a placeholder here would poison
-                    # the MedianPruner -- for a MAXIMIZE study it compares the
-                    # trial's BEST-so-far intermediate value against the median,
-                    # and a 0.0 placeholder outranks every real (often negative)
-                    # early Sortino, so nothing would ever prune. Skip instead;
-                    # warmup length is deterministic so steps stay aligned across
-                    # trials.
-                    continue
-                interim = _sortino_from_curve(curve, ts)
-                trial.report(interim, step)
-                if trial.should_prune():
-                    raise optuna.TrialPruned()
-
-            engine.end()  # finalize the streamed run (produces final results)
-            return score_engine(engine, starting_cash)
-        finally:
-            engine.dispose()
+        trial.set_user_attr("walk_forward_folds", fold_records)
+        trial.set_user_attr(
+            "positive_folds", sum(result.ratio > 0 for result in normal_results)
+        )
+        trial.set_user_attr("fold_count", len(normal_results))
+        trial.set_user_attr("median_fold_ratio", float(np.median(
+            [result.ratio for result in normal_results]
+        )))
+        trial.set_user_attr("std_fold_ratio", float(np.std(
+            [result.ratio for result in normal_results]
+        )))
+        return final_score
 
     return objective
 
@@ -404,11 +647,70 @@ def main(refit_every_n_bars: int = 1) -> None:
         type=float,
         default=None,
         help="Goal mode: keep running trials until a COMPLETED trial's "
-        "score_engine value reaches this target, then stop. Combine with "
+        "stability-aware walk-forward value reaches this target, then stop. Combine with "
         "--trials to bound the worst case; without it the search is uncapped "
         "(Ctrl-C to abort).",
     )
-    p.add_argument("--train-frac", type=float, default=0.7)
+    p.add_argument(
+        "--final-test-frac",
+        type=float,
+        default=0.20,
+        help="Newest fraction reserved as the untouched outer test set (default 0.20).",
+    )
+    p.add_argument(
+        "--train-frac",
+        type=float,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    p.add_argument(
+        "--walk-forward-folds",
+        type=int,
+        default=5,
+        help="Chronological purged validation folds inside the development set (default 5).",
+    )
+    p.add_argument(
+        "--embargo-bars",
+        type=int,
+        default=0,
+        help="Minimum train/validation embargo. Effective embargo is max(this, horizon).",
+    )
+    p.add_argument(
+        "--stability-std-weight",
+        type=float,
+        default=0.50,
+        help="Penalty multiplier for dispersion across fold ratios (default 0.50).",
+    )
+    p.add_argument(
+        "--turnover-penalty-weight",
+        type=float,
+        default=0.01,
+        help="Penalty per median fold turnover multiple (default 0.01).",
+    )
+    p.add_argument(
+        "--cost-sensitivity-weight",
+        type=float,
+        default=0.50,
+        help="Penalty multiplier for degradation under stressed costs (default 0.50).",
+    )
+    p.add_argument(
+        "--min-positive-fold-fraction",
+        type=float,
+        default=0.60,
+        help="Required fraction of folds with positive net primary ratio (default 0.60).",
+    )
+    p.add_argument(
+        "--normal-slippage-probability",
+        type=float,
+        default=0.05,
+        help="Normal probability of one-tick fill slippage; stress uses 2x (default 0.05).",
+    )
+    p.add_argument(
+        "--stress-cost-multiplier",
+        type=float,
+        default=2.0,
+        help="Commission multiplier for stressed fold/test reruns (default 2.0).",
+    )
     p.add_argument("--cash", type=float, default=5000.0)
     p.add_argument(
         "--seed",
@@ -469,6 +771,11 @@ def main(refit_every_n_bars: int = 1) -> None:
         "--fetch-missing always uses the CSV's existing frequency.",
     )
     p.add_argument(
+        "--include-extended-hours",
+        action="store_true",
+        help="For equity IBKR fetches, request all available sessions instead of RTH only.",
+    )
+    p.add_argument(
         "--structural-json",
         default=None,
         help="Path to a JSON file of feature-toggle / risk-rail overrides "
@@ -476,19 +783,21 @@ def main(refit_every_n_bars: int = 1) -> None:
         "regime_raw_scale, hmm_raw_scale, risk_budget_pct, max_trade_risk_pct, "
         "max_leverage, daily_loss_limit_pct, kill_switch_pct, kill_warn_pct, "
         "kelly_max_fraction) applied identically to every trial and the final "
-        "OOS validation -- NOT searched by Optuna, dashboard-controlled.",
+        "outer test -- NOT searched by Optuna, dashboard-controlled.",
+    )
+    p.add_argument(
+        "--news-db",
+        default=None,
+        help="Captured RSS/IBKR news database. A content-addressed snapshot is "
+        "used unchanged by every fold, cost rerun, and final holdout.",
     )
     p.add_argument(
         "--resume-run-id",
         default=None,
-        help="Continue a prior sweep instead of starting fresh: reattaches to "
-        "that run's Optuna study (by run_id) via persistent storage and runs "
-        "--trials MORE trials on top of what it already completed, with the "
-        "TPE sampler conditioning on the full combined history. The new run "
-        "gets its own --run-id/artifact; the original run's artifact is left "
-        "untouched. Use the SAME --tickers/--asset-class/--csv/structural "
-        "settings as the original run -- changing the search space mid-study "
-        "mixes incompatible trials into one 'best' comparison.",
+        help="Continue an INTERRUPTED nested sweep before its final test was "
+        "evaluated. Data and validation settings must match exactly. A sweep "
+        "which already consumed its outer holdout is intentionally immutable; "
+        "start a new study instead of tuning further against a seen test set.",
     )
     p.add_argument(
         "--storage",
@@ -500,6 +809,26 @@ def main(refit_every_n_bars: int = 1) -> None:
     args = p.parse_args()
     if args.fetch_missing and args.replace_bars:
         p.error("--fetch-missing and --replace-bars are mutually exclusive")
+    if args.train_frac is not None:
+        if not 0.5 < args.train_frac < 1.0:
+            p.error("--train-frac must be between 0.5 and 1.0")
+        args.final_test_frac = 1.0 - args.train_frac
+        print(
+            "--train-frac is deprecated; interpreting it as "
+            f"--final-test-frac {args.final_test_frac:.4f}"
+        )
+    if not 0.0 < args.final_test_frac < 0.5:
+        p.error("--final-test-frac must be greater than 0 and less than 0.5")
+    if not 2 <= args.walk_forward_folds <= 10:
+        p.error("--walk-forward-folds must be between 2 and 10")
+    if args.embargo_bars < 0:
+        p.error("--embargo-bars must be >= 0")
+    if not 0.0 < args.min_positive_fold_fraction <= 1.0:
+        p.error("--min-positive-fold-fraction must be in (0, 1]")
+    if not 0.0 <= args.normal_slippage_probability <= 0.5:
+        p.error("--normal-slippage-probability must be between 0 and 0.5")
+    if args.stress_cost_multiplier < 1.0:
+        p.error("--stress-cost-multiplier must be >= 1")
     tickers = args.tickers or (
         EQUITY_DEFAULT_TICKERS if args.asset_class == "equity" else DEFAULT_TICKERS
     )
@@ -513,6 +842,7 @@ def main(refit_every_n_bars: int = 1) -> None:
                 csv_path=args.csv, tickers=tickers, asset_class=args.asset_class,
                 years=args.ibkr_years, host=args.ibkr_host, port=args.ibkr_port,
                 client_id=args.ibkr_client_id, bar_hours=args.ibkr_bar_hours,
+                include_extended_hours=args.include_extended_hours,
             )
         else:
             from quant.data.ibkr_fetch import ensure_tickers
@@ -520,29 +850,66 @@ def main(refit_every_n_bars: int = 1) -> None:
                 csv_path=args.csv, tickers=tickers, asset_class=args.asset_class,
                 years=args.ibkr_years, host=args.ibkr_host, port=args.ibkr_port,
                 client_id=args.ibkr_client_id,
+                include_extended_hours=args.include_extended_hours,
             )
             if fetched:
                 print(f"Fetched missing tickers via IBKR at the CSV's existing frequency: {fetched}")
 
-    structural_overrides = None
+    # Asset profile defaults are structural and therefore identical across
+    # every trial. Explicit JSON values win over the profile.
+    structural_overrides = strategy_defaults_for_asset(args.asset_class)
+    structural_overrides["regime_window"] = 20 * infer_bars_per_session(
+        args.csv, tickers
+    )
     if args.structural_json:
         with open(args.structural_json) as fh:
-            structural_overrides = json.load(fh)
+            structural_overrides.update(json.load(fh))
         print(f"Structural feature/risk overrides from {args.structural_json}: {structural_overrides}")
+    if structural_overrides.get("regime_window") == 20:
+        structural_overrides["regime_window"] = 20 * infer_bars_per_session(
+            args.csv, tickers
+        )
 
     started_at = time.time()
     seed = args.seed if args.seed is not None else secrets.randbelow(2**31)
     print(f"Optuna sampler seed = {seed}")
+    score_profile = get_asset_profile(args.asset_class)["scoring"]
+    print(
+        f"Scoring profile = {score_profile['label']} "
+        f"({args.asset_class}, primary objective)"
+    )
     print(f"Huber refit cadence = every {refit_every_n_bars} bar(s) (fixed, not tuned)")
     print(f"warmup_bars = {warmup_bars}, min_train_bars = {min_train_bars} (fixed, not tuned)")
 
-    is_path, oos_path = _split_csv(args.csv, args.train_frac)
-    print(f"In-sample:  {is_path}\nOut-of-sample: {oos_path}")
+    split_workspace = tempfile.TemporaryDirectory(prefix="quant_nested_wf_")
+    news_source = args.news_db or structural_overrides.get("news_data_path")
+    news_snapshot_sha256 = None
+    if news_source:
+        from quant.news.core import snapshot_news_store
+
+        news_snapshot, news_snapshot_sha256 = snapshot_news_store(
+            str(news_source), "quant/optimize/news_snapshots"
+        )
+        structural_overrides["use_news_features"] = True
+        structural_overrides["news_data_path"] = news_snapshot
+    nested_data = _prepare_nested_walk_forward(
+        args.csv,
+        tickers,
+        split_workspace.name,
+        final_test_frac=args.final_test_frac,
+        n_folds=args.walk_forward_folds,
+        min_initial_train_bars=max(warmup_bars, min_train_bars),
+        max_embargo_bars=max(5, args.embargo_bars),
+    )
+    print(
+        f"Nested validation: {len(nested_data.folds)} purged walk-forward folds; "
+        f"newest {args.final_test_frac:.1%} reserved for one final test"
+    )
 
     sampler = optuna.samplers.TPESampler(seed=seed)
     # MedianPruner: after n_startup_trials have fully completed (seeding the
     # per-step medians) and past n_warmup_steps checkpoints within a trial,
-    # prune any trial whose intermediate Sortino trails the running median at
+    # prune any trial whose intermediate profile ratio trails the running median at
     # the same step. Startup/warmup keep it from killing trials on noise before
     # there is anything to compare against.
     pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=1)
@@ -558,6 +925,42 @@ def main(refit_every_n_bars: int = 1) -> None:
         sampler=sampler,
         pruner=pruner,
     )
+    validation_contract = {
+        "scheme": "purged_nested_walk_forward_v1",
+        "source_csv_sha256": _file_sha256(args.csv),
+        "tickers": tickers,
+        "asset_class": args.asset_class,
+        "final_test_frac": args.final_test_frac,
+        "walk_forward_folds": args.walk_forward_folds,
+        "embargo_bars": args.embargo_bars,
+        "stability_std_weight": args.stability_std_weight,
+        "turnover_penalty_weight": args.turnover_penalty_weight,
+        "cost_sensitivity_weight": args.cost_sensitivity_weight,
+        "min_positive_fold_fraction": args.min_positive_fold_fraction,
+        "normal_slippage_probability": args.normal_slippage_probability,
+        "stress_cost_multiplier": args.stress_cost_multiplier,
+        "warmup_bars": warmup_bars,
+        "min_train_bars": min_train_bars,
+        "refit_every_n_bars": refit_every_n_bars,
+        "structural_overrides": structural_overrides,
+        "news_snapshot_sha256": news_snapshot_sha256,
+    }
+    prior_contract = study.user_attrs.get("validation_contract")
+    if study.trials and prior_contract is None:
+        raise ValueError(
+            f"study {study_name!r} predates purged nested validation and cannot be resumed"
+        )
+    if prior_contract is not None and prior_contract != validation_contract:
+        raise ValueError(
+            f"study {study_name!r} has a different data/validation contract; "
+            "start a new sweep"
+        )
+    if study.user_attrs.get("final_test_evaluated"):
+        raise ValueError(
+            f"study {study_name!r} already consumed its outer test set and cannot "
+            "accept more trials without contaminating that holdout"
+        )
+    study.set_user_attr("validation_contract", validation_contract)
     if args.resume_run_id:
         print(f"Resuming study {study_name!r}: {len(study.trials)} trial(s) already "
               f"recorded; adding more on top.")
@@ -575,8 +978,16 @@ def main(refit_every_n_bars: int = 1) -> None:
 
     study.optimize(
         make_objective(
-            is_path, tickers, args.cash, refit_every_n_bars, args.asset_class,
+            nested_data.folds, tickers, args.cash, refit_every_n_bars, args.asset_class,
             warmup_bars, min_train_bars, structural_overrides,
+            embargo_bars=args.embargo_bars,
+            std_weight=args.stability_std_weight,
+            turnover_weight=args.turnover_penalty_weight,
+            cost_sensitivity_weight=args.cost_sensitivity_weight,
+            min_positive_fraction=args.min_positive_fold_fraction,
+            stress_cost_multiplier=args.stress_cost_multiplier,
+            normal_slippage_probability=args.normal_slippage_probability,
+            seed=seed,
         ),
         n_trials=n_trials,
         callbacks=callbacks,
@@ -595,18 +1006,49 @@ def main(refit_every_n_bars: int = 1) -> None:
         print(f"Target score {args.score}: "
               f"{'REACHED' if reached else 'NOT reached'} (best = {best_txt})")
 
-    print("\n=========== BEST (in-sample) ===========")
+    print("\n=========== BEST (nested walk-forward) ===========")
     print("value:", study.best_value)
     print("params:", study.best_params)
 
     # Persist the winning params so run_backtest / live can load them directly.
     payload = {
         "params": study.best_params,
+        "asset_class": args.asset_class,
+        "objective_metric": score_profile["metric"],
+        "trade_penalty": score_profile["trade_penalty"],
+        "market_session": (
+            "Regular + extended hours"
+            if args.asset_class == "equity" and args.include_extended_hours
+            else get_asset_profile(args.asset_class)["market"]["session"]
+        ),
+        "include_extended_hours": args.include_extended_hours,
+        "bar_interval_minutes": infer_bar_interval_minutes_from_csv(args.csv, tickers),
         "in_sample_value": study.best_value,
+        "selection_value": study.best_value,
         "seed": seed,
         "trials": args.trials,
-        "train_frac": args.train_frac,
+        # train_frac remains as compatibility metadata for older dashboard
+        # clients. It is no longer a one-shot optimization split.
+        "train_frac": nested_data.development_fraction,
+        "validation_scheme": "purged_nested_walk_forward",
+        "final_test_frac": args.final_test_frac,
+        "walk_forward_folds": args.walk_forward_folds,
+        "embargo_bars": args.embargo_bars,
+        "effective_embargo_bars": max(
+            args.embargo_bars, int(study.best_params["horizon"])
+        ),
+        "stability_std_weight": args.stability_std_weight,
+        "turnover_penalty_weight": args.turnover_penalty_weight,
+        "cost_sensitivity_weight": args.cost_sensitivity_weight,
+        "min_positive_fold_fraction": args.min_positive_fold_fraction,
+        "normal_slippage_probability": args.normal_slippage_probability,
+        "stress_cost_multiplier": args.stress_cost_multiplier,
+        "best_fold_results": study.best_trial.user_attrs.get(
+            "walk_forward_folds", []
+        ),
+        "promotion_status": "REQUIRES_SHADOW_AND_PAPER_AGREEMENT",
         "source_csv": args.csv,
+        "news_snapshot_sha256": news_snapshot_sha256,
         # Recorded OUTSIDE "params" (which holds only Optuna-tuned keys) because
         # these are fixed structural settings, not searched hyperparameters.
         "refit_every_n_bars": refit_every_n_bars,
@@ -624,27 +1066,86 @@ def main(refit_every_n_bars: int = 1) -> None:
         json.dump(payload, fh, indent=2)
     print(f"\nSaved best params -> {args.out_params}")
 
-    # Validate the chosen params on the held-out OOS window.
-    print("\n=========== VALIDATION (out-of-sample) ===========")
+    # Evaluate the locked winner on the untouched outer period. This data was
+    # not loaded by any Optuna trial. Normal and stressed assumptions each run
+    # once; neither result can change study.best_params.
+    print("\n=========== FINAL TEST (untouched outer holdout) ===========")
+    final_embargo = max(args.embargo_bars, int(study.best_params["horizon"]))
+    final_overrides = {
+        **study.best_params,
+        "refit_every_n_bars": refit_every_n_bars,
+        "warmup_bars": warmup_bars,
+        "min_train_bars": min_train_bars,
+        **(structural_overrides or {}),
+        "backtest_model_fit_end_ns": nested_data.final_model_fit_end_ns(
+            final_embargo
+        ),
+        "backtest_trade_start_ns": nested_data.final_test_start_ns,
+    }
+    # Fail closed before touching the holdout: even a partial/failed final run
+    # consumes information and must prevent later tuning in this study.
+    study.set_user_attr("final_test_evaluated", True)
+    study.set_user_attr("final_test_evaluated_at", time.time())
     engine = build_and_run(
-        csv_path=oos_path,
+        csv_path=nested_data.final_context_path,
         tickers=tickers,
-        # Merge the FIXED structural settings onto the tuned params so OOS
-        # validation runs the same configuration the in-sample trials used.
-        strategy_overrides={
-            **study.best_params,
-            "refit_every_n_bars": refit_every_n_bars,
-            "warmup_bars": warmup_bars,
-            "min_train_bars": min_train_bars,
-            **(structural_overrides or {}),
-        },
+        strategy_overrides=final_overrides,
         starting_cash=args.cash,
         log_level="ERROR",
         bypass_logging=True,
         asset_class=args.asset_class,
+        cost_multiplier=1.0,
+        slippage_probability=args.normal_slippage_probability,
+        fill_model_seed=seed,
     )
-    oos_score = score_engine(engine, args.cash)
-    print("oos score:", oos_score)
+    final_normal = _engine_performance(engine, args.cash, args.asset_class)
+    stressed_engine = build_and_run(
+        csv_path=nested_data.final_context_path,
+        tickers=tickers,
+        strategy_overrides=final_overrides,
+        starting_cash=args.cash,
+        log_level="ERROR",
+        bypass_logging=True,
+        asset_class=args.asset_class,
+        cost_multiplier=args.stress_cost_multiplier,
+        slippage_probability=min(
+            1.0, args.normal_slippage_probability * 2.0
+        ),
+        fill_model_seed=seed,
+    )
+    final_stressed = _engine_performance(
+        stressed_engine, args.cash, args.asset_class
+    )
+    oos_score = stability_aware_score(
+        [final_normal.ratio],
+        [final_stressed.ratio],
+        [final_normal.turnover],
+        std_weight=args.stability_std_weight,
+        turnover_weight=args.turnover_penalty_weight,
+        cost_sensitivity_weight=args.cost_sensitivity_weight,
+        min_positive_fraction=args.min_positive_fold_fraction,
+        require_positive_folds=False,
+    )
+    payload["final_test"] = {
+        "start": pd.Timestamp(
+            nested_data.final_test_start_ns, unit="ns", tz="UTC"
+        ).isoformat(),
+        "end": pd.Timestamp(
+            nested_data.final_test_end_ns, unit="ns", tz="UTC"
+        ).isoformat(),
+        "normal_ratio": final_normal.ratio,
+        "stressed_ratio": final_stressed.ratio,
+        "turnover": final_normal.turnover,
+        "trades": final_normal.trades,
+        "stability_adjusted_score": oos_score,
+    }
+    with open(args.out_params, "w") as fh:
+        json.dump(payload, fh, indent=2)
+    print(
+        f"final net {score_profile['metric']}: {final_normal.ratio:.4f}; "
+        f"2x-cost stress: {final_stressed.ratio:.4f}; "
+        f"stability-adjusted: {oos_score:.4f}"
+    )
 
     # Persist a run artifact (trial history, OOS equity curve, ML-performance)
     # for the reporting dashboard. Best-effort: a failure here must never mask
@@ -655,25 +1156,46 @@ def main(refit_every_n_bars: int = 1) -> None:
             oos_engine=engine,
             oos_score=oos_score,
             csv_path=args.csv,
-            oos_path=oos_path,
+            oos_path=nested_data.final_test_path,
             tickers=tickers,
             asset_class=args.asset_class,
             starting_cash=args.cash,
             seed=seed,
             n_trials_requested=args.trials,
-            train_frac=args.train_frac,
+            train_frac=nested_data.development_fraction,
             target_score=args.score,
             started_at=started_at,
             run_id=args.run_id,
             structural_overrides=structural_overrides,
             resumed_from=args.resume_run_id,
             ibkr_bar_hours=args.ibkr_bar_hours if args.replace_bars else None,
+            include_extended_hours=args.include_extended_hours,
+            validation_metadata={
+                "scheme": "purged_nested_walk_forward",
+                "final_test_frac": args.final_test_frac,
+                "walk_forward_folds": args.walk_forward_folds,
+                "embargo_bars": args.embargo_bars,
+                "effective_embargo_bars": final_embargo,
+                "stability_std_weight": args.stability_std_weight,
+                "turnover_penalty_weight": args.turnover_penalty_weight,
+                "cost_sensitivity_weight": args.cost_sensitivity_weight,
+                "min_positive_fold_fraction": args.min_positive_fold_fraction,
+                "normal_slippage_probability": args.normal_slippage_probability,
+                "stress_cost_multiplier": args.stress_cost_multiplier,
+                "best_fold_results": study.best_trial.user_attrs.get(
+                    "walk_forward_folds", []
+                ),
+                "final_test": payload["final_test"],
+                "promotion_status": "REQUIRES_SHADOW_AND_PAPER_AGREEMENT",
+            },
         )
         print(f"Saved run artifact -> quant/runs/{artifact['run_id']}.json")
     except Exception as e:  # noqa: BLE001
         print(f"(run artifact unavailable: {e})")
 
+    stressed_engine.dispose()
     engine.dispose()
+    split_workspace.cleanup()
 
 
 if __name__ == "__main__":

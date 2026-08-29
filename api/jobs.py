@@ -12,6 +12,7 @@ until they exit on their own or are cancelled.
 """
 from __future__ import annotations
 
+import os
 import re
 import signal
 import subprocess
@@ -24,6 +25,12 @@ from pathlib import Path
 # nautilus's console logger writes ANSI colour codes straight into stdout;
 # strip them so the dashboard's log console renders plain, legible text.
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+_SENSITIVE_ARG_FLAGS = frozenset(
+    {"--account-id", "--api-key", "--password", "--redis-password", "--token"}
+)
+_SENSITIVE_CONFIG_KEYS = frozenset(
+    {"account_id", "api_key", "confirm", "password", "redis_password", "secret", "token"}
+)
 
 # The interpreter running THIS api process already has nautilus_trader/optuna/
 # scikit-learn/hmmlearn installed (the project's .quant312 venv) -- reuse it
@@ -41,9 +48,9 @@ JOBS_DIR = WORKDIR / "quant" / "jobs"
 _TERMINATE_GRACE_SECONDS = 5.0
 
 # backtest/optimize run to completion and produce a run artifact; paper/live
-# are long-running daemons with no run-artifact concept (see run/artifacts.py
-# and PRODUCT.md -- live/paper position state is served by api/live_mock.py
-# until real paper trading exists).
+# are long-running daemons with no run-artifact concept. They publish a
+# job-scoped atomic telemetry snapshot instead (see run/telemetry.py and
+# api/live_mock.py).
 _ARTIFACT_KINDS = ("backtest", "optimize")
 
 
@@ -51,10 +58,57 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _sensitive_arg_values(args: list[str]) -> tuple[str, ...]:
+    values: list[str] = []
+    for index, value in enumerate(args[:-1]):
+        if value in _SENSITIVE_ARG_FLAGS and args[index + 1]:
+            values.append(str(args[index + 1]))
+    for env_name in ("TWS_ACCOUNT", "NAUTILUS_REDIS_PASSWORD"):
+        env_value = os.environ.get(env_name)
+        if env_value:
+            values.append(env_value)
+    return tuple(dict.fromkeys(values))
+
+
+def _redact_text(value: str, sensitive_values: tuple[str, ...]) -> str:
+    redacted = str(value)
+    for secret in sensitive_values:
+        redacted = redacted.replace(secret, "<redacted-account>")
+    return redacted
+
+
+def _redact_command(command: list[str]) -> list[str]:
+    redacted = list(command)
+    for index, value in enumerate(redacted[:-1]):
+        if value in _SENSITIVE_ARG_FLAGS:
+            redacted[index + 1] = "<redacted-account>"
+    return redacted
+
+
+def _redact_config(value):
+    if isinstance(value, dict):
+        return {
+            key: (
+                "<redacted>"
+                if str(key).lower() in _SENSITIVE_CONFIG_KEYS
+                and item is not None
+                and item != ""
+                else _redact_config(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_config(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_config(item) for item in value)
+    return value
+
+
 class JobManager:
     def __init__(self) -> None:
         self._jobs: dict[str, dict] = {}
         self._procs: dict[str, subprocess.Popen] = {}
+        self._log_threads: dict[str, threading.Thread] = {}
         self._lock = threading.Lock()
         JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -74,31 +128,57 @@ class JobManager:
         extra = ["--run-id", job_id] if kind in _ARTIFACT_KINDS else []
         command = [PYTHON_BIN, "-u", "-m", module, *args, *extra]
         log_path = JOBS_DIR / f"{job_id}.log"
-        log_fh = open(log_path, "w")
+        sensitive_values = _sensitive_arg_values(command)
         proc = subprocess.Popen(
             command,
             cwd=WORKDIR,
             stdin=subprocess.DEVNULL,
-            stdout=log_fh,
+            stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
+            bufsize=1,
         )
+        log_thread = threading.Thread(
+            target=self._pump_logs,
+            args=(proc, log_path, sensitive_values),
+            name=f"quant-job-log-{job_id}",
+            daemon=True,
+        )
+        log_thread.start()
         job = {
             "id": job_id,
             "kind": kind,
-            "command": command,
+            "command": _redact_command(command),
             "status": "running",
             "pid": proc.pid,
             "started_at": _now_iso(),
             "finished_at": None,
             "return_code": None,
             "run_id": job_id if kind in _ARTIFACT_KINDS else None,
-            "config": config or {},
+            "config": _redact_config(config or {}),
             "log_path": str(log_path),
         }
         with self._lock:
             self._jobs[job_id] = job
             self._procs[job_id] = proc
+            self._log_threads[job_id] = log_thread
         return dict(job)
+
+    @staticmethod
+    def _pump_logs(
+        proc: subprocess.Popen,
+        log_path: Path,
+        sensitive_values: tuple[str, ...],
+    ) -> None:
+        stream = proc.stdout
+        if stream is None:
+            return
+        with open(log_path, "w") as log_fh:
+            for line in stream:
+                log_fh.write(_redact_text(line, sensitive_values))
+                log_fh.flush()
+        stream.close()
 
     def _refresh_locked(self, job_id: str) -> None:
         job = self._jobs.get(job_id)
@@ -108,6 +188,9 @@ class JobManager:
         rc = proc.poll()
         if rc is None:
             return
+        log_thread = self._log_threads.get(job_id)
+        if log_thread is not None:
+            log_thread.join(timeout=1.0)
         job["return_code"] = rc
         job["finished_at"] = _now_iso()
         job["status"] = "completed" if rc == 0 else "failed"
@@ -158,6 +241,7 @@ class JobManager:
                     raise ValueError(f"job {job_id!r} is still running; cancel it first")
                 del self._jobs[job_id]
                 self._procs.pop(job_id, None)
+                self._log_threads.pop(job_id, None)
             job_found = job is not None
         for path in JOBS_DIR.glob(f"{job_id}*"):
             path.unlink(missing_ok=True)
@@ -184,6 +268,9 @@ class JobManager:
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=_TERMINATE_GRACE_SECONDS)
+        log_thread = self._log_threads.get(job_id)
+        if log_thread is not None:
+            log_thread.join(timeout=1.0)
         with self._lock:
             job["return_code"] = proc.returncode
             job["finished_at"] = _now_iso()

@@ -73,19 +73,38 @@ trap cleanup EXIT INT TERM
 
 PYTHONPATH="$WORK_DIR${PYTHONPATH:+:$PYTHONPATH}" \
   "$PYTHON_BIN" -u -m uvicorn quant.api.main:app --host 127.0.0.1 \
-  --port "${QUANT_API_PORT:-8000}" >"$API_LOG" 2>&1 &
+  --port "${QUANT_API_PORT:-8000}" --reload --reload-dir "$ROOT_DIR" \
+  >"$API_LOG" 2>&1 &
 API_PID=$!
 
-(cd "$ROOT_DIR/web" && exec npm run dev -- --host 127.0.0.1 --port "${QUANT_WEB_PORT:-5173}" >"$WEB_LOG" 2>&1) &
+(cd "$ROOT_DIR/web" && exec npm run dev -- --host 127.0.0.1 --port "${QUANT_WEB_PORT:-5173}" --strictPort >"$WEB_LOG" 2>&1) &
 WEB_PID=$!
 
 for _ in {1..40}; do
+  kill -0 "$API_PID" 2>/dev/null || {
+    printf 'Error: dashboard API failed to start. See %s\n' "$API_LOG" >&2
+    exit 1
+  }
   curl -fsS "$API_URL/api/health" >/dev/null 2>&1 && break
   sleep 0.5
 done
 
 curl -fsS "$API_URL/api/health" >/dev/null 2>&1 || {
   printf 'Error: dashboard API failed to start. See %s\n' "$API_LOG" >&2
+  exit 1
+}
+
+for _ in {1..40}; do
+  kill -0 "$WEB_PID" 2>/dev/null || {
+    printf 'Error: dashboard frontend failed to start. See %s\n' "$WEB_LOG" >&2
+    exit 1
+  }
+  curl -fsS "$WEB_URL" >/dev/null 2>&1 && break
+  sleep 0.5
+done
+
+curl -fsS "$WEB_URL" >/dev/null 2>&1 || {
+  printf 'Error: dashboard frontend failed to start. See %s\n' "$WEB_LOG" >&2
   exit 1
 }
 

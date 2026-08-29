@@ -21,7 +21,9 @@ import pandas as pd
 
 from quant.models.prediction_engine import PredictionConfig, PredictionEngine
 from quant.models.regime import build_regime_frame
-from quant.run.backtest_common import VENUE
+from quant.news.core import NewsFeatureReader
+from quant.run.asset_profiles import get_asset_profile
+from quant.run.backtest_common import VENUE, infer_bar_interval_minutes_from_csv
 from quant.run.metrics import (
     _EQUITY_COLS,
     _fills_report,
@@ -41,6 +43,7 @@ _PREDICTION_OVERRIDE_KEYS = (
     "horizon",
     "huber_alpha",
     "huber_epsilon",
+    "training_window_bars",
     "cross_asset_lags",
     "spread_lags",
     "use_regime_features",
@@ -49,13 +52,30 @@ _PREDICTION_OVERRIDE_KEYS = (
     "hmm_source",
     "regime_raw_scale",
     "hmm_raw_scale",
+    "regime_window",
+    "regime_bull_threshold",
+    "regime_bear_threshold",
+    "use_news_features",
+    "news_source",
+    "news_raw_scale",
+    "news_score_clip",
 )
+
+_NEWS_READER_OVERRIDE_KEYS = {
+    "news_half_life_hours": "half_life_hours",
+    "news_max_age_hours": "max_age_hours",
+    "news_direct_weight": "direct_weight",
+    "news_industry_weight": "industry_weight",
+    "news_commodity_weight": "commodity_weight",
+    "news_macro_weight": "macro_weight",
+}
 
 # Caps on how many raw fill/position rows an artifact embeds -- keeps the JSON
 # file bounded on long/high-turnover runs. Never a silent cap: callers see
 # "truncated": true and "total" alongside the capped "rows".
 MAX_FILLS_RECORDED = 2000
 MAX_POSITIONS_RECORDED = 2000
+MAX_MODEL_CHART_POINTS = 1500
 
 
 def _json_safe(value):
@@ -133,7 +153,11 @@ def equity_curve_with_timestamps(engine, venue) -> list[dict]:
 
 
 def ml_performance_by_ticker(
-    csv_path: str, tickers: list[str], overrides: dict | None, n_splits: int = 5
+    csv_path: str,
+    tickers: list[str],
+    overrides: dict | None,
+    n_splits: int = 5,
+    news_series: dict | None = None,
 ) -> dict:
     """Per-ticker walk-forward ML performance -- the dashboard's "model loss"
     panel (see PRODUCT.md: no raw per-iteration Huber training-loss series is
@@ -154,6 +178,8 @@ def ml_performance_by_ticker(
         tk: df[df["ticker"] == tk].sort_values("timestamp")["timestamp"].to_numpy()
         for tk in tickers
     }
+    if news_series is None:
+        news_series = news_series_by_ticker(csv_path, tickers, overrides)
     cross_lags = int(overrides.get("cross_asset_lags", 0) or 0)
     spread_lags = int(overrides.get("spread_lags", 0) or 0)
     wants_peers = cross_lags > 0 or spread_lags > 0
@@ -164,12 +190,19 @@ def ml_performance_by_ticker(
         peer_symbols = tuple(t for t in tickers if t != tk) if wants_peers else ()
         cfg = PredictionConfig(peer_symbols=peer_symbols, **cfg_kwargs)
         peer_closes = {p: closes_by_ticker[p] for p in peer_symbols} if peer_symbols else None
+        ticker_news = news_series.get(tk, [])
+        news_features = (
+            np.asarray([float(item.get("score", 0.0)) for item in ticker_news])
+            if ticker_news
+            else None
+        )
         try:
             eng = PredictionEngine(cfg)
             result = eng.walk_forward(
                 closes_by_ticker[tk],
                 peer_closes,
                 n_splits=n_splits,
+                news_features=news_features,
                 return_folds=True,
                 return_series=True,
             )
@@ -181,6 +214,50 @@ def ml_performance_by_ticker(
         except ValueError as e:
             results[tk] = {"error": str(e)}
     return results
+
+
+def news_series_by_ticker(
+    csv_path: str,
+    tickers: list[str],
+    overrides: dict | None = None,
+) -> dict:
+    """Causal news score aligned to every completed bar in ``csv_path``."""
+    overrides = overrides or {}
+    if not overrides.get("use_news_features", False):
+        return {ticker: [] for ticker in tickers}
+    db_path = str(overrides.get("news_data_path") or "")
+    if not db_path or not Path(db_path).expanduser().is_file():
+        return {ticker: [] for ticker in tickers}
+    reader_kwargs = {
+        target: overrides[source]
+        for source, target in _NEWS_READER_OVERRIDE_KEYS.items()
+        if source in overrides
+    }
+    df = pd.read_csv(csv_path, usecols=["timestamp", "ticker"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"], format="mixed", utc=True)
+    reader = NewsFeatureReader(db_path, **reader_kwargs)
+    try:
+        results = {}
+        for ticker in tickers:
+            timestamps = (
+                df[df["ticker"] == ticker]
+                .sort_values("timestamp")["timestamp"]
+                .tolist()
+            )
+            scores = reader.series(
+                ticker,
+                [pd.Timestamp(value).timestamp() for value in timestamps],
+            )
+            results[ticker] = [
+                {
+                    "ts": pd.Timestamp(ts).isoformat(),
+                    "score": round(float(score), 8),
+                }
+                for ts, score in zip(timestamps, scores)
+            ]
+        return results
+    finally:
+        reader.close()
 
 
 def _reconstruct_price_series(series, closes, timestamps, horizon: int) -> list[dict]:
@@ -199,14 +276,23 @@ def _reconstruct_price_series(series, closes, timestamps, horizon: int) -> list[
         points.append(
             {
                 "ts": pd.Timestamp(timestamps[target_i]).isoformat(),
+                "decision_ts": pd.Timestamp(timestamps[t]).isoformat(),
+                "target_ts": pd.Timestamp(timestamps[target_i]).isoformat(),
+                "decision_price": round(float(closes[t]), 6),
                 "actual_price": round(float(closes[target_i]), 6),
                 "predicted_price": round(float(closes[t] * np.exp(pred)), 6),
+                "predicted_return": round(float(pred), 8),
+                "actual_return": round(float(_actual), 8),
             }
         )
     return points
 
 
-def regime_series_by_ticker(csv_path: str, tickers: list[str]) -> dict:
+def regime_series_by_ticker(
+    csv_path: str,
+    tickers: list[str],
+    overrides: dict | None = None,
+) -> dict:
     """Per-ticker regime state over time -- the dashboard's regime channel
     (see DESIGN.md's Trace Violet). Walk-forward, no-lookahead (see
     models/regime.py); values are the SAME regime_score / hmm_signed columns
@@ -217,6 +303,9 @@ def regime_series_by_ticker(csv_path: str, tickers: list[str]) -> dict:
     df["timestamp"] = pd.to_datetime(
         df["timestamp"], format="mixed", utc=True
     )
+    overrides = overrides or {}
+    cfg_kwargs = {k: overrides[k] for k in _PREDICTION_OVERRIDE_KEYS if k in overrides}
+    regime_cfg = PredictionConfig(**cfg_kwargs).to_regime_config()
     results = {}
     for tk in tickers:
         sub = df[df["ticker"] == tk].sort_values("timestamp")
@@ -224,17 +313,131 @@ def regime_series_by_ticker(csv_path: str, tickers: list[str]) -> dict:
             results[tk] = {"error": f"no rows for ticker {tk!r}"}
             continue
         frame = build_regime_frame(
-            sub["close"].to_numpy(), timestamps=sub["timestamp"].to_numpy()
+            sub["close"].to_numpy(),
+            cfg=regime_cfg,
+            timestamps=sub["timestamp"].to_numpy(),
         )
         results[tk] = [
             {
                 "ts": pd.Timestamp(row.timestamp).isoformat(),
                 "regime_score": round(float(row.regime_score), 4),
+                "p_bull": round(float(row.p_bull), 4),
+                "p_bear": round(float(row.p_bear), 4),
+                "p_side": round(float(row.p_side), 4),
                 "hmm_signed": int(row.hmm_signed),
+                "hmm_label": row.hmm_label,
                 "state_label": row.state_label,
             }
             for row in frame.itertuples(index=False)
         ]
+    return results
+
+
+def model_chart_by_ticker(
+    csv_path: str,
+    tickers: list[str],
+    overrides: dict | None,
+    ml_performance: dict,
+    regimes: dict,
+    news_series: dict | None = None,
+) -> dict:
+    """OHLC + model decision + regime diagnostics for the dashboard tape.
+
+    Projected stop and target levels are visual risk references derived from
+    the same ATR stop distance used for sizing. They are deliberately labeled
+    as references in the UI because the strategy does not yet submit broker-
+    side protective orders.
+    """
+    overrides = overrides or {}
+    atr_period = max(1, int(overrides.get("atr_period", 14)))
+    atr_mult = float(overrides.get("atr_stop_mult", 2.0))
+    entry_threshold = float(overrides.get("entry_threshold", 0.001))
+    target_rr = 2.0
+    df = pd.read_csv(csv_path)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], format="mixed", utc=True)
+    results = {}
+    for ticker in tickers:
+        sub = df[df["ticker"] == ticker].sort_values("timestamp").copy()
+        if sub.empty:
+            results[ticker] = []
+            continue
+        prev_close = sub["close"].shift(1)
+        tr = pd.concat(
+            [
+                sub["high"] - sub["low"],
+                (sub["high"] - prev_close).abs(),
+                (sub["low"] - prev_close).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
+        atr = tr.rolling(atr_period, min_periods=atr_period).mean()
+        predictions = {
+            item.get("decision_ts"): item
+            for item in ml_performance.get(ticker, {}).get("price_series", [])
+        }
+        regime_map = {
+            item.get("ts"): item
+            for item in regimes.get(ticker, [])
+            if isinstance(item, dict)
+        }
+        news_map = {
+            item.get("ts"): item.get("score")
+            for item in (news_series or {}).get(ticker, [])
+            if isinstance(item, dict)
+        }
+        rows = []
+        for idx, row in enumerate(sub.itertuples(index=False)):
+            ts = pd.Timestamp(row.timestamp).isoformat()
+            prediction = predictions.get(ts, {})
+            regime = regime_map.get(ts, {})
+            predicted_return = prediction.get("predicted_return")
+            signal = "WARMUP"
+            if predicted_return is not None:
+                if predicted_return > entry_threshold:
+                    signal = "BUY"
+                elif predicted_return < -entry_threshold:
+                    signal = "SELL"
+                else:
+                    signal = "HOLD"
+            atr_value = atr.iloc[idx]
+            atr_value = None if pd.isna(atr_value) else float(atr_value)
+            risk_distance = atr_mult * atr_value if atr_value is not None else None
+            direction = 1 if signal == "BUY" else -1 if signal == "SELL" else 0
+            close = float(row.close)
+            stop = close - direction * risk_distance if direction and risk_distance else None
+            target = close + direction * risk_distance * target_rr if direction and risk_distance else None
+            rows.append(
+                {
+                    "ts": ts,
+                    "open": round(float(row.open), 6),
+                    "high": round(float(row.high), 6),
+                    "low": round(float(row.low), 6),
+                    "close": round(close, 6),
+                    "volume": round(float(row.volume), 6),
+                    "predicted_price": prediction.get("predicted_price"),
+                    "predicted_return": predicted_return,
+                    "signal": signal,
+                    "entry_threshold": entry_threshold,
+                    "atr": round(atr_value, 6) if atr_value is not None else None,
+                    "stop_loss": round(stop, 6) if stop is not None else None,
+                    "take_profit": round(target, 6) if target is not None else None,
+                    "target_rr": target_rr,
+                    "news_score": news_map.get(ts),
+                    **{
+                        key: regime.get(key)
+                        for key in (
+                            "state_label",
+                            "regime_score",
+                            "p_bull",
+                            "p_bear",
+                            "p_side",
+                            "hmm_label",
+                            "hmm_signed",
+                        )
+                    },
+                }
+            )
+        results[ticker] = rows[-MAX_MODEL_CHART_POINTS:]
     return results
 
 
@@ -256,15 +459,31 @@ def save_backtest_artifact(
     overrides: dict | None,
     started_at: float,
     run_id: str | None = None,
+    include_extended_hours: bool = False,
 ) -> dict:
     run_id = run_id or f"bt_{int(started_at)}_{uuid.uuid4().hex[:8]}"
-    metrics = compute_metrics(engine, venue, starting_cash)
+    profile = get_asset_profile(asset_class)
+    metrics = compute_metrics(engine, venue, starting_cash, asset_class)
+    news_series = news_series_by_ticker(csv_path, tickers, overrides)
+    ml_performance = ml_performance_by_ticker(
+        csv_path, tickers, overrides, news_series=news_series
+    )
+    regimes = regime_series_by_ticker(csv_path, tickers, overrides)
     artifact = {
         "run_id": run_id,
         "kind": "backtest",
         "started_at": _iso(started_at),
         "finished_at": _iso(time.time()),
         "asset_class": asset_class,
+        "asset_profile": profile,
+        "objective_metric": profile["scoring"]["metric"],
+        "include_extended_hours": include_extended_hours,
+        "market_session": (
+            "Regular + extended hours"
+            if asset_class == "equity" and include_extended_hours
+            else profile["market"]["session"]
+        ),
+        "bar_interval_minutes": infer_bar_interval_minutes_from_csv(csv_path, tickers),
         "tickers": tickers,
         "starting_cash": starting_cash,
         "params": overrides or {},
@@ -272,8 +491,18 @@ def save_backtest_artifact(
         "equity_curve": equity_curve_with_timestamps(engine, venue),
         "positions": _dataframe_records(_positions_report(engine), MAX_POSITIONS_RECORDED),
         "fills": _dataframe_records(_fills_report(engine), MAX_FILLS_RECORDED),
-        "ml_performance": ml_performance_by_ticker(csv_path, tickers, overrides),
-        "regime": regime_series_by_ticker(csv_path, tickers),
+        "ml_performance": ml_performance,
+        "news": news_series,
+        "regime": regimes,
+        "model_chart": model_chart_by_ticker(
+            csv_path, tickers, overrides, ml_performance, regimes, news_series
+        ),
+        "model_chart_meta": {
+            "hmm_train_window": 750,
+            "hmm_decode_window": 250,
+            "stop_target_kind": "ATR_REFERENCE_NOT_BROKER_ORDER",
+            "decision_source": "OFFLINE_WALK_FORWARD_RECONSTRUCTION",
+        },
     }
     _write_artifact(run_id, artifact)
     return artifact
@@ -298,6 +527,8 @@ def save_optimize_artifact(
     structural_overrides: dict | None = None,
     resumed_from: str | None = None,
     ibkr_bar_hours: int | None = None,
+    include_extended_hours: bool = False,
+    validation_metadata: dict | None = None,
 ) -> dict:
     run_id = run_id or f"opt_{int(started_at)}_{uuid.uuid4().hex[:8]}"
     trials = [
@@ -306,22 +537,44 @@ def save_optimize_artifact(
             "state": t.state.name,
             "value": t.value,
             "params": t.params,
+            "user_attrs": t.user_attrs,
         }
         for t in study.get_trials(deepcopy=False)
     ]
     best_params = study.best_params
     scoring_params = {**best_params, **(structural_overrides or {})}
+    profile = get_asset_profile(asset_class)
+    news_series = news_series_by_ticker(oos_path, tickers, scoring_params)
+    ml_performance = ml_performance_by_ticker(
+        oos_path, tickers, scoring_params, news_series=news_series
+    )
+    regimes = regime_series_by_ticker(oos_path, tickers, scoring_params)
+    oos_metrics = compute_metrics(oos_engine, VENUE, starting_cash, asset_class)
+    # The persisted optimization score is authoritative. Keeping the report's
+    # objective field identical prevents the UI from presenting the raw ratio
+    # as if it already included the fill-activity penalty.
+    oos_metrics.objective_score = round(float(oos_score), 6)
     artifact = {
         "run_id": run_id,
         "kind": "optimize",
         "started_at": _iso(started_at),
         "finished_at": _iso(time.time()),
         "asset_class": asset_class,
+        "asset_profile": profile,
+        "objective_metric": profile["scoring"]["metric"],
+        "include_extended_hours": include_extended_hours,
+        "market_session": (
+            "Regular + extended hours"
+            if asset_class == "equity" and include_extended_hours
+            else profile["market"]["session"]
+        ),
+        "bar_interval_minutes": infer_bar_interval_minutes_from_csv(oos_path, tickers),
         "tickers": tickers,
         "starting_cash": starting_cash,
         "seed": seed,
         "n_trials_requested": n_trials_requested,
         "train_frac": train_frac,
+        "validation": validation_metadata or {},
         "target_score": target_score,
         "resumed_from": resumed_from,
         # The live bar width this run's data was fetched at (see optimize.py's
@@ -330,14 +583,27 @@ def save_optimize_artifact(
         # width instead of assuming daily. None when the run didn't fetch via
         # IBKR at a non-default cadence (data's real granularity isn't known).
         "ibkr_bar_hours": ibkr_bar_hours,
+        # Structural alpha/risk settings remain top-level so run_live.py can
+        # replay the complete winning contract, not only Optuna-tuned values.
+        **(structural_overrides or {}),
         "trials": trials,
         "best_params": best_params,
         "in_sample_value": study.best_value,
         "oos_score": oos_score,
-        "oos_metrics": compute_metrics(oos_engine, VENUE, starting_cash).as_dict(),
+        "oos_metrics": oos_metrics.as_dict(),
         "oos_equity_curve": equity_curve_with_timestamps(oos_engine, VENUE),
-        "ml_performance": ml_performance_by_ticker(oos_path, tickers, scoring_params),
-        "regime": regime_series_by_ticker(oos_path, tickers),
+        "ml_performance": ml_performance,
+        "news": news_series,
+        "regime": regimes,
+        "model_chart": model_chart_by_ticker(
+            oos_path, tickers, scoring_params, ml_performance, regimes, news_series
+        ),
+        "model_chart_meta": {
+            "hmm_train_window": 750,
+            "hmm_decode_window": 250,
+            "stop_target_kind": "ATR_REFERENCE_NOT_BROKER_ORDER",
+            "decision_source": "OFFLINE_WALK_FORWARD_RECONSTRUCTION",
+        },
     }
     _write_artifact(run_id, artifact)
     return artifact
@@ -361,6 +627,7 @@ def list_run_summaries() -> list[dict]:
                 "started_at": data.get("started_at"),
                 "finished_at": data.get("finished_at"),
                 "asset_class": data.get("asset_class"),
+                "objective_metric": data.get("objective_metric"),
                 "tickers": data.get("tickers"),
                 "metrics": data.get("metrics") or data.get("oos_metrics"),
                 "in_sample_value": data.get("in_sample_value"),

@@ -1,6 +1,6 @@
 """Shared backtest assembly used by both the runnable example and Optuna.
 
-Builds a BacktestEngine from a CSV of daily bars (sample or real IBKR export),
+Builds a BacktestEngine from a CSV of completed bars (sample or real IBKR export),
 wires the SAME MLStrategy used in paper/live, applies an IBKR-Pro-like fee
 model, and returns the engine after running.
 
@@ -39,7 +39,7 @@ warnings.filterwarnings(
 )
 
 from nautilus_trader.backtest.engine import BacktestEngine, BacktestEngineConfig
-from nautilus_trader.backtest.models import FeeModel, PerContractFeeModel
+from nautilus_trader.backtest.models import FeeModel, FillModel, PerContractFeeModel
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.data import Bar, BarType
@@ -161,8 +161,11 @@ class ZeroHashCryptoFeeModel(FeeModel):
     because IBKR's tiering is account-wide, not per-symbol.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, cost_multiplier: float = 1.0) -> None:
         super().__init__()
+        if cost_multiplier <= 0:
+            raise ValueError("cost_multiplier must be > 0")
+        self._cost_multiplier = Decimal(str(cost_multiplier))
         self._fills: deque[tuple[int, Decimal]] = deque()
         self._window_notional = Decimal("0")
 
@@ -194,26 +197,84 @@ class ZeroHashCryptoFeeModel(FeeModel):
 
         pct_fee = notional_value * rate
         min_fee = min(ZEROHASH_MIN_FEE, notional_value * ZEROHASH_MIN_FEE_CAP_PCT)
-        commission_value = max(pct_fee, min_fee)
+        commission_value = max(pct_fee, min_fee) * self._cost_multiplier
 
         currency = instrument.get_base_currency() if instrument.is_inverse else instrument.quote_currency
         return Money(commission_value, currency)
 
 
-def asset_class_fee_model(asset_class: str) -> FeeModel:
+def asset_class_fee_model(asset_class: str, cost_multiplier: float = 1.0) -> FeeModel:
     """Venue-wide fee model for the run's asset class.
 
     Crypto: ``ZeroHashCryptoFeeModel`` (real tiered IBKR/Zero Hash schedule).
     Equity: a flat per-share commission, since equities aren't quoted with a
     maker/taker split the way crypto is.
     """
+    if cost_multiplier <= 0:
+        raise ValueError("cost_multiplier must be > 0")
     if asset_class == "equity":
-        return PerContractFeeModel(commission=Money(EQUITY_COMMISSION_PER_SHARE, USD))
-    return ZeroHashCryptoFeeModel()
+        commission = EQUITY_COMMISSION_PER_SHARE * Decimal(str(cost_multiplier))
+        return PerContractFeeModel(commission=Money(commission, USD))
+    return ZeroHashCryptoFeeModel(cost_multiplier=cost_multiplier)
 
 
-def _bars_from_df(df: pd.DataFrame, instrument: Instrument) -> list[Bar]:
-    bar_type = BarType.from_str(f"{instrument.id}{BAR_SUFFIX}")
+def infer_bars_per_session(csv_path: str, tickers: list[str]) -> int:
+    """Infer median completed bars per active UTC date from the selected data."""
+    df = pd.read_csv(csv_path, usecols=["timestamp", "ticker"])
+    df = df[df["ticker"].isin(tickers)].copy()
+    if df.empty:
+        return 1
+    df["timestamp"] = pd.to_datetime(df["timestamp"], format="mixed", utc=True)
+    counts = (
+        df.assign(session_date=df["timestamp"].dt.date)
+        .groupby(["ticker", "session_date"])
+        .size()
+    )
+    return max(1, int(round(float(counts.median())))) if len(counts) else 1
+
+
+def infer_bar_interval_minutes(df: pd.DataFrame) -> int:
+    """Infer the within-session completed-bar width from a loaded CSV frame."""
+    deltas: list[float] = []
+    for _, group in df.groupby("ticker"):
+        ts = group["timestamp"].drop_duplicates().sort_values()
+        deltas.extend(ts.diff().dt.total_seconds().dropna().tolist())
+    positive = pd.Series([value for value in deltas if value > 0], dtype=float)
+    if positive.empty:
+        return 24 * 60
+    intraday = positive[positive <= 12 * 3600]
+    seconds = float((intraday if not intraday.empty else positive).median())
+    return max(1, int(round(seconds / 60.0)))
+
+
+def infer_bar_interval_minutes_from_csv(csv_path: str, tickers: list[str]) -> int:
+    df = pd.read_csv(csv_path, usecols=["timestamp", "ticker"])
+    df = df[df["ticker"].isin(tickers)].copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"], format="mixed", utc=True)
+    return infer_bar_interval_minutes(df)
+
+
+def infer_bar_type_suffix(df: pd.DataFrame) -> str:
+    """Build a Nautilus BarType suffix matching the CSV's observed cadence."""
+    minutes = infer_bar_interval_minutes(df)
+    if 23 * 60 <= minutes <= 25 * 60:
+        return BAR_SUFFIX
+    if minutes % 60 == 0:
+        return f"-{minutes // 60}-HOUR-LAST-EXTERNAL"
+    if minutes > 127:
+        # Nautilus 1.229 encodes the step in an unsigned byte, so a 150-minute
+        # bar cannot be represented literally. Use the nearest hourly label;
+        # artifacts retain the exact observed interval in bar_interval_minutes.
+        return f"-{max(1, (minutes + 30) // 60)}-HOUR-LAST-EXTERNAL"
+    return f"-{minutes}-MINUTE-LAST-EXTERNAL"
+
+
+def _bars_from_df(
+    df: pd.DataFrame,
+    instrument: Instrument,
+    bar_type_suffix: str,
+) -> list[Bar]:
+    bar_type = BarType.from_str(f"{instrument.id}{bar_type_suffix}")
     pp = instrument.price_precision
     # Nautilus requires bar.volume.precision == instrument.size_precision, which
     # for a fractional-size crypto pair is 6 (not the equities 0).
@@ -247,6 +308,9 @@ def build_engine(
     log_level: str = "ERROR",
     bypass_logging: bool = False,
     asset_class: str = "crypto",
+    cost_multiplier: float = 1.0,
+    slippage_probability: float = 0.0,
+    fill_model_seed: int | None = None,
 ) -> tuple[BacktestEngine, list[Bar]]:
     """Assemble the venue, instruments and strategy WITHOUT loading data or running.
 
@@ -268,11 +332,14 @@ def build_engine(
     """
     if asset_class not in ASSET_CLASSES:
         raise ValueError(f"asset_class must be one of {ASSET_CLASSES}, got {asset_class!r}")
+    if not 0.0 <= slippage_probability <= 1.0:
+        raise ValueError("slippage_probability must be between 0 and 1")
     df = pd.read_csv(csv_path)
     df["timestamp"] = pd.to_datetime(
         df["timestamp"], format="mixed", utc=True
     )
     df = df[df["ticker"].isin(tickers)].sort_values("timestamp")
+    bar_type_suffix = infer_bar_type_suffix(df)
 
     engine = BacktestEngine(
         config=BacktestEngineConfig(
@@ -293,7 +360,11 @@ def build_engine(
         base_currency=USD,
         starting_balances=[Money(starting_cash, USD)],
         default_leverage=DEFAULT_LEVERAGE,
-        fee_model=asset_class_fee_model(asset_class),
+        fill_model=FillModel(
+            prob_slippage=slippage_probability,
+            random_seed=fill_model_seed,
+        ),
+        fee_model=asset_class_fee_model(asset_class, cost_multiplier),
     )
 
     instrument_ids = []
@@ -302,7 +373,7 @@ def build_engine(
         inst = make_instrument(sym, asset_class)
         engine.add_instrument(inst)
         sub = df[df["ticker"] == sym].copy()
-        all_bars.extend(_bars_from_df(sub, inst))
+        all_bars.extend(_bars_from_df(sub, inst, bar_type_suffix))
         instrument_ids.append(str(inst.id))
 
     # One combined, time-ordered stream. Streaming batches MUST be globally
@@ -312,7 +383,7 @@ def build_engine(
 
     cfg_kwargs = dict(
         instrument_ids=instrument_ids,
-        bar_type_suffix=BAR_SUFFIX,
+        bar_type_suffix=bar_type_suffix,
         starting_equity=starting_cash,
     )
     if strategy_overrides:
@@ -330,6 +401,9 @@ def build_and_run(
     log_level: str = "ERROR",
     bypass_logging: bool = False,
     asset_class: str = "crypto",
+    cost_multiplier: float = 1.0,
+    slippage_probability: float = 0.0,
+    fill_model_seed: int | None = None,
 ) -> BacktestEngine:
     """One-shot backtest: build, load all data, run to completion, return engine."""
     engine, all_bars = build_engine(
@@ -340,6 +414,9 @@ def build_and_run(
         log_level=log_level,
         bypass_logging=bypass_logging,
         asset_class=asset_class,
+        cost_multiplier=cost_multiplier,
+        slippage_probability=slippage_probability,
+        fill_model_seed=fill_model_seed,
     )
     engine.add_data(all_bars)
     engine.run()

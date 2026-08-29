@@ -69,6 +69,23 @@
   width: 90px;
 }
 
+.feature-panel__regime-parameters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-xs);
+}
+
+.feature-panel__regime-parameters input {
+  width: 100%;
+  min-width: 0;
+}
+
+.feature-panel__hint {
+  color: var(--color-text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-label-size);
+}
+
 @media (max-width: 768px) {
   .feature-panel__controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -95,5 +112,9 @@
   .feature-panel__sub select,
   .feature-panel__sub input {
     width: 100%;
+  }
+
+  .feature-panel__regime-parameters {
+    grid-template-columns: 1fr;
   }
 }

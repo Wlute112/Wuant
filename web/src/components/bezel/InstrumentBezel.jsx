@@ -1,6 +1,27 @@
 import "./instrument-bezel.css";
 
-export default function InstrumentBezel({ runningJobCount, brokerStatus = {} }) {
+export function WorkflowMenuButton({
+  menuOpen = false,
+  onMenuToggle,
+}) {
+  return (
+    <button
+      id="workflow-menu-trigger"
+      type="button"
+      className={`workspace-menu ${menuOpen ? "is-open" : ""}`}
+      aria-label={menuOpen ? "Close workflow menu" : "Open workflow menu"}
+      aria-controls="workflow-drawer"
+      aria-expanded={menuOpen}
+      onClick={onMenuToggle}
+    >
+      <span aria-hidden="true" />
+      <span aria-hidden="true" />
+      <span aria-hidden="true" />
+    </button>
+  );
+}
+
+export function BrokerStatus({ runningJobCount = 0, brokerStatus = {} }) {
   const brokerState = brokerStatus.status || "loading";
   const statusLabel =
     brokerState === "connected"
@@ -9,25 +30,23 @@ export default function InstrumentBezel({ runningJobCount, brokerStatus = {} }) 
         ? "IBKR connecting"
         : brokerState === "error"
           ? "IBKR error"
-        : brokerState === "unknown" || brokerState === "loading"
-          ? "IBKR status unknown"
-          : "IBKR disconnected";
+          : brokerState === "unknown" || brokerState === "loading"
+            ? "IBKR status unknown"
+            : "IBKR disconnected";
 
   return (
-    <header className="instrument-bezel">
-      <h1 className="instrument-bezel__title display">STRIP RECORDER</h1>
-      <div className="label instrument-bezel__subtitle">Quant Trading System — Reporting Dashboard</div>
-      <div
-        className={`instrument-bezel__status is-${brokerState}`}
-        role="status"
-        aria-live="polite"
-      >
-        <span
-          aria-hidden="true"
-          className={`instrument-bezel__dot ${brokerState === "connected" ? "is-active" : ""}`}
-        />
-        <span className="label">{statusLabel}</span>
-      </div>
-    </header>
+    <div
+      className={`broker-status is-${brokerState}`}
+      role="status"
+      aria-live="polite"
+      aria-label={statusLabel}
+      title={statusLabel}
+    >
+      <span
+        aria-hidden="true"
+        className={`broker-status__dot ${brokerState === "connected" ? "is-active" : ""}`}
+      />
+      <span className="broker-status__label label">{statusLabel}</span>
+    </div>
   );
 }

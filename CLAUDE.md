@@ -51,7 +51,7 @@ quant/
 │   ├── run_backtest.py            # runnable backtest example
 │   ├── run_live.py                # paper/live TradingNode (same strategy)
 │   └── artifacts.py               # persists run results to quant/runs/*.json (dashboard reads these)
-├── optimize/optimize.py           # Optuna search w/ in-sample/out-of-sample split
+├── optimize/optimize.py           # purged nested walk-forward Optuna + outer holdout
 ├── api/                           # FastAPI backend for the reporting dashboard (Stage 6)
 ├── web/                           # React frontend for the reporting dashboard (Stage 6)
 └── requirements.txt
@@ -147,17 +147,17 @@ for disambiguation; without it, the adapter qualifies the SMART contract.
 
 ```bash
 python -m quant.optimize.optimize --csv quant/data/sample_bars.csv \
-    --trials 40 --train-frac 0.7 --seed 42
+    --trials 40 --final-test-frac 0.20 --walk-forward-folds 5 --seed 42
 ```
 
 ```bash
 python -m quant.optimize.optimize --csv quant/data/ibkr_bars.csv \
-    --trials 40 --train-frac 0.7 --seed 42
+    --trials 40 --final-test-frac 0.20 --walk-forward-folds 5 --seed 42
 ```
 
 **Two stopping modes.** By default (or with `--trials N`) the search runs a fixed
 number of trials. Pass `--score FLOAT` for **goal mode**: Optuna keeps proposing
-trials until a *completed* trial's `score_engine` value reaches the target, then
+trials until a *completed* trial's stability-aware walk-forward value reaches the target, then
 stops. `--trials` becomes an optional safety cap in goal mode (omit it to search
 uncapped — Ctrl-C to abort). The run prints whether the target was `REACHED`.
 
@@ -174,11 +174,22 @@ quant/data/equity_bars.csv --asset-class equity --tickers SPY QQQ --trials 40`.
 Each trial re-runs the *same* combined
 ML + strategy backtest from Stage 1 (the Huber model is still called on every
 bar) and just searches the strategy hyperparameters
-`n_lags, horizon, entry_threshold, atr_period, atr_stop_mult, use_limit_orders,
+`n_lags, horizon, training_window_bars, entry_threshold, atr_period, atr_stop_mult, use_limit_orders,
 limit_offset_bps, use_kelly_sizing, kelly_fraction, max_open_positions,
 cross_asset_lags, spread_lags, huber_alpha, huber_epsilon`.
-It optimizes on the **in-sample** window, then re-scores the best params on a
-held-out **out-of-sample** window so you can see overfitting.
+
+The newest 15–20% is an untouched outer test set. Earlier data is divided into
+5–8 chronological folds; every fold freezes the Huber fit before an embargo of
+`max(horizon, embargo_bars)` bars and enables trading only at validation start.
+Every trial runs across the full ticker universe under normal and 2x commission/
+slippage assumptions. The selection objective is
+`median(fold_ratio) - 0.5*std(fold_ratio) - turnover_penalty - cost_sensitivity_penalty`,
+and at least 60% of folds must be positive. Crypto uses net Sortino and equity
+uses net Sharpe. `training_window_bars` compares expanding history (`0`) against
+rolling windows derived from the configured warmup/minimum training size.
+The locked winner is evaluated on the outer test once under each cost assumption;
+the study is then immutable so later trials cannot tune against a seen holdout.
+Saved output remains promotion-blocked until shadow and paper behavior agree.
 
 **Fractional-Kelly conviction sizing.** When `use_kelly_sizing` is on, per-trade
 size scales with the strength of the edge relative to its variance:

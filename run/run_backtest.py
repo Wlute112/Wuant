@@ -15,7 +15,13 @@ import json
 import time
 
 from quant.run.artifacts import save_backtest_artifact
-from quant.run.backtest_common import ASSET_CLASSES, build_and_run, VENUE
+from quant.run.asset_profiles import strategy_defaults_for_asset
+from quant.run.backtest_common import (
+    ASSET_CLASSES,
+    VENUE,
+    build_and_run,
+    infer_bars_per_session,
+)
 from quant.run.metrics import print_metrics
 
 DEFAULT_TICKERS = ["BTC", "ETH", "SOL", "XRP", "DOGE"]  # crypto (24/7)
@@ -39,6 +45,7 @@ TUNABLE_KEYS = {
     "spread_lags",
     "huber_alpha",
     "huber_epsilon",
+    "training_window_bars",
 }
 
 # Structural settings (fixed, NOT Optuna-tuned) that optimize.py records as
@@ -59,6 +66,21 @@ STRUCTURAL_KEYS = {
     "hmm_source",
     "regime_raw_scale",
     "hmm_raw_scale",
+    "regime_window",
+    "regime_bull_threshold",
+    "regime_bear_threshold",
+    # --- causal news factor (captured DB is frozen at run start) ---
+    "use_news_features",
+    "news_source",
+    "news_raw_scale",
+    "news_score_clip",
+    "news_data_path",
+    "news_half_life_hours",
+    "news_max_age_hours",
+    "news_direct_weight",
+    "news_industry_weight",
+    "news_commodity_weight",
+    "news_macro_weight",
     # --- risk rails (dashboard-editable, NOT Optuna-tuned) ---
     "risk_budget_pct",
     "max_trade_risk_pct",
@@ -110,6 +132,18 @@ def main() -> None:
     p.add_argument("--cash", type=float, default=5000.0)
     p.add_argument("--log-level", default="INFO")
     p.add_argument(
+        "--news-db",
+        default=None,
+        help="Captured RSS/IBKR SQLite database. It is frozen to a content-"
+        "addressed snapshot before replay so every bar sees only news that was "
+        "received and analyzed by that timestamp.",
+    )
+    p.add_argument(
+        "--no-news",
+        action="store_true",
+        help="Disable the news factor even when the params file enables it.",
+    )
+    p.add_argument(
         "--params",
         default=None,
         help="Path to Optuna's best_params.json. If given, those tuned "
@@ -146,6 +180,11 @@ def main() -> None:
         help="Target bar width in hours for --replace-bars (default 4). "
         "--fetch-missing always uses the CSV's existing frequency.",
     )
+    p.add_argument(
+        "--include-extended-hours",
+        action="store_true",
+        help="For equity IBKR fetches, request all available sessions instead of RTH only.",
+    )
     args = p.parse_args()
     if args.fetch_missing and args.replace_bars:
         p.error("--fetch-missing and --replace-bars are mutually exclusive")
@@ -161,21 +200,37 @@ def main() -> None:
                 csv_path=args.csv, tickers=tickers, asset_class=args.asset_class,
                 years=args.ibkr_years, host=args.ibkr_host, port=args.ibkr_port,
                 client_id=args.ibkr_client_id, bar_hours=args.ibkr_bar_hours,
+                include_extended_hours=args.include_extended_hours,
             )
         else:
             fetched = ensure_tickers(
                 csv_path=args.csv, tickers=tickers, asset_class=args.asset_class,
                 years=args.ibkr_years, host=args.ibkr_host, port=args.ibkr_port,
                 client_id=args.ibkr_client_id,
+                include_extended_hours=args.include_extended_hours,
             )
             if fetched:
                 print(f"Fetched missing tickers via IBKR at the CSV's existing frequency: {fetched}")
 
-    overrides = load_best_params(args.params) if args.params else None
-    if overrides:
+    loaded_overrides = load_best_params(args.params) if args.params else {}
+    overrides = strategy_defaults_for_asset(args.asset_class)
+    bars_per_session = infer_bars_per_session(args.csv, tickers)
+    if "regime_window" not in loaded_overrides or loaded_overrides.get("regime_window") == 20:
+        overrides["regime_window"] = 20 * bars_per_session
+    overrides.update(loaded_overrides)
+    if args.no_news:
+        overrides["use_news_features"] = False
+        overrides["news_data_path"] = ""
+    elif args.news_db:
+        from quant.news.core import snapshot_news_store
+
+        news_snapshot, _news_digest = snapshot_news_store(args.news_db)
+        overrides["use_news_features"] = True
+        overrides["news_data_path"] = news_snapshot
+    if args.params:
         print(f"Using tuned params from {args.params}: {overrides}")
     else:
-        print("Using default MLStrategyConfig hyperparameters (no --params).")
+        print(f"Using {args.asset_class} profile defaults (no --params).")
 
     started_at = time.time()
     engine = build_and_run(
@@ -201,7 +256,12 @@ def main() -> None:
     # Win/Loss, Profit Factor, Turnover, Capacity) ported from the legacy
     # run_backtest.py and reconstructed from the engine's standard reports.
     try:
-        print_metrics(engine, VENUE, starting_cash=args.cash)
+        print_metrics(
+            engine,
+            VENUE,
+            starting_cash=args.cash,
+            asset_class=args.asset_class,
+        )
     except Exception as e:  # noqa: BLE001
         print(f"(metrics panel unavailable: {e})")
 
@@ -219,6 +279,7 @@ def main() -> None:
             overrides=overrides,
             started_at=started_at,
             run_id=args.run_id,
+            include_extended_hours=args.include_extended_hours,
         )
         print(f"\nSaved run artifact -> quant/runs/{artifact['run_id']}.json")
     except Exception as e:  # noqa: BLE001

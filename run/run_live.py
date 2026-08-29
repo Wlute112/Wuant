@@ -13,15 +13,11 @@ use a 3.12 venv for paper/live (see README). Backtesting does NOT need this.
 
 Crypto tickers are base-asset codes (BTC, ETH, SOL, ...) traded against USD on
 IBKR's Zero Hash venue. Equity tickers are SMART-routed US stocks/ETFs and use
-regular trading hours, whole-share quantities, and LAST-price daily bars.
+regular trading hours, whole-share quantities, and LAST-price completed bars.
 
 Usage:
     # Redis must be running first (macOS: brew services start redis)
-    # paper (default)
-    TWS_ACCOUNT=DU1234567 python -m quant.run.run_live \
-        --tickers BTC ETH SOL --port 7497 \
-        --params quant/optimize/best_params.json
-    # equity paper
+    # equity paper (IBKR paper does not support spot-crypto execution)
     TWS_ACCOUNT=DU1234567 python -m quant.run.run_live \
         --asset-class equity --tickers SPY QQQ --port 7497
     # live (explicit, dangerous)
@@ -39,6 +35,8 @@ from quant.data.ib_compat import (
     register_ibkr_execution_fixes,
     register_zerohash_crypto,
 )
+from quant.run.asset_profiles import get_asset_profile, strategy_defaults_for_asset
+from quant.run.readiness import LiveCapitalDisabledError, assert_live_capital_enabled
 
 PAPER_PORTS = frozenset({7497, 4002})
 LIVE_PORTS = frozenset({7496, 4001})
@@ -102,6 +100,14 @@ def validate_mode_port(is_live: bool, port: int) -> None:
         )
 
 
+def validate_asset_mode(is_live: bool, asset_class: str) -> None:
+    if not is_live and asset_class == "crypto":
+        raise ValueError(
+            "IBKR paper accounts do not support spot-crypto execution. "
+            "Use --asset-class equity for paper trading or run a crypto backtest."
+        )
+
+
 def load_params(path: str | None) -> tuple[dict, int | None]:
     """Returns (strategy_params, ibkr_bar_hours).
 
@@ -128,6 +134,21 @@ def load_params(path: str | None) -> tuple[dict, int | None]:
         "allow_short_positions",
         "request_historical_bars",
         "use_allocated_equity",
+        "telemetry_path",
+        "telemetry_asset_class",
+        "telemetry_mode",
+        "telemetry_include_extended_hours",
+        "order_tags",
+        "execution_mode",
+        "asset_class",
+        "news_data_path",
+        "entry_time_in_force",
+        "enable_broker_protection",
+        "risk_check_interval_secs",
+        "require_session_schedule",
+        "session_policy",
+        "backtest_model_fit_end_ns",
+        "backtest_trade_start_ns",
     }
     allowed = (
         set(MLStrategyConfig.__struct_fields__)
@@ -156,6 +177,27 @@ def load_params(path: str | None) -> tuple[dict, int | None]:
     return {**structural, **tuned}, ibkr_bar_hours
 
 
+def load_params_metadata(path: str | None) -> dict:
+    """Read compatibility metadata without treating it as strategy config."""
+    if path is None:
+        return {}
+    with Path(path).expanduser().open() as fh:
+        payload = json.load(fh)
+    if not isinstance(payload, dict):
+        return {}
+    return {
+        key: payload[key]
+        for key in (
+            "asset_class",
+            "objective_metric",
+            "include_extended_hours",
+            "market_session",
+            "bar_interval_minutes",
+        )
+        if key in payload
+    }
+
+
 def build_node(
     tickers,
     host,
@@ -174,14 +216,19 @@ def build_node(
     primary_exchange: str = "",
     allow_short_positions: bool = False,
     bar_hours: int | None = None,
+    include_extended_hours: bool = False,
+    telemetry_path: str = "",
+    news_db_path: str = "",
 ):
+    if is_live:
+        assert_live_capital_enabled()
     register_ibkr_execution_fixes()
     if asset_class == "crypto":
         # Teach nautilus 1.229 that ZEROHASH is a crypto venue before it
         # decodes load_ids or subscribes to bars.
         register_zerohash_crypto()
 
-    from nautilus_trader.adapters.interactive_brokers.common import IBContract
+    from nautilus_trader.adapters.interactive_brokers.common import IBContract, IBOrderTags
     from nautilus_trader.adapters.interactive_brokers.config import (
         InteractiveBrokersDataClientConfig,
         InteractiveBrokersExecClientConfig,
@@ -199,6 +246,8 @@ def build_node(
     )
     from nautilus_trader.live.config import LiveExecEngineConfig
     from nautilus_trader.live.node import TradingNode
+    from nautilus_trader.model.enums import TimeInForce
+    from nautilus_trader.model.identifiers import InstrumentId
 
     from quant.strategies.ml_strategy import MLStrategy, MLStrategyConfig
 
@@ -229,7 +278,9 @@ def build_node(
         ibg_host=host,
         ibg_port=port,
         ibg_client_id=client_id,
-        use_regular_trading_hours=asset_class == "equity",
+        use_regular_trading_hours=(
+            asset_class == "equity" and not include_extended_hours
+        ),
         instrument_provider=provider,
     )
     exec_cfg = InteractiveBrokersExecClientConfig(
@@ -290,10 +341,37 @@ def build_node(
         "request_historical_bars": True,
         "use_allocated_equity": bool((params or {}).get("use_allocated_equity", False)),
         "allow_short_positions": allow_short_positions,
+        "telemetry_path": telemetry_path,
+        "telemetry_asset_class": asset_class,
+        "telemetry_mode": "live" if is_live else "paper",
+        "telemetry_include_extended_hours": include_extended_hours,
+        "news_data_path": news_db_path,
+        "execution_mode": "live" if is_live else "paper",
+        "asset_class": asset_class,
+        "entry_time_in_force": "DAY" if asset_class == "equity" else "GTC",
+        "enable_broker_protection": True,
+        "risk_check_interval_secs": 1,
+        "require_session_schedule": asset_class == "equity",
+        "session_policy": (
+            "EXTENDED_HOURS"
+            if asset_class == "equity" and include_extended_hours
+            else "RTH_ONLY"
+        ),
+        "order_tags": (
+            (IBOrderTags(outsideRth=True).value,)
+            if asset_class == "equity" and include_extended_hours
+            else ()
+        ),
     }
     strat_cfg = MLStrategyConfig(
         instrument_ids=instrument_ids,
         bar_type_suffix=bar_type_suffix_for_asset(asset_class, bar_hours),
+        manage_stop=True,
+        market_exit_interval_ms=100,
+        market_exit_max_attempts=300,
+        market_exit_time_in_force=TimeInForce.IOC,
+        market_exit_reduce_only=True,
+        external_order_claims=[InstrumentId.from_str(value) for value in instrument_ids],
         **strategy_params,
     )
     strategy = MLStrategy(strat_cfg)
@@ -327,10 +405,32 @@ def main() -> None:
         type=int,
         default=None,
         help="Live bar width in hours (1, 2, 3, 4, or 8; omit or pass 24 for "
-        "1-day bars, the original default). If omitted and --params carries "
+        "1-day bars). If omitted and --params carries "
         "an ibkr_bar_hours value (e.g. an Optuna run artifact that used "
-        "--fetch-missing), that value is used instead.",
+        "--fetch-missing), that value is used; otherwise the asset profile "
+        "defaults to 4-hour crypto bars or 1-hour equity bars.",
     )
+    p.add_argument(
+        "--include-extended-hours",
+        action="store_true",
+        help="Equity only: include pre/post-market bars and allow supported "
+        "orders outside RTH. Extended-hours liquidity and fills differ materially.",
+    )
+    p.add_argument("--telemetry-path", default="", help=argparse.SUPPRESS)
+    p.add_argument(
+        "--news-db",
+        default="quant/data/news.sqlite3",
+        help="append-only RSS/IBKR news database used by the alpha feature",
+    )
+    p.add_argument("--news-client-id", type=int, default=30)
+    p.add_argument("--news-rss-catalog", default="")
+    p.add_argument("--news-rss-poll-seconds", type=int, default=120)
+    p.add_argument("--news-provider", action="append", default=[])
+    p.add_argument("--news-ollama-url", default="http://127.0.0.1:11434/api/generate")
+    p.add_argument("--news-ollama-model", default="lfm2:24b")
+    p.add_argument("--no-news", action="store_true")
+    p.add_argument("--no-ibkr-news", action="store_true")
+    p.add_argument("--no-rss-news", action="store_true")
     p.add_argument(
         "--cash",
         type=float,
@@ -360,16 +460,54 @@ def main() -> None:
 
     try:
         validate_mode_port(args.live, args.port)
-    except ValueError as exc:
+        validate_asset_mode(args.live, args.asset_class)
+        if args.live:
+            assert_live_capital_enabled()
+    except (ValueError, LiveCapitalDisabledError) as exc:
         raise SystemExit(str(exc)) from exc
     if not args.account_id:
         raise SystemExit("Missing IBKR account id: pass --account-id or set TWS_ACCOUNT.")
-    if args.allow_shorts and args.asset_class != "equity":
-        raise SystemExit("--allow-shorts is supported only with --asset-class equity.")
+    if args.allow_shorts:
+        raise SystemExit(
+            "Short selling is disabled until shortability, borrow, SSR, margin, "
+            "recall, and forced-buy-in controls are implemented."
+        )
+    if not args.no_news and not args.no_ibkr_news and args.news_client_id == args.client_id:
+        raise SystemExit("--news-client-id must differ from the TradingNode --client-id")
     try:
-        params, params_bar_hours = load_params(args.params)
+        loaded_params, params_bar_hours = load_params(args.params)
+        params_metadata = load_params_metadata(args.params)
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         raise SystemExit(f"Invalid --params file: {exc}") from exc
+    params_asset_class = params_metadata.get("asset_class")
+    if params_asset_class and params_asset_class != args.asset_class:
+        raise SystemExit(
+            f"Params profile mismatch: file was optimized for {params_asset_class}, "
+            f"but this run selected {args.asset_class}."
+        )
+    params_extended = params_metadata.get("include_extended_hours")
+    if params_extended is not None and bool(params_extended) != args.include_extended_hours:
+        raise SystemExit(
+            "Params session mismatch: --include-extended-hours must match the "
+            "historical session used by the params file."
+        )
+    params_bar_minutes = params_metadata.get("bar_interval_minutes")
+    bar_hours = args.bar_hours if args.bar_hours is not None else params_bar_hours
+    if bar_hours is None:
+        bar_hours = int(get_asset_profile(args.asset_class)["defaults"]["bar_hours"])
+    if params_bar_minutes is not None and int(params_bar_minutes) != int(bar_hours) * 60:
+        raise SystemExit(
+            f"Params cadence mismatch: file was trained on {params_bar_minutes}-minute bars, "
+            f"but this run selected {int(bar_hours) * 60}-minute bars."
+        )
+    params = {
+        **strategy_defaults_for_asset(
+            args.asset_class,
+            bar_hours,
+            include_extended_hours=args.include_extended_hours,
+        ),
+        **loaded_params,
+    }
     if args.cash is not None:
         params["starting_equity"] = args.cash
         params["use_allocated_equity"] = True
@@ -381,7 +519,11 @@ def main() -> None:
     else:
         params.pop("starting_equity", None)
         params["use_allocated_equity"] = False
-    bar_hours = args.bar_hours if args.bar_hours is not None else params_bar_hours
+    params["use_news_features"] = not args.no_news and bool(
+        params.get("use_news_features", True)
+    )
+    if args.include_extended_hours and args.asset_class != "equity":
+        raise SystemExit("--include-extended-hours is supported only with --asset-class equity.")
 
     try:
         node = build_node(
@@ -401,13 +543,40 @@ def main() -> None:
             primary_exchange=args.primary_exchange,
             allow_short_positions=args.allow_shorts,
             bar_hours=bar_hours,
+            include_extended_hours=args.include_extended_hours,
+            telemetry_path=args.telemetry_path,
+            news_db_path=args.news_db if params["use_news_features"] else "",
         )
-    except ValueError as exc:
+    except (ValueError, LiveCapitalDisabledError) as exc:
         raise SystemExit(str(exc)) from exc
+    news_service = None
+    if params["use_news_features"]:
+        from quant.news.service import NewsService, NewsServiceConfig
+
+        news_service = NewsService(
+            NewsServiceConfig(
+                db_path=args.news_db,
+                tickers=tuple(args.tickers),
+                asset_class=args.asset_class,
+                rss_enabled=not args.no_rss_news,
+                rss_catalog_path=args.news_rss_catalog,
+                rss_poll_seconds=args.news_rss_poll_seconds,
+                ibkr_enabled=not args.no_ibkr_news,
+                ibkr_host=args.host,
+                ibkr_port=args.port,
+                ibkr_client_id=args.news_client_id,
+                ibkr_provider_allowlist=tuple(args.news_provider),
+                ollama_url=args.news_ollama_url,
+                ollama_model=args.news_ollama_model,
+            )
+        )
+        news_service.start()
     try:
         node.run()
     finally:
         node.dispose()
+        if news_service is not None:
+            news_service.stop()
 
 
 if __name__ == "__main__":

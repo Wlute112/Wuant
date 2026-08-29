@@ -27,6 +27,9 @@ class FeatureConfig(BaseModel):
     hmm_source: str | None = None     # "fit" | "raw"
     regime_raw_scale: float | None = None
     hmm_raw_scale: float | None = None
+    regime_window: int | None = Field(default=None, ge=2)
+    regime_bull_threshold: float | None = Field(default=None, gt=0)
+    regime_bear_threshold: float | None = Field(default=None, lt=0)
 
     def as_overrides(self) -> dict:
         return {k: v for k, v in self.model_dump().items() if v is not None}
@@ -57,11 +60,12 @@ class IbkrFetchOptions(BaseModel):
     # Only used by replace_bars. Missing-ticker fetches inherit the CSV's
     # existing frequency and never mix frequencies into one file.
     ibkr_bar_hours: int | None = None
+    include_extended_hours: bool = False
 
 
 class BacktestJobRequest(BaseModel):
     csv: str = "quant/data/sample_bars.csv"
-    asset_class: str = "crypto"
+    asset_class: Literal["crypto", "equity"] = "crypto"
     tickers: list[str] | None = None
     cash: float = 5000.0
     params_path: str | None = None
@@ -77,17 +81,25 @@ class BacktestJobRequest(BaseModel):
 
 class OptimizeJobRequest(BaseModel):
     csv: str = "quant/data/sample_bars.csv"
-    asset_class: str = "crypto"
+    asset_class: Literal["crypto", "equity"] = "crypto"
     tickers: list[str] | None = None
     trials: int | None = None
     score: float | None = None
-    train_frac: float = 0.7
+    final_test_frac: float = Field(default=0.20, gt=0, lt=0.5)
+    walk_forward_folds: int = Field(default=5, ge=2, le=10)
+    embargo_bars: int = Field(default=0, ge=0)
+    stability_std_weight: float = Field(default=0.50, ge=0)
+    turnover_penalty_weight: float = Field(default=0.01, ge=0)
+    cost_sensitivity_weight: float = Field(default=0.50, ge=0)
+    min_positive_fold_fraction: float = Field(default=0.60, gt=0, le=1)
+    normal_slippage_probability: float = Field(default=0.05, ge=0, le=0.5)
+    stress_cost_multiplier: float = Field(default=2.0, ge=1)
     cash: float = 5000.0
     seed: int | None = None
     warmup_bars: int | None = None
     min_train_bars: int | None = None
-    # Continue a prior sweep's Optuna study instead of starting fresh -- see
-    # optimize.py's --resume-run-id. Pass the prior run's run_id.
+    # Continue an interrupted study only before its outer test was consumed.
+    # Completed/finalized studies are immutable to preserve holdout integrity.
     resume_run_id: str | None = None
     features: FeatureConfig = FeatureConfig()
     risk: RiskConfigOverrides = RiskConfigOverrides()
@@ -99,6 +111,8 @@ class PaperJobRequest(BaseModel):
     asset_class: Literal["crypto", "equity"] = "crypto"
     primary_exchange: str = ""
     allow_shorts: bool = False
+    bar_hours: Literal[1, 2, 3, 4, 8, 24] | None = None
+    include_extended_hours: bool = False
     host: str = "127.0.0.1"
     port: int = 7497
     client_id: int = 1
@@ -117,6 +131,8 @@ class LiveJobRequest(BaseModel):
     asset_class: Literal["crypto", "equity"] = "crypto"
     primary_exchange: str = ""
     allow_shorts: bool = False
+    bar_hours: Literal[1, 2, 3, 4, 8, 24] | None = None
+    include_extended_hours: bool = False
     host: str = "127.0.0.1"
     port: int
     client_id: int = 1

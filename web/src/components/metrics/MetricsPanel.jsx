@@ -3,7 +3,8 @@ import { useId } from "react";
 import { formatNum, formatPct, formatUsd } from "../../lib/format.js";
 import "./metrics-panel.css";
 
-const ROWS = [
+const BASE_ROWS = [
+  { key: "objective_score", label: "Optimization score", fmt: (v) => formatNum(v, 3) },
   { key: "net_profit_usd", label: "Net Profit", fmt: formatUsd },
   { key: "sharpe_ratio", label: "Sharpe", fmt: (v) => formatNum(v, 2) },
   { key: "sortino_ratio", label: "Sortino", fmt: (v) => (typeof v === "number" ? formatNum(v, 2) : v) },
@@ -34,6 +35,7 @@ const ZERO_POINT_ROWS = new Set([
   "net_profit_usd",
   "sharpe_ratio",
   "sortino_ratio",
+  "objective_score",
   "oos_r2",
   "information_coefficient",
 ]);
@@ -54,15 +56,15 @@ function signClass(key, value) {
   return "";
 }
 
-function MetricsGrid({ rows, values }) {
+function MetricsGrid({ rows, values, primaryMetric }) {
   return (
     <dl className="metrics-panel__grid">
       {rows.map((row) => {
         const value = values[row.key];
         const cls = signClass(row.key, value);
         return (
-          <div className="metrics-panel__cell" key={row.key}>
-            <dt className="label">{row.label}</dt>
+          <div className={`metrics-panel__cell ${row.key === primaryMetric ? "is-primary" : ""}`} key={row.key}>
+            <dt className="label">{row.label}{row.key === primaryMetric ? " · ratio − activity penalty" : ""}</dt>
             <dd className={`num metrics-panel__value ${cls}`}>
               {value == null ? "—" : row.fmt(value)}
             </dd>
@@ -79,17 +81,38 @@ export default function MetricsPanel({
   mlMetrics = null,
   mlTicker = null,
   trialsCount = null,
+  objectiveMetric = null,
 }) {
   const headingId = useId();
   if (!metrics) return null;
-  const rows = mlMetrics ? [...ROWS, ...mlRows(mlTicker)] : ROWS;
-  const values = { ...metrics, optuna_trials: trialsCount, ...(mlMetrics || {}) };
+  const metric = objectiveMetric || metrics.scoring_metric || "sortino";
+  const primaryKey = "objective_score";
+  const ratioKey = metric === "sharpe" ? "sharpe_ratio" : "sortino_ratio";
+  const reordered = [
+    BASE_ROWS.find((row) => row.key === primaryKey),
+    BASE_ROWS.find((row) => row.key === ratioKey),
+    ...BASE_ROWS.filter((row) => row.key !== primaryKey && row.key !== ratioKey),
+  ];
+  const rows = mlMetrics ? [...reordered, ...mlRows(mlTicker)] : reordered;
+  const fallbackRatio = metrics[ratioKey];
+  const fallbackPenalty = metric === "sharpe" ? 0.001 : 0.002;
+  const objectiveScore = metrics.objective_score ?? (
+    typeof fallbackRatio === "number"
+      ? fallbackRatio - fallbackPenalty * Number(metrics.total_trades || 0)
+      : null
+  );
+  const values = {
+    ...metrics,
+    objective_score: objectiveScore,
+    optuna_trials: trialsCount,
+    ...(mlMetrics || {}),
+  };
   return (
     <section className="metrics-panel" aria-labelledby={headingId}>
       <h2 id={headingId} className="label metrics-panel__heading">
-        {title}
+        {title} · {metric.toUpperCase()} scoring profile
       </h2>
-      <MetricsGrid rows={rows} values={values} />
+      <MetricsGrid rows={rows} values={values} primaryMetric={primaryKey} />
     </section>
   );
 }

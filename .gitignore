@@ -1,4 +1,10 @@
 .quant312/
+web/node_modules/
+data/news.sqlite3
+data/news.sqlite3-shm
+data/news.sqlite3-wal
+data/news_snapshots/
+optimize/news_snapshots/
 .DS_Store
 __pycache__/
 .vscode/

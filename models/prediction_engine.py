@@ -9,9 +9,9 @@ Design guarantees (the anti-lookahead contract):
   * Features at time t use ONLY bars with index <= t. The target uses bars
     STRICTLY in the future (t+1 .. t+horizon) and is therefore never available
     to the model at prediction time.
-  * Training uses an expanding walk-forward split. The model is fit on
-    [0, train_end) and only ever predicts on bars >= train_end. No future row
-    leaks into the fitted coefficients.
+  * Training uses a walk-forward split. The model is fit on past rows only,
+    using either expanding history or a configured trailing training window,
+    and predicts only later rows. No future row leaks into fitted coefficients.
   * `predict_move(window)` is the live/bar-by-bar entry point: it accepts the
     trailing window of closes a Strategy has accumulated and returns a single
     yhat. It recomputes nothing about the future and holds no global state.
@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import HuberRegressor
 
-from quant.models.regime import RegimeConfig, RegimeFeatureEngine
+from quant.models.regime import RegimeConfig, RegimeFeatureEngine, STATE_NAMES
 
 
 @dataclass
@@ -35,6 +35,11 @@ class PredictionConfig:
     horizon: int = 1           # forecast horizon in bars (predict fwd return)
     standardize: bool = True   # z-score features using TRAIN stats only
     min_train_bars: int = 120  # refuse to predict before enough history
+    # Number of most-recent labeled feature rows used by each Huber refit.
+    # 0 preserves the original expanding-history behavior. A positive value
+    # bounds coefficient estimation to a rolling window while regime/cross-
+    # asset features still use all information available at that timestamp.
+    training_window_bars: int = 0
     # --- Huber-loss regression hyperparameters ---
     # The alpha layer fits with HUBER loss (not OLS): squared error for small
     # residuals, linear (absolute) error beyond `huber_epsilon` standardized
@@ -78,6 +83,14 @@ class PredictionConfig:
     cross_asset_lags: int = 0
     spread_lags: int = 0
     peer_symbols: tuple[str, ...] = ()
+    # --- live/historical news feature -----------------------------------
+    # One bounded, source-weighted score aligned to each completed bar.  The
+    # caller supplies the causal series; values are built only from articles
+    # received no later than that bar (see quant.news.NewsFeatureReader).
+    use_news_features: bool = False
+    news_source: str = "raw"          # "fit" | "raw"
+    news_raw_scale: float = 0.001     # max direct return contribution at score=1
+    news_score_clip: float = 1.0
 
     def to_regime_config(self) -> RegimeConfig:
         """Project the regime-relevant knobs onto a RegimeConfig."""
@@ -110,6 +123,10 @@ class PredictionConfig:
         if not self.peer_symbols:
             return 0
         return len(self.peer_symbols) * (self.cross_asset_lags + self.spread_lags)
+
+    @property
+    def n_news_cols(self) -> int:
+        return int(self.use_news_features and self.news_source != "raw")
 
 
 @dataclass
@@ -189,12 +206,14 @@ def make_features_targets(
     cfg: PredictionConfig,
     regime_feats: np.ndarray | None = None,
     cross_feats: np.ndarray | None = None,
+    news_feats: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Build (X, y, valid_index) with a strict no-lookahead alignment.
 
     X[i]  uses returns at i-n_lags .. i-1   (past only), followed by the regime
           feature columns for bar i (regime_feats[i]), followed by the
-          cross-asset ARDL/spread columns for bar i (cross_feats[i]).
+          cross-asset ARDL/spread columns for bar i (cross_feats[i]), followed
+          by the news score available at bar i (news_feats[i]).
     y[i]  = sum of returns at i+1 .. i+horizon (future only) -> fwd return
 
     `regime_feats`, when supplied, is an (n, k) array aligned to `close` indices
@@ -202,7 +221,9 @@ def make_features_targets(
     (see models/regime.py). `cross_feats`, when supplied, is an (n, j) array
     from `make_cross_asset_features` where row i uses ONLY target/peer returns
     at index <= i-1. Because each row depends only on its own past, both are
-    safe to append here and to slice in walk_forward(). When None, the
+    safe to append here and to slice in walk_forward(). ``news_feats`` follows
+    the same rule: the ingestion timestamp, not a later-recovered publication
+    timestamp, controls when an article becomes visible. When None, the
     corresponding block is simply omitted (original behaviour).
 
     Rows without full past lags or full future horizon are dropped.
@@ -212,6 +233,7 @@ def make_features_targets(
     L, H = cfg.n_lags, cfg.horizon
     k_regime = 0 if regime_feats is None else regime_feats.shape[1]
     k_cross = 0 if cross_feats is None else cross_feats.shape[1]
+    k_news = 0 if news_feats is None else news_feats.shape[1]
 
     X_rows, y_rows, idx = [], [], []
     for i in range(L, n - H):
@@ -220,12 +242,14 @@ def make_features_targets(
             x = np.concatenate([x, regime_feats[i]])  # append regime cols for i
         if cross_feats is not None:
             x = np.concatenate([x, cross_feats[i]])    # append cross-asset cols
+        if news_feats is not None:
+            x = np.concatenate([x, news_feats[i]])     # append causal news cols
         fwd = r[i + 1:i + 1 + H].sum()      # strictly-future cumulative return
         X_rows.append(x)
         y_rows.append(fwd)
         idx.append(i)
     if not X_rows:
-        return np.empty((0, L + k_regime + k_cross)), np.empty((0,)), np.empty((0,), dtype=int)
+        return np.empty((0, L + k_regime + k_cross + k_news)), np.empty((0,)), np.empty((0,), dtype=int)
     return np.asarray(X_rows), np.asarray(y_rows), np.asarray(idx, dtype=int)
 
 
@@ -234,6 +258,16 @@ class PredictionEngine:
 
     def __init__(self, cfg: PredictionConfig | None = None):
         self.cfg = cfg or PredictionConfig()
+        if self.cfg.training_window_bars < 0:
+            raise ValueError("training_window_bars must be >= 0")
+        if 0 < self.cfg.training_window_bars < self.cfg.min_train_bars:
+            raise ValueError(
+                "training_window_bars must be 0 (expanding) or at least min_train_bars"
+            )
+        if self.cfg.news_source not in {"fit", "raw"}:
+            raise ValueError("news_source must be 'fit' or 'raw'")
+        if self.cfg.news_score_clip <= 0:
+            raise ValueError("news_score_clip must be > 0")
         self._state = _FitState()
         # One cached, incremental regime engine per PredictionEngine instance.
         # It is stateful so the per-bar refit in the backtest only computes the
@@ -294,6 +328,49 @@ class PredictionEngine:
             return None
         return make_cross_asset_features(np.asarray(close, float), peer_closes, self.cfg)
 
+    def _news_full(
+        self, close: np.ndarray, news_features: np.ndarray | None
+    ) -> np.ndarray | None:
+        """Right-align and bound the causal score series to ``close``."""
+        if not self.cfg.use_news_features:
+            return None
+        n = len(close)
+        aligned = np.zeros(n, dtype=float)
+        if news_features is not None:
+            supplied = np.asarray(news_features, dtype=float).reshape(-1)
+            supplied = np.nan_to_num(supplied, nan=0.0, posinf=0.0, neginf=0.0)
+            m = min(n, supplied.size)
+            if m:
+                aligned[n - m:] = supplied[-m:]
+        return np.clip(aligned, -self.cfg.news_score_clip, self.cfg.news_score_clip)
+
+    def _news_fit(
+        self, close: np.ndarray, news_features: np.ndarray | None
+    ) -> np.ndarray | None:
+        full = self._news_full(close, news_features)
+        if full is None or self.cfg.news_source == "raw":
+            return None
+        return full.reshape(-1, 1)
+
+    def _news_raw(
+        self, close: np.ndarray, news_features: np.ndarray | None
+    ) -> np.ndarray | None:
+        full = self._news_full(close, news_features)
+        if full is None or self.cfg.news_source != "raw":
+            return None
+        return full * float(self.cfg.news_raw_scale)
+
+    def _raw_full(
+        self, close: np.ndarray, news_features: np.ndarray | None
+    ) -> np.ndarray | None:
+        regime = self._regime_raw(close)
+        news = self._news_raw(close, news_features)
+        if regime is None:
+            return news
+        if news is None:
+            return regime
+        return regime + news
+
     def _residualize(self, y: np.ndarray, idx: np.ndarray, raw_full: np.ndarray | None) -> np.ndarray:
         """Subtract each row's raw (non-fit) contribution from the target so
         the Huber fit only ever has to explain what raw features don't."""
@@ -301,29 +378,48 @@ class PredictionEngine:
             return y
         return y - raw_full[idx]
 
+    def _training_tail(self, X: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Apply the configured rolling fit window to aligned training rows."""
+        window = int(self.cfg.training_window_bars)
+        if window <= 0 or len(X) <= window:
+            return X, y
+        return X[-window:], y[-window:]
+
     # ---- training -------------------------------------------------------
     def fit(
-        self, close: np.ndarray, peer_closes: dict[str, np.ndarray] | None = None
+        self,
+        close: np.ndarray,
+        peer_closes: dict[str, np.ndarray] | None = None,
+        news_features: np.ndarray | None = None,
     ) -> "PredictionEngine":
         close = np.asarray(close, float)
         X, y, idx = make_features_targets(
-            close, self.cfg, self._regime_feats(close), self._cross_feats(close, peer_closes)
+            close,
+            self.cfg,
+            self._regime_feats(close),
+            self._cross_feats(close, peer_closes),
+            self._news_fit(close, news_features),
         )
         if len(X) == 0:
             raise ValueError("Not enough data to build features/targets.")
-        y_fit = self._residualize(y, idx, self._regime_raw(close))
+        y_fit = self._residualize(y, idx, self._raw_full(close, news_features))
+        X, y_fit = self._training_tail(X, y_fit)
         self._fit_arrays(X, y_fit)
         return self
 
     def refit_on_history(
-        self, close: np.ndarray, peer_closes: dict[str, np.ndarray] | None = None
+        self,
+        close: np.ndarray,
+        peer_closes: dict[str, np.ndarray] | None = None,
+        news_features: np.ndarray | None = None,
     ) -> bool:
         """Fit on PAST-ONLY history using the SAME windowing contract as
-        walk_forward(): build (X, y) via make_features_targets, then fit on ALL
-        available rows [0, end). This is the single, shared definition of "how
-        the model sees history", used by BOTH the offline OOS evaluation and the
-        live/backtest strategy -- so the model the strategy trades with matches
-        the model walk_forward() scores. No future row ever enters the fit
+        walk_forward(): build (X, y) via make_features_targets, then fit on all
+        available rows or the configured trailing training window. This is the
+        single, shared definition of "how the model sees history", used by BOTH
+        the offline OOS evaluation and the live/backtest strategy -- so the
+        model the strategy trades with matches the model walk_forward() scores.
+        No future row ever enters the fit
         because make_features_targets aligns each X[i] to past returns only.
 
         `peer_closes`, when the universe has peers (`cfg.peer_symbols`), maps
@@ -336,11 +432,16 @@ class PredictionEngine:
         """
         close = np.asarray(close, float)
         X, y, idx = make_features_targets(
-            close, self.cfg, self._regime_feats(close), self._cross_feats(close, peer_closes)
+            close,
+            self.cfg,
+            self._regime_feats(close),
+            self._cross_feats(close, peer_closes),
+            self._news_fit(close, news_features),
         )
         if len(X) == 0:
             return False
-        y_fit = self._residualize(y, idx, self._regime_raw(close))
+        y_fit = self._residualize(y, idx, self._raw_full(close, news_features))
+        X, y_fit = self._training_tail(X, y_fit)
         self._fit_arrays(X, y_fit)
         return True
 
@@ -399,6 +500,40 @@ class PredictionEngine:
             raise RuntimeError("PredictionEngine.coef_intercept called before fit().")
         return s.coef.copy(), s.intercept
 
+    def current_diagnostics(self, close: np.ndarray) -> dict:
+        """Return the latest no-lookahead regime/model state for telemetry."""
+        closes = np.asarray(close, dtype=float)
+        diagnostics = {
+            "trained": bool(self._state.fitted),
+            "regime_window": self.cfg.regime_window,
+            "hmm_train_window": 0,
+            "hmm_decode_window": 0,
+            "regime_score": None,
+            "state_label": "Unavailable",
+            "p_bull": None,
+            "p_bear": None,
+            "p_side": None,
+            "hmm_signed": None,
+            "hmm_label": "Unavailable",
+        }
+        if self._regime is None or closes.size == 0:
+            return diagnostics
+        frame = self._regime.compute(closes)
+        diagnostics.update(
+            {
+                "hmm_train_window": self._regime.cfg.hmm_train_window,
+                "hmm_decode_window": self._regime.cfg.hmm_decode_window,
+                "regime_score": float(frame.regime_score[-1]),
+                "state_label": STATE_NAMES[int(frame.states[-1])],
+                "p_bull": float(frame.p_bull[-1]),
+                "p_bear": float(frame.p_bear[-1]),
+                "p_side": float(frame.p_side[-1]),
+                "hmm_signed": int(frame.hmm_signed[-1]),
+                "hmm_label": STATE_NAMES[int(frame.hmm_state[-1])],
+            }
+        )
+        return diagnostics
+
     # ---- inference ------------------------------------------------------
     def _predict_x(self, x: np.ndarray) -> float:
         s = self._state
@@ -413,6 +548,7 @@ class PredictionEngine:
         self,
         recent_closes: np.ndarray,
         peer_closes: dict[str, np.ndarray] | None = None,
+        news_features: np.ndarray | None = None,
     ) -> float | None:
         """Live entry point. Returns yhat (forward return) or None if not ready.
 
@@ -440,7 +576,10 @@ class PredictionEngine:
         cf = self._cross_feats(closes, peer_closes)
         if cf is not None:
             x = np.concatenate([x, cf[-1]])
-        raw = self._regime_raw(closes)
+        nf = self._news_fit(closes, news_features)
+        if nf is not None:
+            x = np.concatenate([x, nf[-1]])
+        raw = self._raw_full(closes, news_features)
         raw_contribution = float(raw[-1]) if raw is not None else 0.0
         return self._predict_x(x) + raw_contribution
 
@@ -451,10 +590,14 @@ class PredictionEngine:
         peer_closes: dict[str, np.ndarray] | None = None,
         n_splits: int = 5,
         *,
+        news_features: np.ndarray | None = None,
         return_folds: bool = False,
         return_series: bool = False,
     ) -> dict:
-        """Expanding-window walk-forward. Trains on the past, scores the future.
+        """Walk-forward evaluation. Trains on the past, scores the future.
+
+        ``training_window_bars=0`` uses expanding folds; a positive value uses
+        that many latest labeled rows within each chronological training fold.
 
         Returns out-of-sample metrics. This is the honest performance estimate;
         an in-sample R^2 would be optimistic and is deliberately not reported.
@@ -478,7 +621,11 @@ class PredictionEngine:
         # here; each row is walk-forward (uses only its own past), so slicing
         # X[:train_end] below keeps the fold's fit free of any future leak.
         X, y_true, idx = make_features_targets(
-            close, self.cfg, self._regime_feats(close), self._cross_feats(close, peer_closes)
+            close,
+            self.cfg,
+            self._regime_feats(close),
+            self._cross_feats(close, peer_closes),
+            self._news_fit(close, news_features),
         )
         n = len(X)
         if n < self.cfg.min_train_bars + n_splits:
@@ -487,7 +634,7 @@ class PredictionEngine:
         # Raw (non-fit) blocks contribute directly to yhat and are excluded
         # from the Huber fit's target -- the fit only has to explain whatever
         # variance the raw signal(s) don't (see _residualize).
-        raw_full = self._regime_raw(close)
+        raw_full = self._raw_full(close, news_features)
         raw_at_idx = raw_full[idx] if raw_full is not None else np.zeros(len(idx))
         y_fit = y_true - raw_at_idx
 
@@ -499,7 +646,10 @@ class PredictionEngine:
             test_end = fold * (k + 1) if k < n_splits else n
             if train_end < self.cfg.min_train_bars:
                 continue
-            self._fit_arrays(X[:train_end], y_fit[:train_end])
+            train_X, train_y = self._training_tail(
+                X[:train_end], y_fit[:train_end]
+            )
+            self._fit_arrays(train_X, train_y)
             fold_preds, fold_actuals = [], []
             for i in range(train_end, test_end):
                 p = self._predict_x(X[i]) + raw_at_idx[i]
@@ -531,7 +681,8 @@ class PredictionEngine:
         ic = float(np.corrcoef(preds, actuals)[0, 1]) if len(preds) > 1 else 0.0
 
         # Re-fit on all data so the engine is ready for live use afterwards.
-        self._fit_arrays(X, y_fit)
+        final_X, final_y = self._training_tail(X, y_fit)
+        self._fit_arrays(final_X, final_y)
         result = {
             "oos_samples": int(len(preds)),
             "oos_r2": 1.0 - ss_res / ss_tot,

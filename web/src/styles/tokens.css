@@ -49,7 +49,7 @@
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 
   /* Bezel height, referenced by the sticky instrument bar and scroll offsets */
-  --bezel-height: 56px;
+  --bezel-height: 44px;
   --control-min-height: 36px;
   --touch-target-size: 44px;
 }

@@ -8,7 +8,8 @@ web
 
 The primary visual surface is a local React/Vite reporting and operations
 dashboard backed by FastAPI. The CLI remains a first-class interface for
-backtest, optimization, data fetch, paper trading, and live trading.
+backtest, optimization, data fetch, and paper trading. Live-capital controls
+exist but are fail-closed until the production-readiness program is approved.
 
 ## Users
 
@@ -47,33 +48,44 @@ truthfully claim.
 - The dashboard reviews run artifacts, compares metrics and traces, launches
   backtest/Optuna/paper/live jobs, tails job output, and exposes risk controls.
 - Data sources: synthetic sample bars (pipeline exercising) and real IBKR
-  historical daily bars fetched via TWS/Gateway (ports 7497 paper TWS / 7496
+  historical bars fetched via TWS/Gateway (ports 7497 paper TWS / 7496
   live TWS / 4002 or 4001 Gateway).
 - Live/paper trading requires TWS or IB Gateway running locally; crypto
-  market data requires the PAXOS subscription.
-- Standard workflow: backtest -> Optuna hyperparameter search (in-sample /
-  out-of-sample split) -> copy `study.best_params` into live config -> paper
-  trade -> live trade (explicit `--live` opt-in; the runner refuses `--live`
-  on the paper port as a guardrail).
+  market data requires the PAXOS subscription. IBKR spot crypto is live-only
+  in this product because paper accounts do not support its execution.
+- Standard workflow: backtest -> purged nested walk-forward Optuna search with
+  an untouched outer holdout -> copy the profile-tagged params into execution config
+  -> equity paper trade or crypto shadow/demo validation -> formal readiness
+  review. The CLI, API, node builder, and dashboard currently refuse live
+  capital regardless of confirmation phrase or port.
 
 ## Capabilities and Constraints
 
-- Two asset classes today, one per run: crypto (`CurrencyPair`, maker/taker
-  fees, 24/7 calendar) and equity (`Equity`, per-share fees, weekday
-  calendar), selected via `--asset-class`.
-- Live/paper trading supports spot crypto and SMART-routed US equities/ETFs;
-  equity shorts require an explicit opt-in.
+- Two asset classes today, one per run: crypto (`CurrencyPair`, Zero Hash
+  trailing-volume fees, 24/7 calendar) and equity (`Equity`, per-share fees, weekday
+  calendar), selected through a canonical operating profile in the dashboard
+  or via `--asset-class`. Crypto optimization uses Sortino; equity optimization
+  uses Sharpe. The switch also changes session, bar, routing, quantity, fee,
+  universe, and regime-threshold defaults.
+- The shared execution path is shaped for spot crypto and SMART-routed US
+  equities/ETFs, but live-capital startup is disabled. Paper trading is
+  equity-only and long-only; short execution is locked until its P1 controls
+  exist.
 - The web dashboard exists under `web/`; no iOS or Android interface exists.
-- Backtest and Optuna reporting use real run artifacts. The live positions and
-  risk panel still consumes an explicitly labeled simulated feed until a real
-  paper/live reporting channel is connected.
+- Backtest and Optuna reporting use real run artifacts. Paper/live nodes write
+  an atomic strategy telemetry snapshot after every completed bar; the
+  dashboard polls it every three seconds for yhat, HMM/regime state, positions,
+  and risk. A separate read-only IBKR client backfills and continuously updates
+  the selected ticker's current OHLC bar. Searched symbols without model
+  telemetry stay market-only rather than receiving fabricated overlays. When
+  no node exists, the panel shows deterministic demonstration data with an
+  explicit no-broker-connection label.
 - Open track toward paper trading and then live trading with real capital is
   the owner's explicit direction, not yet executed.
-- Documented pre-production simplifications (CLAUDE.md, "Known
-  simplifications / TODO before real money"): daily-bar strategy assumptions,
-  spot-only crypto instruments, no broker-side protective stop, regime
-  thresholds tuned for crypto volatility, no exchange holiday calendar, and a
-  simulated rather than broker-backed dashboard live feed.
+- The production-readiness gate register and validation evidence are maintained
+  in `PRODUCTION_READINESS.md`. Fill-based broker OCA protection and continuous
+  supervision now have implementation candidates, but they remain unapproved
+  until supported TWS/Gateway paper and fault-injection validation completes.
 
 ## Evidence on Hand
 

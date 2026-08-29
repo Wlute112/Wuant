@@ -133,6 +133,7 @@ def _resample(df: pd.DataFrame, bar_hours: int) -> pd.DataFrame:
 async def _fetch(
     tickers, years, host, port, client_id, exchange, price_type, bar_hours,
     market_data_type, request_timeout, asset_class="crypto", primary_exchange="",
+    include_extended_hours=False,
 ):
     is_equity = asset_class == "equity"
     if not is_equity:
@@ -199,7 +200,7 @@ async def _fetch(
                 start_date_time=start,
                 end_date_time=end,
                 tz_name="America/New_York",  # required by nautilus 1.229
-                use_rth=is_equity,
+                use_rth=is_equity and not include_extended_hours,
                 # Per-segment timeout. nautilus walks the window year-by-year; a
                 # segment before a coin's Zero Hash feed-start returns IBKR error
                 # 162 "no data" but never resolves its future, so it waits out
@@ -277,7 +278,7 @@ async def _fetch(
 async def _fetch_and_merge(
     csv_path, tickers, years, host, port, client_id, exchange, price_type,
     bar_hours, market_data_type, request_timeout, asset_class="crypto",
-    primary_exchange="",
+    primary_exchange="", include_extended_hours=False,
 ) -> list[str]:
     """Fetch missing tickers at the CSV's existing frequency and merge them."""
     columns = ["timestamp", "ticker", "open", "high", "low", "close", "volume"]
@@ -304,6 +305,7 @@ async def _fetch_and_merge(
         missing, years, host, port, client_id, exchange, price_type, bar_hours,
         market_data_type, request_timeout, asset_class=asset_class,
         primary_exchange=primary_exchange,
+        include_extended_hours=include_extended_hours,
     )
     merged = pd.concat([existing, fetched], ignore_index=True)
     merged = merged.drop_duplicates(subset=["timestamp", "ticker"], keep="last")
@@ -330,6 +332,7 @@ def ensure_tickers(
     market_data_type: str = "REALTIME",
     request_timeout: int = 30,
     primary_exchange: str = "",
+    include_extended_hours: bool = False,
 ) -> list[str]:
     """Fetch missing tickers using the frequency already present in `csv_path`.
 
@@ -343,20 +346,36 @@ def ensure_tickers(
             csv_path, tickers, years, host, port, client_id, resolved_exchange,
             price_type, bar_hours, market_data_type, request_timeout,
             asset_class=asset_class, primary_exchange=primary_exchange,
+            include_extended_hours=include_extended_hours,
         )
     )
 
 
 def _infer_bar_hours(df: pd.DataFrame) -> int | None:
-    """Infer the CSV's bar width from the median positive timestamp delta."""
+    """Infer a whole-hour within-session width without cross-ticker deltas."""
     if df.empty or "timestamp" not in df.columns:
         return None
-    timestamps = pd.to_datetime(df["timestamp"], format="mixed", utc=True, errors="raise")
-    deltas = timestamps.sort_values().diff().dt.total_seconds().div(3600)
-    deltas = deltas[deltas > 0]
+    parsed = df.copy()
+    parsed["timestamp"] = pd.to_datetime(
+        parsed["timestamp"], format="mixed", utc=True, errors="raise"
+    )
+    groups = parsed.groupby("ticker") if "ticker" in parsed.columns else [(None, parsed)]
+    deltas = []
+    for _, group in groups:
+        values = group["timestamp"].drop_duplicates().sort_values()
+        deltas.extend(values.diff().dt.total_seconds().div(3600).dropna().tolist())
+    deltas = pd.Series([value for value in deltas if value > 0], dtype=float)
     if deltas.empty:
         return None
-    return max(1, int(round(float(deltas.median()))))
+    intraday = deltas[deltas <= 12]
+    hours = float((intraday if not intraday.empty else deltas).median())
+    rounded = round(hours)
+    if abs(hours - rounded) > 1e-6:
+        raise ValueError(
+            f"Existing CSV has {hours:g}-hour bars; missing-ticker fetches support "
+            "whole-hour widths only. Replace the file at 1/2/3/4/8/24 hours first."
+        )
+    return max(1, int(rounded))
 
 
 def replace_bars(
@@ -373,6 +392,7 @@ def replace_bars(
     market_data_type: str = "REALTIME",
     request_timeout: int = 30,
     primary_exchange: str = "",
+    include_extended_hours: bool = False,
 ) -> int:
     """Fetch the requested universe and replace the CSV at one frequency."""
     resolved_exchange = exchange or ("SMART" if asset_class == "equity" else CRYPTO_VENUE)
@@ -381,6 +401,7 @@ def replace_bars(
             tickers, years, host, port, client_id, resolved_exchange, price_type,
             bar_hours, market_data_type, request_timeout,
             asset_class=asset_class, primary_exchange=primary_exchange,
+            include_extended_hours=include_extended_hours,
         )
     )
     Path(csv_path).parent.mkdir(parents=True, exist_ok=True)
@@ -416,6 +437,11 @@ def main() -> None:
         default="",
         help="Optional primaryExchange for equity STK contracts (e.g. ARCA, "
         "NASDAQ) to disambiguate a ticker under SMART routing. Ignored for crypto.",
+    )
+    p.add_argument(
+        "--include-extended-hours",
+        action="store_true",
+        help="For equities, request all available sessions instead of RTH only.",
     )
     p.add_argument(
         "--price-type",
@@ -465,6 +491,7 @@ def main() -> None:
             args.request_timeout,
             asset_class=args.asset_class,
             primary_exchange=args.primary_exchange,
+            include_extended_hours=args.include_extended_hours,
         )
     )
     df.to_csv(args.out, index=False)

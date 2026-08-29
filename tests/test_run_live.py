@@ -6,10 +6,14 @@ import pytest
 
 from quant.api.schemas import LiveJobRequest
 from quant.data.ib_compat import _restore_zerohash_base_quantity
+from quant.run import run_live
+from quant.run.readiness import LiveCapitalDisabledError
 from quant.run.run_live import (
     bar_type_suffix_for_asset,
     instrument_ids_for_asset,
     load_params,
+    load_params_metadata,
+    validate_asset_mode,
     validate_mode_port,
 )
 
@@ -32,6 +36,13 @@ def test_paper_rejects_known_live_ports(port):
 )
 def test_mode_accepts_matching_known_port(is_live, port):
     validate_mode_port(is_live, port)
+
+
+def test_crypto_paper_mode_is_rejected_but_crypto_live_is_allowed():
+    with pytest.raises(ValueError, match="do not support spot-crypto"):
+        validate_asset_mode(False, "crypto")
+    validate_asset_mode(True, "crypto")
+    validate_asset_mode(False, "equity")
 
 
 def test_load_params_requires_json_object(tmp_path):
@@ -84,6 +95,25 @@ def test_load_params_reads_ibkr_bar_hours(tmp_path):
     assert bar_hours == 8
 
 
+def test_load_params_metadata_preserves_profile_and_session_contract(tmp_path):
+    path = tmp_path / "best_params.json"
+    path.write_text(
+        json.dumps(
+            {
+                "params": {"entry_threshold": 0.01},
+                "asset_class": "equity",
+                "objective_metric": "sharpe",
+                "include_extended_hours": True,
+            }
+        )
+    )
+    assert load_params_metadata(str(path)) == {
+        "asset_class": "equity",
+        "objective_metric": "sharpe",
+        "include_extended_hours": True,
+    }
+
+
 def test_load_params_reads_dashboard_run_artifact(tmp_path):
     path = tmp_path / "optimize_run.json"
     path.write_text(
@@ -116,10 +146,38 @@ def test_load_params_ignores_metadata_and_runtime_owned_fields(tmp_path):
                 "run_id": "not-a-strategy-field",
                 "instrument_ids": ["BAD.VALUE"],
                 "account_id": "BAD-VALUE",
+                "execution_mode": "backtest",
+                "entry_time_in_force": "GTC",
+                "enable_broker_protection": False,
+                "risk_check_interval_secs": 0,
+                "require_session_schedule": False,
+                "session_policy": "CUSTOM",
             }
         )
     )
     assert load_params(str(path)) == ({"entry_threshold": 0.01}, None)
+
+
+def test_build_node_rejects_live_before_adapter_registration(monkeypatch):
+    adapter_registration_called = False
+
+    def fail_if_called():
+        nonlocal adapter_registration_called
+        adapter_registration_called = True
+
+    monkeypatch.setattr(run_live, "register_ibkr_execution_fixes", fail_if_called)
+    with pytest.raises(LiveCapitalDisabledError, match="Live capital is disabled"):
+        run_live.build_node(
+            tickers=["SPY"],
+            host="127.0.0.1",
+            port=7496,
+            client_id=1,
+            is_live=True,
+            params={},
+            account_id="U123",
+            asset_class="equity",
+        )
+    assert adapter_registration_called is False
 
 
 def test_crypto_live_instrument_ids_and_bar_type():

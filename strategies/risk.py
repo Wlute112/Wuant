@@ -48,6 +48,12 @@ class RiskConfig:
     # cap. It is deliberately a FIXED risk rail, NOT an Optuna knob: the
     # optimizer tunes the fractional-Kelly multiplier, never the safety ceiling.
     kelly_max_fraction: float = 0.5     # <= 50% of equity notional per trade
+    max_order_notional_pct: float = 0.10
+    max_symbol_exposure_pct: float = 0.25
+    max_sector_exposure_pct: float = 0.30
+    max_gross_exposure_pct: float = 1.0
+    max_concentration_pct: float = 1.0
+    price_collar_pct: float = 0.05
 
 
 class RiskManager:
@@ -56,6 +62,7 @@ class RiskManager:
         self.state = TradingState.ACTIVE
         self.peak_equity = float(starting_equity)
         self._day: datetime.date | None = None
+        self._session_key: str | None = None
         self._day_start_equity = float(starting_equity)
         self._halt_until: datetime | None = None
         self._warned_drawdown = False
@@ -68,6 +75,30 @@ class RiskManager:
             self._day = d
             self._day_start_equity = float(equity)
         # Auto-release a temporary daily halt once the window has passed.
+        if (
+            self.state == TradingState.HALTED_DAILY
+            and self._halt_until is not None
+            and now >= self._halt_until
+        ):
+            self.state = TradingState.ACTIVE
+            self._halt_until = None
+
+    def on_new_session(self, session_key: str, now: datetime, equity: float) -> None:
+        """Reset daily risk at the broker exchange-session boundary.
+
+        ``session_key`` is supplied by the exchange calendar (for example
+        ``2026-11-02`` for the US equity session) and therefore remains stable
+        across UTC midnight, extended hours, DST transitions, and overnight
+        segments. The PnL baseline resets with the exchange session, while a
+        temporary halt remains in force for its full configured duration; the
+        permanent drawdown kill-switch never releases.
+        """
+        key = str(session_key).strip()
+        if not key:
+            raise ValueError("session_key must not be empty")
+        if self._session_key != key:
+            self._session_key = key
+            self._day_start_equity = float(equity)
         if (
             self.state == TradingState.HALTED_DAILY
             and self._halt_until is not None
@@ -106,6 +137,35 @@ class RiskManager:
                 self._halt_until = now + timedelta(hours=self.cfg.halt_hours)
         return self.state
 
+    def telemetry(self, equity: float) -> dict:
+        """Current risk readings for the read-only dashboard feed."""
+        equity = float(equity)
+        drawdown = (
+            (self.peak_equity - equity) / self.peak_equity
+            if self.peak_equity > 0
+            else 0.0
+        )
+        daily_pnl = (
+            (equity - self._day_start_equity) / self._day_start_equity
+            if self._day_start_equity > 0
+            else 0.0
+        )
+        return {
+            "equity": equity,
+            "peak_equity": self.peak_equity,
+            "day_start_equity": self._day_start_equity,
+            "daily_pnl_pct": daily_pnl * 100.0,
+            "drawdown_pct": drawdown * 100.0,
+            "state": self.state.value,
+            "session_key": self._session_key,
+            "kill_switch_engaged": self.state == TradingState.DISABLED_KILL,
+            "halt_until": (
+                self._halt_until.astimezone(timezone.utc).isoformat()
+                if self._halt_until is not None
+                else None
+            ),
+        }
+
     @property
     def can_open(self) -> bool:
         return self.state == TradingState.ACTIVE
@@ -125,6 +185,7 @@ class RiskManager:
             "state": self.state.value,
             "peak_equity": self.peak_equity,
             "day": self._day.isoformat() if self._day is not None else None,
+            "session_key": self._session_key,
             "day_start_equity": self._day_start_equity,
             "halt_until": (
                 self._halt_until.astimezone(timezone.utc).isoformat()
@@ -140,12 +201,55 @@ class RiskManager:
         self.peak_equity = float(state["peak_equity"])
         raw_day = state.get("day")
         self._day = date.fromisoformat(raw_day) if raw_day else None
+        self._session_key = state.get("session_key")
         self._day_start_equity = float(state["day_start_equity"])
         raw_halt = state.get("halt_until")
         self._halt_until = datetime.fromisoformat(raw_halt) if raw_halt else None
         if self._halt_until is not None and self._halt_until.tzinfo is None:
             self._halt_until = self._halt_until.replace(tzinfo=timezone.utc)
         self._warned_drawdown = bool(state.get("warned_drawdown", False))
+
+    # ---- pre-trade risk validation ------------------------------------
+    def pretrade_violations(
+        self,
+        *,
+        equity: float,
+        order_notional: float,
+        symbol_exposure_after: float,
+        gross_exposure_after: float,
+        sector_exposure_after: float | None = None,
+        order_price: float | None = None,
+        reference_price: float | None = None,
+    ) -> list[str]:
+        """Return every hard-limit violation for a proposed broker order."""
+        equity = float(equity)
+        if equity <= 0:
+            return ["ACCOUNT_EQUITY_UNAVAILABLE"]
+        violations: list[str] = []
+        order_notional = abs(float(order_notional))
+        symbol_exposure_after = abs(float(symbol_exposure_after))
+        gross_exposure_after = abs(float(gross_exposure_after))
+        if order_notional > self.cfg.max_order_notional_pct * equity:
+            violations.append("MAX_ORDER_NOTIONAL")
+        if symbol_exposure_after > self.cfg.max_symbol_exposure_pct * equity:
+            violations.append("MAX_SYMBOL_EXPOSURE")
+        if gross_exposure_after > self.cfg.max_gross_exposure_pct * equity:
+            violations.append("MAX_GROSS_EXPOSURE")
+        if gross_exposure_after > 0:
+            concentration = symbol_exposure_after / gross_exposure_after
+            if concentration > self.cfg.max_concentration_pct:
+                violations.append("MAX_CONCENTRATION")
+        if sector_exposure_after is not None:
+            if abs(float(sector_exposure_after)) > self.cfg.max_sector_exposure_pct * equity:
+                violations.append("MAX_SECTOR_EXPOSURE")
+        if order_price is not None and reference_price is not None:
+            order_price = float(order_price)
+            reference_price = float(reference_price)
+            if reference_price <= 0 or order_price <= 0:
+                violations.append("INVALID_PRICE")
+            elif abs(order_price / reference_price - 1.0) > self.cfg.price_collar_pct:
+                violations.append("PRICE_COLLAR")
+        return violations
 
     # ---- position sizing -----------------------------------------------
     def size_for_trade(

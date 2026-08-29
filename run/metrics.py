@@ -20,6 +20,9 @@ from dataclasses import dataclass, asdict
 import numpy as np
 import pandas as pd
 
+from quant.run.asset_profiles import get_asset_profile
+from quant.run.scoring import annualization_factor, sharpe_from_curve, sortino_from_curve
+
 # Nautilus reports denominate equity columns differently across builds; we probe
 # a small set of likely column names rather than hard-coding one.
 _EQUITY_COLS = ("total", "balance_total", "free", "equity")
@@ -61,6 +64,12 @@ class StrategyMetrics:
     profit_factor: float | str = 0.0
     turnover_rate: float = 0.0
     capacity_score: float = 0.0
+    scoring_metric: str = "sortino"
+    primary_score: float = 0.0
+    objective_score: float = 0.0
+    trade_penalty: float = 0.0
+    activity_penalty: float = 0.0
+    periods_per_year: float = 0.0
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -69,19 +78,29 @@ class StrategyMetrics:
 # --------------------------------------------------------------------------- #
 # extraction helpers
 # --------------------------------------------------------------------------- #
-def _equity_curve(engine, venue) -> np.ndarray:
+def _equity_series(engine, venue) -> tuple[np.ndarray, np.ndarray]:
     try:
         report = engine.trader.generate_account_report(venue)
     except Exception:  # noqa: BLE001
-        return np.array([])
+        return np.array([]), np.array([])
     if report is None or len(report) == 0:
-        return np.array([])
+        return np.array([]), np.array([])
     col = _first_col(report, _EQUITY_COLS)
     if col is None:
-        return np.array([])
+        return np.array([]), np.array([])
     vals = _to_float_series(report[col])
-    vals = vals[~np.isnan(vals)]
-    return vals
+    if "ts_event" in report.columns:
+        timestamps = pd.to_numeric(report["ts_event"], errors="coerce").to_numpy() / 1e9
+    elif isinstance(report.index, pd.DatetimeIndex):
+        timestamps = report.index.view("int64").astype(float) / 1e9
+    else:
+        timestamps = np.full(len(vals), np.nan)
+    mask = ~np.isnan(vals)
+    return vals[mask], np.asarray(timestamps, dtype=float)[mask]
+
+
+def _equity_curve(engine, venue) -> np.ndarray:
+    return _equity_series(engine, venue)[0]
 
 
 def _positions_report(engine) -> pd.DataFrame | None:
@@ -104,36 +123,6 @@ def _fills_report(engine) -> pd.DataFrame | None:
     return rep
 
 
-def _sharpe(curve: np.ndarray, periods_per_year: int = 252) -> float:
-    if len(curve) < 3:
-        return 0.0
-    rets = np.diff(curve) / curve[:-1]
-    if rets.std() == 0:
-        return 0.0
-    return float((rets.mean() / rets.std()) * np.sqrt(periods_per_year))
-
-
-def _sortino(curve: np.ndarray, periods_per_year: int = 252) -> float | str:
-    """Sharpe's downside-only counterpart: charges volatility from LOSING
-    steps only (MAR = 0), so upside dispersion never penalizes the score.
-    Mirrors optimize.py's own Sortino-based objective (_sortino_from_curve),
-    but without its turnover penalty -- this is the raw ratio for reporting,
-    not a search objective. Returns the string "inf" (JSON-safe, matching
-    profit_factor's own convention below) for a no-losing-step curve, rather
-    than a literal float("inf").
-    """
-    if len(curve) < 3:
-        return 0.0
-    rets = np.diff(curve) / curve[:-1]
-    downside = rets[rets < 0]
-    if downside.size == 0:
-        return 0.0 if rets.mean() <= 0 else "inf"
-    sigma_down = float(np.sqrt(np.mean(np.square(downside))))
-    if sigma_down == 0:
-        return 0.0
-    return float((rets.mean() / sigma_down) * np.sqrt(periods_per_year))
-
-
 def _max_drawdown_pct(curve: np.ndarray) -> float:
     if len(curve) < 2:
         return 0.0
@@ -142,18 +131,31 @@ def _max_drawdown_pct(curve: np.ndarray) -> float:
     return float(-dd.min() * 100.0)
 
 
-def compute_metrics(engine, venue, starting_cash: float) -> StrategyMetrics:
+def compute_metrics(
+    engine,
+    venue,
+    starting_cash: float,
+    asset_class: str = "crypto",
+) -> StrategyMetrics:
     """Reconstruct the rich strategy-metrics panel from engine reports."""
-    m = StrategyMetrics()
+    profile = get_asset_profile(asset_class)
+    scoring_metric = profile["scoring"]["metric"]
+    trade_penalty = float(profile["scoring"]["trade_penalty"])
+    m = StrategyMetrics(scoring_metric=scoring_metric, trade_penalty=trade_penalty)
 
     # ---- equity-curve derived: net profit, Sharpe, drawdown ----
-    curve = _equity_curve(engine, venue)
+    curve, ts = _equity_series(engine, venue)
+    raw_primary_score = 0.0
     if len(curve):
         ending = float(curve[-1])
         m.net_profit_usd = round(ending - starting_cash, 2)
-        m.sharpe_ratio = round(_sharpe(curve), 2)
-        sortino = _sortino(curve)
-        m.sortino_ratio = sortino if isinstance(sortino, str) else round(sortino, 2)
+        sharpe = sharpe_from_curve(curve, ts, asset_class)
+        sortino = sortino_from_curve(curve, ts, asset_class)
+        m.sharpe_ratio = round(sharpe, 2)
+        m.sortino_ratio = round(sortino, 2)
+        raw_primary_score = sharpe if scoring_metric == "sharpe" else sortino
+        m.primary_score = round(raw_primary_score, 4)
+        m.periods_per_year = round(annualization_factor(ts, asset_class), 2)
         m.max_drawdown_pct = round(_max_drawdown_pct(curve), 2)
         avg_capital = (starting_cash + ending) / 2.0
     else:
@@ -176,6 +178,14 @@ def compute_metrics(engine, venue, starting_cash: float) -> StrategyMetrics:
                 q = np.abs(_to_float_series(fills[qcol]))
                 p = np.abs(_to_float_series(fills[pcol]))
                 gross_traded_notional = float(np.nansum(q * p))
+
+    m.activity_penalty = round(trade_penalty * m.total_trades, 6)
+    if len(curve) < 3 and m.total_trades == 0:
+        m.objective_score = -1_000_000.0
+    elif len(curve) < 3:
+        m.objective_score = 0.0
+    else:
+        m.objective_score = round(raw_primary_score - m.activity_penalty, 6)
 
     if avg_capital:
         m.turnover_rate = round(gross_traded_notional / avg_capital, 2)
@@ -222,6 +232,8 @@ def render_panel(m: StrategyMetrics) -> str:
     lines = [
         "",
         "📈 ─── STRATEGY METRICS ────────────────────────────────",
+        f"   Objective Score   : {m.objective_score} "
+        f"({m.scoring_metric.upper()} {m.primary_score} - activity {m.activity_penalty})",
         f"   Net Profit       : ${m.net_profit_usd:,.2f}",
         f"   Sharpe Ratio     : {m.sharpe_ratio}",
         f"   Sortino Ratio    : {m.sortino_ratio}",
@@ -236,8 +248,13 @@ def render_panel(m: StrategyMetrics) -> str:
     return "\n".join(lines)
 
 
-def print_metrics(engine, venue, starting_cash: float) -> StrategyMetrics:
+def print_metrics(
+    engine,
+    venue,
+    starting_cash: float,
+    asset_class: str = "crypto",
+) -> StrategyMetrics:
     """Compute + print the panel; return the metrics object for further use."""
-    m = compute_metrics(engine, venue, starting_cash)
+    m = compute_metrics(engine, venue, starting_cash, asset_class)
     print(render_panel(m))
     return m
