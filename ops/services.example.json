@@ -1,0 +1,19 @@
+{
+  "name": "dashboard",
+  "command": [
+    "/absolute/path/to/quant/quant",
+    "--no-browser",
+    "--no-redis"
+  ],
+  "cwd": "/absolute/path/to/quant",
+  "log_path": "/absolute/path/to/quant/jobs/dashboard-watchdog.log",
+  "health_type": "http",
+  "health_target": "http://127.0.0.1:8000/api/health",
+  "check_interval_seconds": 5,
+  "startup_grace_seconds": 20,
+  "max_restarts": 5,
+  "restart_window_seconds": 600,
+  "base_backoff_seconds": 1,
+  "max_log_bytes": 10000000,
+  "log_backups": 5
+}

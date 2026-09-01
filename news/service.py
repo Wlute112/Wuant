@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import logging
-import queue
 import threading
 import time
 
@@ -12,6 +11,7 @@ from quant.news.catalog import load_rss_catalog
 from quant.news.core import NewsAnalyzer, NewsArticle, NewsStore
 from quant.news.ibkr import IbkrNewsClient
 from quant.news.rss import RssPoller
+from quant.ops.state import OperationsStore
 
 
 LOG = logging.getLogger(__name__)
@@ -35,6 +35,9 @@ class NewsServiceConfig:
     ollama_url: str = "http://127.0.0.1:11434/api/generate"
     ollama_model: str = "lfm2:24b"
     ollama_timeout_seconds: float = 20.0
+    operations_db_path: str = ""
+    operations_component_id: str = ""
+    heartbeat_seconds: float = 5.0
 
 
 class NewsProcessor:
@@ -43,7 +46,6 @@ class NewsProcessor:
     def __init__(self, store: NewsStore, analyzer: NewsAnalyzer) -> None:
         self.store = store
         self.analyzer = analyzer
-        self._queue: queue.Queue[NewsArticle] = queue.Queue(maxsize=4000)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._failures = 0
@@ -56,6 +58,14 @@ class NewsProcessor:
             return
         if self._thread and self._thread.is_alive():
             return
+        recovery = self.store.recover_enrichment_queue()
+        if recovery["released_claims"] or recovery["restored_articles"]:
+            LOG.info(
+                "Recovered news enrichment queue: released=%d restored=%d",
+                recovery["released_claims"],
+                recovery["restored_articles"],
+            )
+        self._stop.clear()
         self._thread = threading.Thread(target=self._run, name="news-analyzer", daemon=True)
         self._thread.start()
 
@@ -75,47 +85,58 @@ class NewsProcessor:
         with self._lock:
             self._stats["ingested" if inserted else "duplicates"] += 1
         if self.analyzer.ollama_model and (inserted or body_grew):
-            try:
-                self._queue.put_nowait(article)
-            except queue.Full:
-                LOG.warning("News analysis queue full; deterministic score retained")
+            self.store.enqueue_enrichment(article)
 
     def status(self) -> dict:
         with self._lock:
-            return {**self._stats, "queued": self._queue.qsize()}
+            return {
+                **self._stats,
+                "queued": self.store.pending_enrichment_count(),
+                "running": bool(self._thread and self._thread.is_alive()),
+                "llm_degraded": self._suspended_until > time.monotonic(),
+            }
 
     def _run(self) -> None:
-        while not self._stop.is_set():
-            try:
-                article = self._queue.get(timeout=1.0)
-            except queue.Empty:
-                continue
-            try:
+        try:
+            while not self._stop.is_set():
                 delay = self._suspended_until - time.monotonic()
                 if delay > 0:
                     # Keep deterministic features current without allowing an
                     # unavailable Ollama daemon to block feed ingestion.
                     self._stop.wait(min(delay, 5.0))
-                    try:
-                        self._queue.put_nowait(article)
-                    except queue.Full:
-                        pass
                     continue
-                analysis = self.analyzer.analyze(article, use_llm=True)
-                self.store.put(article, analysis, replace_analysis=True)
-                self._failures = 0
-                with self._lock:
-                    self._stats["llm_enriched"] += 1
-            except Exception as exc:  # noqa: BLE001 - deterministic result remains usable
-                self._failures += 1
-                with self._lock:
-                    self._stats["llm_errors"] += 1
-                if self._failures >= 3:
-                    self._suspended_until = time.monotonic() + 300.0
+                item = self.store.claim_next_enrichment()
+                if item is None:
+                    self._stop.wait(1.0)
+                    continue
+                article, generation, attempts = item
+                try:
+                    analysis = self.analyzer.analyze(article, use_llm=True)
+                    self.store.put(article, analysis, replace_analysis=True)
+                    self.store.complete_enrichment(article.article_id, generation)
                     self._failures = 0
-                LOG.warning("Local news model failed; deterministic score retained: %s", exc)
-            finally:
-                self._queue.task_done()
+                    with self._lock:
+                        self._stats["llm_enriched"] += 1
+                except Exception as exc:  # noqa: BLE001 - deterministic result remains usable
+                    self._failures += 1
+                    with self._lock:
+                        self._stats["llm_errors"] += 1
+                    retry_delay = min(5.0 * (2 ** min(attempts - 1, 6)), 300.0)
+                    if self._failures >= 3:
+                        self._suspended_until = time.monotonic() + 300.0
+                        retry_delay = max(retry_delay, 300.0)
+                        self._failures = 0
+                    self.store.retry_enrichment(
+                        article.article_id,
+                        generation,
+                        f"{type(exc).__name__}: {exc}",
+                        delay_seconds=retry_delay,
+                    )
+                    LOG.warning("Local news model failed; deterministic score retained: %s", exc)
+        finally:
+            # NewsStore connections are thread-local; close the worker's
+            # connection without touching the service thread's connection.
+            self.store.close()
 
 
 class NewsService:
@@ -159,6 +180,14 @@ class NewsService:
             if config.ibkr_enabled
             else None
         )
+        self._operations = (
+            OperationsStore(config.operations_db_path)
+            if config.operations_db_path and config.operations_component_id
+            else None
+        )
+        self._operations_stop = threading.Event()
+        self._operations_thread: threading.Thread | None = None
+        self._last_operations_status = ""
 
     def start(self) -> None:
         self.processor.start()
@@ -166,6 +195,19 @@ class NewsService:
             self.rss.start()
         if self.ibkr:
             self.ibkr.start()
+        if self._operations is not None:
+            self._operations_stop.clear()
+            self._operations.append_event(
+                self.config.operations_component_id,
+                "NEWS_SERVICE_STARTED",
+                {"database": self.config.db_path},
+            )
+            self._operations_thread = threading.Thread(
+                target=self._heartbeat_loop,
+                name="news-operations-heartbeat",
+                daemon=True,
+            )
+            self._operations_thread.start()
         LOG.info(
             "News service active: db=%s rss=%s ibkr=%s tickers=%s",
             self.config.db_path,
@@ -175,12 +217,80 @@ class NewsService:
         )
 
     def stop(self) -> None:
+        self._operations_stop.set()
+        if self._operations_thread and self._operations_thread.is_alive():
+            self._operations_thread.join(timeout=max(self.config.heartbeat_seconds * 2, 2.0))
         if self.ibkr:
             self.ibkr.stop()
         if self.rss:
             self.rss.stop()
         self.processor.stop()
+        final_status = self.status()
         self.store.close()
+        if self._operations is not None:
+            self._operations.heartbeat(
+                self.config.operations_component_id,
+                self.config.operations_component_id,
+                status="STOPPED",
+                details=final_status,
+            )
+            self._operations.append_event(
+                self.config.operations_component_id,
+                "NEWS_SERVICE_STOPPED",
+                {},
+            )
+            self._operations.close()
+
+    def _heartbeat_loop(self) -> None:
+        while not self._operations_stop.is_set():
+            status = self.status()
+            source_states = []
+            if self.rss is not None:
+                feed_count = int(status["rss"].get("feed_count", 0))
+                failed_feeds = len(status["rss"].get("errors") or {})
+                source_states.append(
+                    bool(status["rss"].get("running"))
+                    and feed_count > 0
+                    and failed_feeds < feed_count
+                )
+            if self.ibkr is not None:
+                source_states.append(
+                    bool(status["ibkr"].get("connected"))
+                    and bool(
+                        status["ibkr"].get("providers")
+                        or status["ibkr"].get("subscriptions")
+                    )
+                )
+            processor_healthy = (
+                not self.analyzer.ollama_model
+                or bool(status["processor"].get("running"))
+            )
+            queued = int(status["processor"].get("queued", 0))
+            enrichment_degraded = bool(status["processor"].get("llm_degraded"))
+            all_sources = all(source_states) if source_states else False
+            any_source = any(source_states)
+            operational_status = (
+                "HEALTHY"
+                if all_sources and processor_healthy and queued < 1000 and not enrichment_degraded
+                else "DEGRADED"
+                if any_source and processor_healthy and queued < 1000
+                else "FAILED"
+            )
+            if operational_status != self._last_operations_status:
+                self._operations.append_event(
+                    self.config.operations_component_id,
+                    "NEWS_SERVICE_HEALTH_CHANGED",
+                    {"previous": self._last_operations_status, "current": operational_status},
+                    severity=("INFO" if operational_status == "HEALTHY" else "WARNING" if operational_status == "DEGRADED" else "CRITICAL"),
+                )
+                self._last_operations_status = operational_status
+            self._operations.heartbeat(
+                self.config.operations_component_id,
+                self.config.operations_component_id,
+                status=operational_status,
+                details=status,
+            )
+            self._operations_stop.wait(max(self.config.heartbeat_seconds, 1.0))
 
     def status(self) -> dict:
         return {

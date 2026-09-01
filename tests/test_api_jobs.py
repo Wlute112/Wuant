@@ -17,19 +17,29 @@ from quant.api.schemas import (
 class StubJobManager:
     def __init__(self):
         self.submitted = None
+        self.submissions = []
+        self.links = []
 
     def new_job_id(self, kind):
         return f"{kind}_test"
 
-    def submit(self, kind, module, args, config=None, job_id=None):
-        self.submitted = {
+    def submit(self, kind, module, args, config=None, job_id=None, parent_job_id=None):
+        submission = {
             "kind": kind,
             "module": module,
             "args": args,
             "config": config,
             "job_id": job_id,
+            "parent_job_id": parent_job_id,
         }
+        self.submissions.append(submission)
+        if kind != "risk_supervisor":
+            self.submitted = submission
         return {"id": job_id, "kind": kind, "status": "running"}
+
+    def link_companion(self, parent_job_id, companion_job_id):
+        self.links.append((parent_job_id, companion_job_id))
+        return {"id": parent_job_id, "companion_job_ids": [companion_job_id]}
 
 
 def test_optimize_route_forwards_nested_walk_forward_controls(monkeypatch, tmp_path):
@@ -106,6 +116,12 @@ def test_equity_paper_route_forwards_session_and_telemetry_options(monkeypatch, 
     assert args[args.index("--bar-hours") + 1] == "1"
     assert "--include-extended-hours" in args
     assert args[args.index("--telemetry-path") + 1] == str(tmp_path / "paper_test_telemetry.json")
+    assert "--require-external-supervisor" in args
+    assert args[args.index("--operations-db") + 1] == str(tmp_path / "operations.sqlite3")
+    supervisor = manager.submissions[1]
+    assert supervisor["module"] == "quant.ops.supervisor"
+    assert supervisor["parent_job_id"] == "paper_test"
+    assert manager.links == [("paper_test", "risk_supervisor_test")]
 
 
 @pytest.mark.parametrize("port", [7496, 4001])

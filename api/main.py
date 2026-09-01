@@ -4,13 +4,13 @@ Run from the SAME working directory every other command in this project uses
 (the directory ABOVE the quant/ package, e.g. .../Workspace):
 
     cd .../Workspace
-    quant/.quant312/bin/python -m uvicorn quant.api.main:app --reload --port 8000
+    quant/.quant312/bin/python -m uvicorn quant.api.main:app --port 8000
 """
 from __future__ import annotations
 
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from quant.api import broker_routes, jobs_routes, live_mock, news_routes, profiles, runs
@@ -45,6 +45,9 @@ app.include_router(profiles.router)
 
 @app.on_event("startup")
 def start_broker_monitor():
+    # Job state must never silently fall back to process memory. Refuse API
+    # startup if the durable registry is unavailable.
+    jobs_routes.manager.store.ping()
     broker_routes.monitor.start()
 
 
@@ -55,7 +58,11 @@ def stop_broker_monitor():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    try:
+        jobs_routes.manager.store.ping()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"status": "ok", "job_registry": "redis"}
 
 
 @app.get("/api/readiness/live")

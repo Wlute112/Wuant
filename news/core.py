@@ -457,6 +457,19 @@ class NewsStore:
                 source TEXT NOT NULL,
                 updated_at REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS news_enrichment_queue (
+                article_id TEXT PRIMARY KEY,
+                article_json TEXT NOT NULL,
+                generation INTEGER NOT NULL DEFAULT 1,
+                enqueued_at REAL NOT NULL,
+                available_at REAL NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                claimed_at REAL,
+                last_error TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY (article_id) REFERENCES news_articles(article_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_news_enrichment_available
+                ON news_enrichment_queue(available_at, claimed_at, enqueued_at);
             INSERT OR IGNORE INTO news_analysis_versions
                 (article_id, analyzed_at, analysis_json, analysis_mode)
                 SELECT article_id, updated_at, analysis_json, analysis_mode
@@ -532,6 +545,207 @@ class NewsStore:
             (article_id,),
         ).fetchone()
         return dict(row) if row is not None else None
+
+    @staticmethod
+    def _article_json(article: NewsArticle) -> str:
+        return json.dumps(
+            {
+                "source_kind": article.source_kind,
+                "source_name": article.source_name,
+                "title": article.title,
+                "published_at": _epoch(article.published_at),
+                "received_at": _epoch(article.received_at),
+                "provider": article.provider,
+                "external_id": article.external_id,
+                "summary": article.summary,
+                "body": article.body,
+                "url": article.url,
+                "symbols": list(article.symbols),
+                "industries": list(article.industries),
+                "commodities": list(article.commodities),
+                "metadata": article.metadata,
+            },
+            separators=(",", ":"),
+            default=str,
+        )
+
+    def enqueue_enrichment(self, article: NewsArticle) -> None:
+        """Durably enqueue the latest article body for asynchronous analysis.
+
+        ``generation`` prevents an older in-flight enrichment from deleting a
+        newer body update that arrived while the model was running.
+        """
+        now = time.time()
+        with self._connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO news_enrichment_queue
+                    (article_id, article_json, generation, enqueued_at,
+                     available_at, attempts, claimed_at, last_error)
+                VALUES (?, ?, 1, ?, ?, 0, NULL, '')
+                ON CONFLICT(article_id) DO UPDATE SET
+                    article_json = excluded.article_json,
+                    generation = news_enrichment_queue.generation + 1,
+                    enqueued_at = excluded.enqueued_at,
+                    available_at = excluded.available_at,
+                    attempts = 0,
+                    claimed_at = NULL,
+                    last_error = ''
+                """,
+                (article.article_id, self._article_json(article), now, now),
+            )
+
+    def recover_enrichment_queue(self) -> dict[str, int]:
+        """Recover crash-interrupted claims and missing deterministic work.
+
+        Any article whose latest durable analysis is not from Ollama is added
+        if it was absent from the queue. Existing claims are made immediately
+        available, so a process crash cannot strand work in a claimed state.
+        """
+        now = time.time()
+        connection = self._connection()
+        with connection:
+            released = connection.execute(
+                """
+                UPDATE news_enrichment_queue
+                SET claimed_at = NULL, available_at = min(available_at, ?)
+                WHERE claimed_at IS NOT NULL
+                """,
+                (now,),
+            ).rowcount
+            restored = connection.execute(
+                """
+                INSERT OR IGNORE INTO news_enrichment_queue
+                    (article_id, article_json, generation, enqueued_at,
+                     available_at, attempts, claimed_at, last_error)
+                SELECT article_id, '{}', 1, updated_at, ?, 0, NULL, ''
+                FROM news_articles
+                WHERE analysis_mode NOT LIKE 'ollama:%'
+                """,
+                (now,),
+            ).rowcount
+        return {"released_claims": max(released, 0), "restored_articles": max(restored, 0)}
+
+    def _queued_article(self, article_id: str, payload: str) -> NewsArticle | None:
+        row = self._connection().execute(
+            "SELECT * FROM news_articles WHERE article_id = ?", (article_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            values = json.loads(payload) if payload and payload != "{}" else {}
+        except json.JSONDecodeError:
+            values = {}
+        try:
+            stored_analysis = json.loads(row["analysis_json"])
+        except (TypeError, json.JSONDecodeError):
+            stored_analysis = {}
+        return NewsArticle(
+            source_kind=str(values.get("source_kind", row["source_kind"])),
+            source_name=str(values.get("source_name", row["source_name"])),
+            title=str(values.get("title", row["title"])),
+            published_at=_utc(values.get("published_at", row["published_at"])),
+            received_at=_utc(values.get("received_at", row["received_at"])),
+            provider=str(values.get("provider", row["provider"])),
+            external_id=str(values.get("external_id", row["external_id"])),
+            summary=str(values.get("summary", row["summary"])),
+            body=str(values.get("body", row["body"])),
+            url=str(values.get("url", row["url"])),
+            symbols=tuple(values.get("symbols") or stored_analysis.get("symbol_scores", {}).keys()),
+            industries=tuple(
+                values.get("industries") or stored_analysis.get("industry_scores", {}).keys()
+            ),
+            commodities=tuple(
+                values.get("commodities") or stored_analysis.get("commodity_scores", {}).keys()
+            ),
+            metadata=values.get("metadata") or json.loads(row["metadata_json"] or "{}"),
+        )
+
+    def claim_next_enrichment(
+        self,
+        *,
+        lease_seconds: float = 600.0,
+    ) -> tuple[NewsArticle, int, int] | None:
+        """Atomically lease one due queue item.
+
+        Returns ``(article, generation, attempts)``. Expired claims are
+        eligible again, allowing recovery even without a clean restart.
+        """
+        now = time.time()
+        connection = self._connection()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT article_id, article_json, generation, attempts
+                FROM news_enrichment_queue
+                WHERE available_at <= ?
+                  AND (claimed_at IS NULL OR claimed_at <= ?)
+                ORDER BY available_at, enqueued_at
+                LIMIT 1
+                """,
+                (now, now - max(float(lease_seconds), 1.0)),
+            ).fetchone()
+            if row is None:
+                connection.commit()
+                return None
+            attempts = int(row["attempts"]) + 1
+            connection.execute(
+                """
+                UPDATE news_enrichment_queue
+                SET claimed_at = ?, attempts = ?
+                WHERE article_id = ? AND generation = ?
+                """,
+                (now, attempts, row["article_id"], row["generation"]),
+            )
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+        article = self._queued_article(str(row["article_id"]), str(row["article_json"]))
+        if article is None:
+            self.complete_enrichment(str(row["article_id"]), int(row["generation"]))
+            return None
+        return article, int(row["generation"]), attempts
+
+    def complete_enrichment(self, article_id: str, generation: int) -> bool:
+        with self._connection() as connection:
+            deleted = connection.execute(
+                "DELETE FROM news_enrichment_queue WHERE article_id = ? AND generation = ?",
+                (article_id, int(generation)),
+            ).rowcount
+        return bool(deleted)
+
+    def retry_enrichment(
+        self,
+        article_id: str,
+        generation: int,
+        error: str,
+        *,
+        delay_seconds: float,
+    ) -> bool:
+        with self._connection() as connection:
+            updated = connection.execute(
+                """
+                UPDATE news_enrichment_queue
+                SET claimed_at = NULL, available_at = ?, last_error = ?
+                WHERE article_id = ? AND generation = ?
+                """,
+                (
+                    time.time() + max(float(delay_seconds), 0.0),
+                    str(error)[:2000],
+                    article_id,
+                    int(generation),
+                ),
+            ).rowcount
+        return bool(updated)
+
+    def pending_enrichment_count(self) -> int:
+        return int(
+            self._connection()
+            .execute("SELECT count(*) FROM news_enrichment_queue")
+            .fetchone()[0]
+        )
 
     def recent_as_of(self, as_of: datetime | float, max_age_hours: float) -> list[sqlite3.Row]:
         ts = _epoch(as_of)

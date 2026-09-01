@@ -53,8 +53,12 @@ from nautilus_trader.model.identifiers import AccountId, ClientOrderId, Instrume
 from nautilus_trader.model.objects import Quantity
 from nautilus_trader.trading.strategy import Strategy
 
+from quant.data.quality import BarQualityGate
 from quant.models.prediction_engine import PredictionConfig, PredictionEngine
 from quant.news.core import NewsFeatureReader, NewsFeatureSnapshot
+from quant.ops.state import OperationsStore
+from quant.run.nautilus_reconciliation import snapshot_from_nautilus_cache
+from quant.run.reconciliation import ReconciliationConfig, reconcile, recover_ledger
 from quant.run.telemetry import LiveTelemetryRecorder
 from quant.strategies.execution_state import (
     ExecutionLedger,
@@ -260,6 +264,16 @@ class MLStrategyConfig(StrategyConfig, frozen=True):
     telemetry_include_extended_hours: bool = False
     telemetry_max_points: int = 750
     telemetry_target_rr: float = 2.0
+    # Shared SQLite operational control plane. Blank keeps backtests and
+    # explicitly diagnostic broker sessions free of external dependencies.
+    operations_db_path: str = ""
+    operations_component_id: str = ""
+    external_supervisor_component: str = ""
+    require_external_supervisor: bool = False
+    external_supervisor_max_age_secs: int = 15
+    expected_bar_interval_secs: int = 86_400
+    data_gap_max_intervals: float = 3.0
+    data_quality_recovery_bars: int = 3
     # Adapter-specific order metadata is assembled by the runner. The strategy
     # merely forwards opaque tags, preserving its venue-agnostic boundary.
     order_tags: tuple[str, ...] = ()
@@ -324,6 +338,14 @@ class MLStrategy(Strategy):
         self._iid_by_raw: dict[str, InstrumentId] = {}
         self._raw_by_iid: dict[InstrumentId, str] = {}
         self._last_bar_ns: dict[InstrumentId, int] = defaultdict(int)
+        self._data_quality = BarQualityGate(
+            expected_interval_seconds=max(1, config.expected_bar_interval_secs),
+            continuous_market=config.asset_class == "crypto",
+            max_gap_intervals=config.data_gap_max_intervals,
+        )
+        self._data_quality_issues: deque[dict] = deque(maxlen=100)
+        self._data_quality_blocked_instruments: set[str] = set()
+        self._data_quality_good_bars: dict[str, int] = defaultdict(int)
         # Nautilus loads strategy state before on_start constructs the risk
         # manager and instrument maps, so on_load stages the decoded payload.
         self._loaded_state: dict | None = None
@@ -331,6 +353,10 @@ class MLStrategy(Strategy):
         self._telemetry: LiveTelemetryRecorder | None = None
         self._telemetry_failed = False
         self._historical_telemetry_count = 0
+        self._operations: OperationsStore | None = None
+        self._operations_failed = False
+        self._external_supervisor_unhealthy = False
+        self._last_audited_safety_state: tuple[str, str] | None = None
         # Model-derived reference levels for positions/orders. Telemetry marks
         # them broker-guaranteed only after both OCA protection legs are
         # acknowledged for the actual filled position.
@@ -378,6 +404,17 @@ class MLStrategy(Strategy):
             ),
         )
         self._started_at = self.clock.utc_now()
+        if self.config.operations_db_path:
+            try:
+                self._operations = OperationsStore(self.config.operations_db_path)
+            except Exception as exc:  # noqa: BLE001 - broker execution fails closed below
+                self._operations_failed = True
+                if self.config.execution_mode in {"paper", "live"}:
+                    self._execution_safety.mark_uncertain(
+                        f"Operational control database unavailable: {exc}",
+                        ts_ns=self.clock.timestamp_ns(),
+                    )
+                self.log.error(f"Operational control database unavailable: {exc}")
         self._n_instruments = len(self.config.instrument_ids)
         if self.config.use_news_features and self.config.news_data_path:
             try:
@@ -460,11 +497,7 @@ class MLStrategy(Strategy):
                 )
         self._adopt_reconciled_broker_orders()
         if self.config.execution_mode in {"paper", "live"}:
-            self._reconciliation_state = (
-                "UNCERTAIN"
-                if self._execution_safety.state == ExecutionSafetyState.UNCERTAIN
-                else "STRATEGY_CACHE_RECONCILED"
-            )
+            self._reconcile_broker_cache_source_of_truth()
         for iid, bt in self._bar_types.items():
             if (
                 self.config.request_historical_bars
@@ -477,6 +510,18 @@ class MLStrategy(Strategy):
                 )
         self._reconcile_committed_notional()
         self._reconcile_protection_after_restart()
+        self._audit_event(
+            "STRATEGY_STARTED",
+            {
+                "execution_mode": self.config.execution_mode,
+                "instrument_ids": sorted(self.config.instrument_ids),
+                "account_id": self.config.account_id,
+                "reconciliation_state": self._reconciliation_state,
+            },
+            severity="INFO",
+            event_id=f"strategy-started:{self._operations_target()}:{self.clock.timestamp_ns()}",
+        )
+        self._operations_heartbeat()
         if self.config.risk_check_interval_secs > 0:
             self.clock.set_timer(
                 name=self._risk_timer_name,
@@ -485,6 +530,221 @@ class MLStrategy(Strategy):
             )
 
     # ---- helpers --------------------------------------------------------
+    def _operations_target(self) -> str:
+        return self.config.operations_component_id or f"strategy:{self.id}"
+
+    def _audit_event(
+        self,
+        event_type: str,
+        payload: dict,
+        *,
+        severity: str = "INFO",
+        correlation_id: str = "",
+        event_id: str | None = None,
+    ) -> bool:
+        if self._operations is None or self._operations_failed:
+            return not bool(self.config.operations_db_path)
+        try:
+            self._operations.append_event(
+                self._operations_target(),
+                event_type,
+                payload,
+                severity=severity,
+                correlation_id=correlation_id,
+                event_id=event_id,
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001 - an unavailable audit trail is unsafe
+            self._operations_failed = True
+            self.log.error(f"Operational audit failed; execution frozen: {exc}")
+            if self.config.execution_mode in {"paper", "live"}:
+                self._execution_safety.mark_uncertain(
+                    f"Required operational audit failed: {exc}",
+                    ts_ns=self.clock.timestamp_ns(),
+                )
+            return False
+
+    def _operations_heartbeat(self) -> None:
+        if self._operations is None or self._operations_failed or self._risk is None:
+            return
+        try:
+            self._operations.heartbeat(
+                self._operations_target(),
+                str(self.id),
+                status=self._execution_safety.state.value,
+                details={
+                    "execution_mode": self.config.execution_mode,
+                    "risk_state": self._risk.state.value,
+                    "entries_allowed": (
+                        self._risk.can_open and self._execution_safety.entries_allowed
+                    ),
+                    "open_orders": len(self.cache.orders_open(strategy_id=self.id)),
+                    "inflight_orders": len(self.cache.orders_inflight(strategy_id=self.id)),
+                    "open_positions": len(self.cache.positions_open(strategy_id=self.id)),
+                },
+                observed_at=self.clock.utc_now(),
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._audit_event(
+                "HEARTBEAT_WRITE_FAILED",
+                {"error": f"{type(exc).__name__}: {exc}"},
+                severity="CRITICAL",
+            )
+
+    def _external_supervisor_is_fresh(self) -> bool:
+        if not self.config.require_external_supervisor:
+            return True
+        if self._operations is None or not self.config.external_supervisor_component:
+            return False
+        heartbeat = self._operations.get_heartbeat(
+            self.config.external_supervisor_component
+        )
+        if heartbeat is None or heartbeat.get("status") not in {"RUNNING", "HEALTHY"}:
+            return False
+        try:
+            observed = datetime.fromisoformat(str(heartbeat["observed_at"]))
+            if observed.tzinfo is None:
+                observed = observed.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            return False
+        return self.clock.utc_now() - observed.astimezone(timezone.utc) <= timedelta(
+            seconds=max(1, self.config.external_supervisor_max_age_secs)
+        )
+
+    def _process_operations_control(self) -> None:
+        if self._operations is None or self._operations_failed or self._risk is None:
+            return
+        target = self._operations_target()
+        supervisor_fresh = self._external_supervisor_is_fresh()
+        grace_elapsed = (
+            self._started_at is not None
+            and self.clock.utc_now() - self._started_at
+            >= timedelta(seconds=max(0, self.config.startup_health_grace_secs))
+        )
+        if self.config.require_external_supervisor and grace_elapsed and not supervisor_fresh:
+            if not self._external_supervisor_unhealthy:
+                self._external_supervisor_unhealthy = True
+                self._execution_safety.freeze(
+                    "Required external risk-supervisor heartbeat is stale or missing.",
+                    ts_ns=self.clock.timestamp_ns(),
+                )
+                self._cancel_working_entry_orders(
+                    reason="external risk supervisor unavailable"
+                )
+                self._audit_event(
+                    "EXTERNAL_SUPERVISOR_UNAVAILABLE",
+                    {"component": self.config.external_supervisor_component},
+                    severity="CRITICAL",
+                )
+        elif supervisor_fresh and self._external_supervisor_unhealthy:
+            self._external_supervisor_unhealthy = False
+            self._audit_event(
+                "EXTERNAL_SUPERVISOR_RECOVERED",
+                {"component": self.config.external_supervisor_component},
+                severity="WARNING",
+            )
+
+        try:
+            commands = self._operations.claim_commands(target, target)
+        except Exception as exc:  # noqa: BLE001
+            self._audit_event(
+                "CONTROL_COMMAND_POLL_FAILED",
+                {"error": f"{type(exc).__name__}: {exc}"},
+                severity="CRITICAL",
+            )
+            return
+        for command in commands:
+            try:
+                if command.action == "FREEZE_ENTRIES":
+                    self._execution_safety.freeze(
+                        command.reason,
+                        ts_ns=self.clock.timestamp_ns(),
+                    )
+                    self._cancel_working_entry_orders(reason=command.reason)
+                    self._operations.complete_command(
+                        command.command_id,
+                        target,
+                        success=True,
+                        result={"entries_allowed": False},
+                    )
+                elif command.action == "RESUME_ENTRIES":
+                    allowed = bool(
+                        supervisor_fresh
+                        and self._risk.state == TradingState.ACTIVE
+                        and not self._external_supervisor_unhealthy
+                    )
+                    if allowed:
+                        self._execution_safety.resume(
+                            command.reason,
+                            ts_ns=self.clock.timestamp_ns(),
+                        )
+                    self._operations.complete_command(
+                        command.command_id,
+                        target,
+                        success=allowed,
+                        result={"entries_allowed": self._execution_safety.entries_allowed},
+                    )
+                elif command.action in {"CANCEL_ALL", "FLATTEN", "KILL"}:
+                    permanent = command.action == "KILL"
+                    if permanent:
+                        self._risk.engage_kill_switch()
+                    self._begin_risk_exit(command.reason, permanent=permanent)
+                    self._operations.acknowledge_command(
+                        command.command_id,
+                        target,
+                        result={"broker_confirmation_pending": self._has_broker_exposure()},
+                    )
+                else:
+                    self._operations.complete_command(
+                        command.command_id,
+                        target,
+                        success=False,
+                        result={"error": f"unsupported action {command.action}"},
+                    )
+            except Exception as exc:  # noqa: BLE001
+                self._operations.complete_command(
+                    command.command_id,
+                    target,
+                    success=False,
+                    result={"error": f"{type(exc).__name__}: {exc}"},
+                )
+                self._execution_safety.mark_uncertain(
+                    f"Operational command {command.action} failed: {exc}",
+                    ts_ns=self.clock.timestamp_ns(),
+                )
+
+        for command in self._operations.acknowledged_commands(target, target):
+            if command.action not in {"CANCEL_ALL", "FLATTEN", "KILL"}:
+                continue
+            if not self._has_broker_exposure() and not self.is_exiting():
+                self._operations.complete_command(
+                    command.command_id,
+                    target,
+                    success=True,
+                    result={"broker_flat_confirmed": True},
+                )
+
+    def _audit_safety_state_if_changed(self) -> None:
+        if self._risk is None:
+            return
+        current = (self._risk.state.value, self._execution_safety.state.value)
+        if current == self._last_audited_safety_state:
+            return
+        previous = self._last_audited_safety_state
+        self._last_audited_safety_state = current
+        self._audit_event(
+            "RISK_STATE_CHANGED",
+            {
+                "previous": previous,
+                "risk_state": current[0],
+                "execution_state": current[1],
+                "entries_allowed": (
+                    self._risk.can_open and self._execution_safety.entries_allowed
+                ),
+            },
+            severity=("CRITICAL" if current[0] == TradingState.DISABLED_KILL.value else "WARNING"),
+        )
+
     def _equity(self) -> float:
         try:
             acct = self._account()
@@ -600,19 +860,28 @@ class MLStrategy(Strategy):
         if self.config.execution_mode not in {"paper", "live"}:
             return
         unknown: list[str] = []
-        for order in [
-            *self.cache.orders_open(strategy_id=self.id),
-            *self.cache.orders_inflight(strategy_id=self.id),
-        ]:
+        protection_roles = {
+            values.get("stop"): OrderRole.STOP_LOSS
+            for values in self._protection_ids.values()
+            if values.get("stop")
+        }
+        protection_roles.update(
+            {
+                values.get("target"): OrderRole.TAKE_PROFIT
+                for values in self._protection_ids.values()
+                if values.get("target")
+            }
+        )
+        for order in self.cache.orders(strategy_id=self.id):
             order_id = str(order.client_order_id)
             if order_id in self._execution.orders:
                 continue
             role = (
                 OrderRole.EMERGENCY_EXIT
                 if "MARKET_EXIT" in (order.tags or [])
-                else OrderRole.UNKNOWN
+                else protection_roles.get(order_id, OrderRole.UNKNOWN)
             )
-            record = self._execution.register_order(
+            self._execution.register_order(
                 client_order_id=order_id,
                 instrument_id=str(order.instrument_id),
                 side=order.side.name,
@@ -621,19 +890,67 @@ class MLStrategy(Strategy):
                 signal_version="RECONCILED_EXTERNAL",
                 ts_ns=self.clock.timestamp_ns(),
             )
-            self._execution.apply_order_state(
-                order_id,
-                LifecycleStatus.ACKNOWLEDGED,
-                ts_ns=self.clock.timestamp_ns(),
-                venue_order_id=str(order.venue_order_id or ""),
-            )
-            if record.role == OrderRole.UNKNOWN:
+            if role == OrderRole.UNKNOWN and not order.is_closed:
                 unknown.append(order_id)
         if unknown:
             self._execution_safety.mark_uncertain(
                 f"Reconciliation found {len(unknown)} unclassified broker order(s): "
                 f"{', '.join(unknown)}",
                 ts_ns=self.clock.timestamp_ns(),
+            )
+
+    def _reconcile_broker_cache_source_of_truth(self) -> None:
+        """Recover deterministic broker events and fail on unresolved account state."""
+        try:
+            snapshot = snapshot_from_nautilus_cache(
+                self.cache,
+                self._execution,
+                strategy_id=self.id,
+                expected_account_id=self.config.account_id,
+                captured_at_ns=self.clock.timestamp_ns(),
+            )
+            config = ReconciliationConfig(
+                expected_account_id=self.config.account_id,
+                required_base_currency="USD",
+                allow_unmanaged_positions=False,
+                allow_unmanaged_orders=False,
+            )
+            initial = reconcile(self._execution, snapshot, config)
+            recovered = recover_ledger(self._execution, snapshot, initial)
+            final = reconcile(recovered, snapshot, config)
+            self._execution = recovered
+            self._reconciliation_state = (
+                "BROKER_RECONCILED" if final.passed else "UNCERTAIN"
+            )
+            self._audit_event(
+                "BROKER_RECONCILIATION_COMPLETED",
+                {
+                    "initial": initial.as_dict(),
+                    "final": final.as_dict(),
+                    "deterministic_recoveries": len(initial.actions),
+                },
+                severity="INFO" if final.passed else "CRITICAL",
+            )
+            if not final.passed:
+                reasons = "; ".join(
+                    issue.message
+                    for issue in final.issues
+                    if issue.severity.value == "CRITICAL"
+                ) or "broker reconciliation did not pass"
+                self._execution_safety.mark_uncertain(
+                    reasons,
+                    ts_ns=self.clock.timestamp_ns(),
+                )
+        except Exception as exc:  # noqa: BLE001 - startup reconciliation fails closed
+            self._reconciliation_state = "UNCERTAIN"
+            self._execution_safety.mark_uncertain(
+                f"Broker source-of-truth reconciliation failed: {exc}",
+                ts_ns=self.clock.timestamp_ns(),
+            )
+            self._audit_event(
+                "BROKER_RECONCILIATION_FAILED",
+                {"error": f"{type(exc).__name__}: {exc}"},
+                severity="CRITICAL",
             )
 
     def _session_allows_entry(self, iid: InstrumentId, when: datetime) -> tuple[bool, str]:
@@ -728,6 +1045,7 @@ class MLStrategy(Strategy):
                     self._cancel_working_entry_orders(
                         reason="broker account data unavailable or unsupported"
                     )
+                self._audit_safety_state_if_changed()
                 return
 
         equity = self._equity()
@@ -822,6 +1140,7 @@ class MLStrategy(Strategy):
         gross = sum(self._committed_notional.values())
         if gross > self.config.max_gross_exposure_pct * equity + 1e-9:
             self._begin_risk_exit("gross exposure limit breached", permanent=True)
+        self._audit_safety_state_if_changed()
 
     def _has_broker_exposure(self) -> bool:
         return bool(
@@ -831,9 +1150,11 @@ class MLStrategy(Strategy):
         )
 
     def on_time_event(self, _event) -> None:
+        self._process_operations_control()
         self._supervise_risk(self.clock.utc_now())
         self._activate_startup_protection()
         self._refresh_telemetry_state()
+        self._operations_heartbeat()
 
     def _activate_startup_protection(self) -> None:
         if (
@@ -1197,6 +1518,13 @@ class MLStrategy(Strategy):
                         key=lambda item: item.sequence,
                     )
                 ][-100:],
+                "data_quality": {
+                    "healthy": not self._data_quality_blocked_instruments,
+                    "blocked_instruments": sorted(self._data_quality_blocked_instruments),
+                    "recovery_progress_bars": dict(self._data_quality_good_bars),
+                    "recovery_required_bars": self.config.data_quality_recovery_bars,
+                    "issues": list(self._data_quality_issues),
+                },
             }
         )
         if self._session_calendars:
@@ -1255,7 +1583,7 @@ class MLStrategy(Strategy):
         yhat: float | None,
         atr: float | None,
         flush: bool = True,
-    ) -> None:
+    ) -> bool:
         if self._telemetry is None or self._telemetry_failed:
             return
         iid = bar.bar_type.instrument_id
@@ -1341,8 +1669,67 @@ class MLStrategy(Strategy):
         """Append a bar once, returning False for duplicates/out-of-order data."""
         iid = bar.bar_type.instrument_id
         ts_ns = int(bar.ts_event)
+        quality = self._data_quality.validate(
+            str(iid),
+            timestamp_ns=ts_ns,
+            open_price=float(bar.open),
+            high_price=float(bar.high),
+            low_price=float(bar.low),
+            close_price=float(bar.close),
+            volume=float(bar.volume),
+        )
+        for issue in quality.issues:
+            item = {
+                "ts_ns": ts_ns,
+                "instrument_id": issue.instrument_id,
+                "code": issue.code,
+                "severity": issue.severity,
+                "detail": issue.detail,
+            }
+            self._data_quality_issues.append(item)
+            if issue.severity in {"WARNING", "CRITICAL"}:
+                self._audit_event(
+                    "MARKET_DATA_QUALITY_ISSUE",
+                    item,
+                    severity=issue.severity,
+                    event_id=f"data-quality:{issue.instrument_id}:{ts_ns}:{issue.code}",
+                )
+        if quality.critical:
+            instrument_key = str(iid)
+            self._data_quality_blocked_instruments.add(instrument_key)
+            self._data_quality_good_bars[instrument_key] = 0
+            self._execution_safety.freeze(
+                f"Critical market-data quality failure for {iid}",
+                ts_ns=self.clock.timestamp_ns(),
+            )
+            if self.config.execution_mode in {"paper", "live"}:
+                self._cancel_working_entry_orders(reason="market-data quality failure")
+            return False
+        if not quality.accepted:
+            return False
         if ts_ns <= self._last_bar_ns[iid]:
             return False
+        instrument_key = str(iid)
+        if instrument_key in self._data_quality_blocked_instruments:
+            self._data_quality_good_bars[instrument_key] += 1
+            if self._data_quality_good_bars[instrument_key] >= max(
+                1, self.config.data_quality_recovery_bars
+            ):
+                recovery_bars = self._data_quality_good_bars.pop(instrument_key)
+                self._data_quality_blocked_instruments.discard(instrument_key)
+                self._audit_event(
+                    "MARKET_DATA_QUALITY_RECOVERED",
+                    {"instrument_id": instrument_key, "recovery_bars": recovery_bars},
+                    severity="WARNING",
+                )
+                if (
+                    self.config.execution_mode == "backtest"
+                    and not self._data_quality_blocked_instruments
+                ):
+                    self._execution_safety.resume(
+                        "Historical data-quality recovery window completed.",
+                        ts_ns=self.clock.timestamp_ns(),
+                    )
         self._last_bar_ns[iid] = ts_ns
         self._closes[iid].append(float(bar.close))
         self._bar_times[iid].append(ts_ns)
@@ -1359,6 +1746,53 @@ class MLStrategy(Strategy):
         self._lows[iid].append(float(bar.low))
         self._prev_close[iid] = float(bar.close)
         return True
+
+    def _cross_asset_data_is_fresh(self, iid: InstrumentId, ts_ns: int) -> bool:
+        if (
+            self.config.execution_mode not in {"paper", "live"}
+            or (self.config.cross_asset_lags <= 0 and self.config.spread_lags <= 0)
+        ):
+            return True
+        stale: list[str] = []
+        # Current peer bars need not have arrived: every peer feature is lagged
+        # by at least one bar. The last peer bar must therefore be no older than
+        # this target's immediately preceding bar, independent of overnight,
+        # weekend, holiday, or DST wall-clock gaps.
+        prior_target_ns = (
+            int(self._bar_times[iid][-2])
+            if len(self._bar_times[iid]) >= 2
+            else int(ts_ns)
+        )
+        for raw in self._engines[iid].cfg.peer_symbols:
+            peer = self._iid_by_raw.get(raw)
+            latest = self._last_bar_ns.get(peer, 0) if peer is not None else 0
+            if latest <= 0 or latest < prior_target_ns:
+                stale.append(str(raw))
+        if not stale:
+            return True
+        instrument_key = str(iid)
+        self._data_quality_blocked_instruments.add(instrument_key)
+        self._data_quality_good_bars[instrument_key] = 0
+        item = {
+            "ts_ns": ts_ns,
+            "instrument_id": instrument_key,
+            "code": "CROSS_ASSET_DATA_STALE",
+            "severity": "CRITICAL",
+            "detail": f"required peer bars are stale or missing: {', '.join(stale)}",
+        }
+        self._data_quality_issues.append(item)
+        self._execution_safety.freeze(
+            item["detail"],
+            ts_ns=self.clock.timestamp_ns(),
+        )
+        self._cancel_working_entry_orders(reason="cross-asset market data stale")
+        self._audit_event(
+            "MARKET_DATA_QUALITY_ISSUE",
+            item,
+            severity="CRITICAL",
+            event_id=f"cross-asset-quality:{instrument_key}:{ts_ns}",
+        )
+        return False
 
     def on_historical_data(self, data) -> None:
         """Warm model and chart history without evaluating or trading it."""
@@ -1413,6 +1847,8 @@ class MLStrategy(Strategy):
         closes = self._closes[iid]
         if len(closes) < self.config.warmup_bars:
             return
+        if not self._cross_asset_data_is_fresh(iid, int(bar.ts_event)):
+            return
 
         # --- (re)train prediction engine on history seen so far (past only) ---
         # Refit through PredictionEngine.refit_on_history(), which uses the SAME
@@ -1464,6 +1900,24 @@ class MLStrategy(Strategy):
             return
 
         self._record_telemetry(bar, ts, yhat=float(yhat), atr=atr)
+        audited = self._audit_event(
+            "SIGNAL_EVALUATED",
+            {
+                "instrument_id": str(iid),
+                "bar_ts": ts.isoformat(),
+                "close": close,
+                "yhat": float(yhat),
+                "entry_threshold": self.config.entry_threshold,
+                "intent": (
+                    "BUY"
+                    if yhat > self.config.entry_threshold
+                    else "SELL"
+                    if yhat < -self.config.entry_threshold
+                    else "HOLD"
+                ),
+            },
+            event_id=f"signal:{self._operations_target()}:{iid}:{int(bar.ts_event)}",
+        )
 
         if (
             self.config.backtest_trade_start_ns > 0
@@ -1706,6 +2160,27 @@ class MLStrategy(Strategy):
             signal_version=signal_version,
             ts_ns=self.clock.timestamp_ns(),
         )
+        self._audit_event(
+            "ORDER_REGISTERED",
+            {
+                "client_order_id": order_id,
+                "instrument_id": str(order.instrument_id),
+                "side": order.side.name,
+                "quantity": quantity,
+                "role": role.value,
+                "signal_version": signal_version,
+            },
+            correlation_id=order_id,
+            event_id=f"order-registered:{order_id}",
+        )
+        if not audited and role == OrderRole.ENTRY:
+            self._execution.apply_order_state(
+                order_id,
+                LifecycleStatus.DENIED,
+                ts_ns=self.clock.timestamp_ns(),
+                reason="required operational audit unavailable",
+            )
+            return False
         try:
             self.submit_order(order)
         except Exception as exc:
@@ -1721,12 +2196,29 @@ class MLStrategy(Strategy):
                 client_order_id=order_id,
                 instrument_id=str(order.instrument_id),
             )
+            self._audit_event(
+                "ORDER_SUBMIT_FAILED",
+                {
+                    "client_order_id": order_id,
+                    "error": f"{type(exc).__name__}: {exc}",
+                },
+                severity="CRITICAL",
+                correlation_id=order_id,
+                event_id=f"order-submit-failed:{order_id}",
+            )
             raise
         self._execution.apply_order_state(
             order_id,
             LifecycleStatus.SUBMITTED,
             ts_ns=self.clock.timestamp_ns(),
         )
+        self._audit_event(
+            "ORDER_SUBMITTED",
+            {"client_order_id": order_id, "instrument_id": str(order.instrument_id)},
+            correlation_id=order_id,
+            event_id=f"order-submitted:{order_id}",
+        )
+        return True
 
     # ---- order construction (objects, not raw buy()) -------------------
     def _enter(
@@ -1879,12 +2371,14 @@ class MLStrategy(Strategy):
             if self._pending_ts is not None
             else side.name
         )
-        self._register_and_submit_order(
+        submitted = self._register_and_submit_order(
             order,
             role=OrderRole.ENTRY,
             signal_version=signal_version,
             requested_quantity=target_qty.as_double(),
         )
+        if not submitted:
+            return
         self._entry_submitted_bar[str(order.client_order_id)] = self._bar_index[iid]
         # Record the committed gross notional synchronously so BOTH the
         # concurrency cap and the book-level leverage guard see this holding
@@ -2265,6 +2759,28 @@ class MLStrategy(Strategy):
             if candidate.isdigit() and candidate != "0":
                 permanent_order_id = candidate
         reason = str(getattr(event, "reason", "") or "")
+        self._audit_event(
+            "BROKER_ORDER_EVENT",
+            {
+                "event_class": type(event).__name__,
+                "event_id": event_id,
+                "client_order_id": order_id,
+                "instrument_id": str(iid),
+                "venue_order_id": venue_order_id,
+                "permanent_order_id": permanent_order_id,
+                "reason": reason,
+            },
+            severity=(
+                "CRITICAL"
+                if isinstance(
+                    event,
+                    (OrderRejected, OrderDenied, OrderCancelRejected, OrderModifyRejected),
+                )
+                else "INFO"
+            ),
+            correlation_id=order_id,
+            event_id=(f"broker-event:{event_id}" if event_id else None),
+        )
         try:
             if isinstance(event, OrderSubmitted):
                 self._execution.apply_order_state(
@@ -2432,12 +2948,16 @@ class MLStrategy(Strategy):
         if self._risk is None:
             return {}
         payload = {
-            "version": 5,
+            "version": 6,
             "instrument_ids": sorted(self.config.instrument_ids),
             "risk": self._risk.snapshot(),
             "account_equity_baseline": self._account_equity_baseline,
             "execution": self._execution.snapshot(),
             "execution_safety": self._execution_safety.snapshot(),
+            "data_quality": self._data_quality.snapshot(),
+            "data_quality_issues": list(self._data_quality_issues),
+            "data_quality_blocked_instruments": sorted(self._data_quality_blocked_instruments),
+            "data_quality_good_bars": dict(self._data_quality_good_bars),
             "protection_ids": {
                 self._raw_by_iid[iid]: values
                 for iid, values in self._protection_ids.items()
@@ -2482,7 +3002,7 @@ class MLStrategy(Strategy):
         if raw is None:
             return
         payload = json.loads(raw.decode("utf-8"))
-        if payload.get("version") not in {1, 2, 3, 4, 5}:
+        if payload.get("version") not in {1, 2, 3, 4, 5, 6}:
             raise ValueError(f"Unsupported MLStrategy state version: {payload.get('version')}")
         self._loaded_state = payload
 
@@ -2515,6 +3035,19 @@ class MLStrategy(Strategy):
                 payload["execution_safety"]
             )
             self._execution_safety.on_restart(ts_ns=self.clock.timestamp_ns())
+        if payload.get("data_quality"):
+            self._data_quality.restore(payload["data_quality"])
+        self._data_quality_issues.extend(payload.get("data_quality_issues", ()))
+        self._data_quality_blocked_instruments = {
+            str(value)
+            for value in payload.get("data_quality_blocked_instruments", ())
+        }
+        self._data_quality_good_bars.update(
+            {
+                str(key): int(value)
+                for key, value in payload.get("data_quality_good_bars", {}).items()
+            }
+        )
         self._entry_submitted_bar.update(
             {
                 str(order_id): int(bar_index)
@@ -2602,3 +3135,25 @@ class MLStrategy(Strategy):
                 self.unsubscribe_quote_ticks(iid)
                 self.unsubscribe_trade_ticks(iid)
                 self.unsubscribe_instrument_status(iid)
+        self._audit_event(
+            "STRATEGY_STOPPED",
+            {
+                "risk_state": self._risk.state.value if self._risk is not None else None,
+                "execution_state": self._execution_safety.state.value,
+                "broker_exposure_remaining": self._has_broker_exposure(),
+            },
+            severity=(
+                "CRITICAL" if self._has_broker_exposure() else "INFO"
+            ),
+        )
+        if self._operations is not None and not self._operations_failed:
+            try:
+                self._operations.heartbeat(
+                    self._operations_target(),
+                    str(self.id),
+                    status="STOPPED",
+                    details={"broker_exposure_remaining": self._has_broker_exposure()},
+                    observed_at=self.clock.utc_now(),
+                )
+            finally:
+                self._operations.close()

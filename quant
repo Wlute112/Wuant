@@ -10,9 +10,17 @@ NO_BROWSER=0
 NO_REDIS=0
 INSTALL=0
 
+if [[ "${1:-}" == "doctor" ]]; then
+  shift
+  cd "$WORK_DIR"
+  exec env PYTHONPATH="$WORK_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+    "$PYTHON_BIN" -m quant.ops.doctor --root "$ROOT_DIR" "$@"
+fi
+
 usage() {
   printf 'Usage: %s [--no-browser] [--no-redis] [--install]\n' "$0"
-  printf '\nStarts Redis, the FastAPI dashboard, and the Vite frontend.\n'
+  printf '\nStarts Redis, the FastAPI dashboard, and the built static frontend.\n'
+  printf '%s\n' '--no-redis skips local service management; the API still requires an external Redis.'
 }
 
 while (($#)); do
@@ -43,13 +51,14 @@ if ((INSTALL)); then
 fi
 
 if [[ ! -d "$ROOT_DIR/web/node_modules" ]]; then
-  (cd "$ROOT_DIR/web" && npm install)
+  (cd "$ROOT_DIR/web" && npm ci)
 fi
+(cd "$ROOT_DIR/web" && npm run build)
 
 if (( ! NO_REDIS )); then
-  command -v redis-cli >/dev/null 2>&1 || die "redis-cli is required. Install Redis with 'brew install redis', or use --no-redis."
+  command -v redis-cli >/dev/null 2>&1 || die "redis-cli is required. Install Redis with 'brew install redis'."
   if ! redis-cli ping >/dev/null 2>&1; then
-    command -v brew >/dev/null 2>&1 || die "Redis is not running and Homebrew is unavailable. Start Redis or use --no-redis."
+    command -v brew >/dev/null 2>&1 || die "Redis is not running and Homebrew is unavailable. Start Redis first."
     brew services start redis >/dev/null
   fi
   for _ in {1..20}; do
@@ -73,11 +82,12 @@ trap cleanup EXIT INT TERM
 
 PYTHONPATH="$WORK_DIR${PYTHONPATH:+:$PYTHONPATH}" \
   "$PYTHON_BIN" -u -m uvicorn quant.api.main:app --host 127.0.0.1 \
-  --port "${QUANT_API_PORT:-8000}" --reload --reload-dir "$ROOT_DIR" \
+  --port "${QUANT_API_PORT:-8000}" \
   >"$API_LOG" 2>&1 &
 API_PID=$!
 
-(cd "$ROOT_DIR/web" && exec npm run dev -- --host 127.0.0.1 --port "${QUANT_WEB_PORT:-5173}" --strictPort >"$WEB_LOG" 2>&1) &
+(cd "$ROOT_DIR/web" && exec "$PYTHON_BIN" -m http.server "${QUANT_WEB_PORT:-5173}" \
+  --bind 127.0.0.1 --directory dist >"$WEB_LOG" 2>&1) &
 WEB_PID=$!
 
 for _ in {1..40}; do

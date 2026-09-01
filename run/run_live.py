@@ -138,6 +138,10 @@ def load_params(path: str | None) -> tuple[dict, int | None]:
         "telemetry_asset_class",
         "telemetry_mode",
         "telemetry_include_extended_hours",
+        "operations_db_path",
+        "operations_component_id",
+        "external_supervisor_component",
+        "require_external_supervisor",
         "order_tags",
         "execution_mode",
         "asset_class",
@@ -219,6 +223,10 @@ def build_node(
     include_extended_hours: bool = False,
     telemetry_path: str = "",
     news_db_path: str = "",
+    operations_db_path: str = "",
+    operations_component_id: str = "",
+    external_supervisor_component: str = "",
+    require_external_supervisor: bool = False,
 ):
     if is_live:
         assert_live_capital_enabled()
@@ -346,6 +354,11 @@ def build_node(
         "telemetry_mode": "live" if is_live else "paper",
         "telemetry_include_extended_hours": include_extended_hours,
         "news_data_path": news_db_path,
+        "operations_db_path": operations_db_path,
+        "operations_component_id": operations_component_id,
+        "external_supervisor_component": external_supervisor_component,
+        "require_external_supervisor": require_external_supervisor,
+        "expected_bar_interval_secs": int(bar_hours) * 3600,
         "execution_mode": "live" if is_live else "paper",
         "asset_class": asset_class,
         "entry_time_in_force": "DAY" if asset_class == "equity" else "GTC",
@@ -400,6 +413,8 @@ def main() -> None:
         help="IBKR account id (or set TWS_ACCOUNT); paper accounts usually start with DU",
     )
     p.add_argument("--params", help="Optuna best_params/structural JSON")
+    p.add_argument("--model-id", default="", help="immutable model-registry identifier")
+    p.add_argument("--model-registry", default="quant/models/registry.sqlite3")
     p.add_argument(
         "--bar-hours",
         type=int,
@@ -417,6 +432,15 @@ def main() -> None:
         "orders outside RTH. Extended-hours liquidity and fills differ materially.",
     )
     p.add_argument("--telemetry-path", default="", help=argparse.SUPPRESS)
+    p.add_argument(
+        "--operations-db",
+        default="",
+        help="shared SQLite audit/control database for the independent risk supervisor",
+    )
+    p.add_argument("--operations-component-id", default="", help=argparse.SUPPRESS)
+    p.add_argument("--external-supervisor-component", default="", help=argparse.SUPPRESS)
+    p.add_argument("--require-external-supervisor", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--news-operations-component-id", default="", help=argparse.SUPPRESS)
     p.add_argument(
         "--news-db",
         default="quant/data/news.sqlite3",
@@ -474,9 +498,25 @@ def main() -> None:
         )
     if not args.no_news and not args.no_ibkr_news and args.news_client_id == args.client_id:
         raise SystemExit("--news-client-id must differ from the TradingNode --client-id")
+    params_source = args.params
+    if args.model_id:
+        if args.params:
+            raise SystemExit("--model-id and --params are mutually exclusive")
+        from quant.ops.model_registry import ModelRegistry
+
+        registry = ModelRegistry(args.model_registry)
+        try:
+            params_source = registry.params_path(
+                args.model_id,
+                require_approved=args.live,
+            )
+        except (KeyError, ValueError) as exc:
+            raise SystemExit(f"Invalid model registry selection: {exc}") from exc
+        finally:
+            registry.close()
     try:
-        loaded_params, params_bar_hours = load_params(args.params)
-        params_metadata = load_params_metadata(args.params)
+        loaded_params, params_bar_hours = load_params(params_source)
+        params_metadata = load_params_metadata(params_source)
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         raise SystemExit(f"Invalid --params file: {exc}") from exc
     params_asset_class = params_metadata.get("asset_class")
@@ -546,6 +586,10 @@ def main() -> None:
             include_extended_hours=args.include_extended_hours,
             telemetry_path=args.telemetry_path,
             news_db_path=args.news_db if params["use_news_features"] else "",
+            operations_db_path=args.operations_db,
+            operations_component_id=args.operations_component_id,
+            external_supervisor_component=args.external_supervisor_component,
+            require_external_supervisor=args.require_external_supervisor,
         )
     except (ValueError, LiveCapitalDisabledError) as exc:
         raise SystemExit(str(exc)) from exc
@@ -568,6 +612,8 @@ def main() -> None:
                 ibkr_provider_allowlist=tuple(args.news_provider),
                 ollama_url=args.news_ollama_url,
                 ollama_model=args.news_ollama_model,
+                operations_db_path=args.operations_db,
+                operations_component_id=args.news_operations_component_id,
             )
         )
         news_service.start()

@@ -174,6 +174,12 @@ class RiskManager:
     def drawdown_warning(self) -> bool:
         return self._warned_drawdown and self.state != TradingState.DISABLED_KILL
 
+    def engage_kill_switch(self) -> TradingState:
+        """Permanently disable automated execution on an external safety command."""
+        self.state = TradingState.DISABLED_KILL
+        self._halt_until = None
+        return self.state
+
     # ---- persistence ---------------------------------------------------
     def snapshot(self) -> dict:
         """Return JSON-serializable risk state.

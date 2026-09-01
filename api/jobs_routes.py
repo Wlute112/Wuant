@@ -76,6 +76,78 @@ def _write_params_file(
     return str(out_path)
 
 
+def _submit_execution_with_supervisor(
+    kind: str,
+    req,
+    job_id: str,
+    args: list[str],
+    *,
+    config: dict,
+) -> dict:
+    telemetry_path = JOBS_DIR / f"{job_id}_telemetry.json"
+    operations_path = JOBS_DIR / "operations.sqlite3"
+    strategy_component = f"strategy:{job_id}"
+    supervisor_component = f"supervisor:{job_id}"
+    news_component = f"news:{job_id}"
+    args += [
+        "--telemetry-path",
+        str(telemetry_path),
+        "--operations-db",
+        str(operations_path),
+        "--operations-component-id",
+        strategy_component,
+        "--external-supervisor-component",
+        supervisor_component,
+        "--require-external-supervisor",
+        "--news-operations-component-id",
+        news_component,
+    ]
+    execution = manager.submit(
+        kind,
+        "quant.run.run_live",
+        args,
+        config=config,
+        job_id=job_id,
+    )
+    # Test doubles and older embedded callers may implement only the historical
+    # JobManager surface. The production manager always launches the companion.
+    if not hasattr(manager, "link_companion"):
+        return execution
+    campaign_id = "paper:" + ":".join(
+        [str(req.asset_class), ",".join(sorted(req.tickers)), str(req.bar_hours)]
+    )
+    supervisor_id = manager.new_job_id("risk_supervisor")
+    supervisor_args = [
+        "--operations-db",
+        str(operations_path),
+        "--telemetry-path",
+        str(telemetry_path),
+        "--execution-job-id",
+        job_id,
+        "--strategy-target",
+        strategy_component,
+        "--component-id",
+        supervisor_component,
+        "--campaign-id",
+        campaign_id,
+        "--news-component",
+        news_component,
+    ]
+    redis_prefix = getattr(getattr(manager, "store", None), "prefix", None)
+    if redis_prefix:
+        supervisor_args += ["--redis-prefix", str(redis_prefix)]
+    supervisor = manager.submit(
+        "risk_supervisor",
+        "quant.ops.supervisor",
+        supervisor_args,
+        config={"execution_job_id": job_id, "campaign_id": campaign_id},
+        job_id=supervisor_id,
+        parent_job_id=job_id,
+    )
+    manager.link_companion(job_id, supervisor_id)
+    return {**execution, "supervisor_job_id": supervisor["id"], "operations_db": str(operations_path)}
+
+
 @router.post("/backtest", status_code=202)
 def start_backtest(req: BacktestJobRequest):
     job_id = manager.new_job_id("backtest")
@@ -211,13 +283,12 @@ def start_paper(req: PaperJobRequest):
         args.append("--allow-shorts")
     if req.include_extended_hours:
         args.append("--include-extended-hours")
-    args += ["--telemetry-path", str(JOBS_DIR / f"{job_id}_telemetry.json")]
-    return manager.submit(
+    return _submit_execution_with_supervisor(
         "paper",
-        "quant.run.run_live",
+        req,
+        job_id,
         args,
         config=_safe_execution_config(req),
-        job_id=job_id,
     )
 
 
@@ -273,14 +344,13 @@ def start_live(req: LiveJobRequest):
         args.append("--allow-shorts")
     if req.include_extended_hours:
         args.append("--include-extended-hours")
-    args += ["--telemetry-path", str(JOBS_DIR / f"{job_id}_telemetry.json")]
     safe_config = _safe_execution_config(req, redact_confirmation=True)
-    job = manager.submit(
+    job = _submit_execution_with_supervisor(
         "live",
-        "quant.run.run_live",
+        req,
+        job_id,
         args,
         config=safe_config,
-        job_id=job_id,
     )
     return {**job, "warning": "LIVE TRADING ARMED - REAL CAPITAL AT RISK"}
 

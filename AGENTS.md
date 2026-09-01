@@ -56,7 +56,8 @@ Useful options:
 ```
 
 `--install` installs Python requirements before starting and the script runs
-`npm install` automatically if `web/node_modules` is missing. The old
+`npm ci` from the lockfile when `web/node_modules` is missing, then creates a
+static production frontend build. The old
 `.start-macos.sh` launcher has been removed.
 
 ## Layout
@@ -500,10 +501,11 @@ Run both from the SAME working directory every other command above uses
 (the directory containing `quant/`, not `quant/` itself):
 ```bash
 # backend (terminal 1)
-quant/.quant312/bin/python -m uvicorn quant.api.main:app --reload --port 8000
+quant/.quant312/bin/python -m uvicorn quant.api.main:app --port 8000
 
-# frontend (terminal 2)
-cd quant/web && npm install && npm run dev   # http://localhost:5173
+# frontend (terminal 2; static production build)
+cd quant/web && npm ci && npm run build
+../.quant312/bin/python -m http.server 5173 --bind 127.0.0.1 --directory dist
 ```
 Paper/live nodes write atomic job-scoped model telemetry JSON after every
 completed strategy bar. Separately, the dashboard's read-only IBKR monitor can

@@ -30,8 +30,8 @@ ETFs; spot-crypto paper execution is unavailable at IBKR.
 | Exchange sessions | Implemented, validation pending | IBKR TradingHours/LiquidHours/timeZoneId parser; holidays, early closes, DST, overnight windows, phases, explicit halts and stale-data states | Capture and validate real contract-details variants; model exchange-wide unexpected closures and auction/halts using supported IBKR callbacks |
 | Session policies | Implemented, validation pending | RTH, extended and custom policies; open/close buffers; auction flags; no-entry-before-close; session-end entry cancellation; outside-RTH order validation | Expose and validate the full policy at CLI/API boundaries; paper-test daily after-close signals and each supported order type |
 | Session risk accounting | Implemented, validation pending | Daily risk reset keyed to exchange sessions with configurable overnight assignment; canonical equity execution cadence is now daily unless explicitly set | Define and test extended-session PnL ownership with live account updates across close/reopen and DST |
-| Real-time risk | Partially implemented | One-second supervisor plus quote/trade updates; broker equity, drawdown, leverage, daily loss, data age, account availability, gross/symbol/order/concentration limits and price collars | Wire authoritative sector classification/exposure; broker heartbeat and explicit disconnect callbacks; margin/settled-cash/pre-trade checks; prove no bar-cadence dependency |
-| Broker source of truth | Open | Actual strategy fills/positions and working orders drive the local ledger and exposure commitments; startup adoption freezes on unknown claimed orders | Reconcile all account positions/orders/executions including manual TWS and other client IDs; uncertain-submission recovery; account currency, buying power, available funds and settled-cash verification |
+| Real-time risk | Implemented, validation pending | One-second in-strategy checks plus an independently launched supervisor with a required heartbeat, durable freeze/flatten/kill commands, telemetry/data-age checks, alert delivery and bounded service watchdogs; broker equity, drawdown, leverage, daily loss, account availability, gross/symbol/order/concentration limits and price collars | Wire authoritative sector classification/exposure; explicit adapter disconnect callbacks; margin/settled-cash/what-if pre-trade checks; prove behavior against supported TWS/Gateway under disconnect and rejection faults |
+| Broker source of truth | Implemented, validation pending | Broker-neutral all-account position/order/execution/account reconciliation; deterministic stale lifecycle/fill recovery; post-Nautilus reconciliation cache normalization; manual/foreign exposure detection; account/currency/funds checks; immutable reports; unresolved state freezes execution | Prove IBKR snapshot-end ordering, permanent-ID/correction handling, all-client visibility and restart races on supported TWS/Gateway; obtain distinct broker buying-power and settled-cash fields rather than Nautilus's conservative available-funds proxy |
 
 All entries in `P0_GATES` remain `complete=False`. Approval requires reviewed
 evidence for every row and a deliberate source change; it must not be inferred
@@ -52,13 +52,16 @@ reviews:
 4. Equity simulation and scoring: spreads, slippage, participation, partial
    fills, gaps, session liquidity, real fees/financing, corporate actions,
    excess-return Sharpe, benchmark alpha/beta, turnover and cost sensitivity.
-5. Model/data integrity: completed/revised/out-of-order/stale bar controls,
-   cross-asset staleness, immutable training metadata/model version, and
-   fail-closed execution metadata matching.
-6. Recovery/operations: deterministic all-client reconciliation, uncertain
-   submission recovery, watchdog/heartbeats, external alerts, manual cancel-all
-   and flatten, immutable audit records, authentication/authorization and log
-   redaction.
+5. Model/data integrity: completed/revised/out-of-order/gap/stale bar controls
+   and an immutable checksum-verified model registry are implemented; explicit
+   cross-asset freshness and broker-confirmed revised-bar semantics still need
+   paper validation.
+6. Recovery/operations: deterministic reconciliation/recovery, bounded
+   watchdogs, required heartbeats, external alerts, durable manual controls,
+   immutable audit records, verified backup/restore, automated paper-soak
+   evidence and model rollback are implemented; remote control remains local
+   until authentication/authorization exists, and host-loss recovery still
+   requires an off-host deployment target.
 7. Dashboard operations: authoritative account allocation, broker orders,
    fills, rejection reasons, OCA guarantee state, session/data health and
    reconciliation are displayed; authenticated manual controls and full

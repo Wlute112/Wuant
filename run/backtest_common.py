@@ -385,9 +385,14 @@ def build_engine(
         instrument_ids=instrument_ids,
         bar_type_suffix=bar_type_suffix,
         starting_equity=starting_cash,
+        asset_class=asset_class,
+        expected_bar_interval_secs=infer_bar_interval_minutes(df) * 60,
     )
     if strategy_overrides:
         cfg_kwargs.update(strategy_overrides)
+    # These values describe the loaded dataset/venue and are not model knobs.
+    cfg_kwargs["asset_class"] = asset_class
+    cfg_kwargs["expected_bar_interval_secs"] = infer_bar_interval_minutes(df) * 60
 
     engine.add_strategy(MLStrategy(MLStrategyConfig(**cfg_kwargs)))
     return engine, all_bars

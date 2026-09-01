@@ -20,6 +20,7 @@ from quant.news.core import (
     classify_industries,
     snapshot_news_store,
 )
+from quant.news.service import NewsProcessor
 
 
 def _article(now: datetime, *, external_id: str = "event-1") -> NewsArticle:
@@ -108,6 +109,87 @@ def test_snapshot_is_immutable_after_source_store_changes(tmp_path):
         assert store.count() == 2
     finally:
         frozen.close()
+        store.close()
+
+
+def test_news_enrichment_queue_recovers_claimed_and_unqueued_deterministic_work(tmp_path):
+    db = tmp_path / "news.sqlite3"
+    now = datetime.now(timezone.utc)
+    first = _article(now, external_id="queued-before-crash")
+    missing = _article(now, external_id="deterministic-without-queue-row")
+    store = NewsStore(str(db))
+    store.put(first, NewsAnalysis(mode="deterministic"))
+    store.enqueue_enrichment(first)
+    claimed = store.claim_next_enrichment()
+    assert claimed is not None
+    store.put(missing, NewsAnalysis(mode="deterministic"))
+    store.close()
+
+    recovered = NewsStore(str(db))
+    try:
+        result = recovered.recover_enrichment_queue()
+        assert result == {"released_claims": 1, "restored_articles": 1}
+        queued_ids = set()
+        for _ in range(2):
+            item = recovered.claim_next_enrichment()
+            assert item is not None
+            article, generation, _attempts = item
+            queued_ids.add(article.article_id)
+            assert recovered.complete_enrichment(article.article_id, generation)
+        assert queued_ids == {first.article_id, missing.article_id}
+        assert recovered.pending_enrichment_count() == 0
+    finally:
+        recovered.close()
+
+
+def test_new_article_body_generation_survives_old_enrichment_completion(tmp_path):
+    db = tmp_path / "news.sqlite3"
+    now = datetime.now(timezone.utc)
+    first = _article(now, external_id="body-growth")
+    expanded = NewsArticle(**{**first.__dict__, "body": "a newer and longer article body"})
+    store = NewsStore(str(db))
+    try:
+        store.put(first, NewsAnalysis(mode="deterministic"))
+        store.enqueue_enrichment(first)
+        old_item = store.claim_next_enrichment()
+        assert old_item is not None
+        store.enqueue_enrichment(expanded)
+        assert not store.complete_enrichment(first.article_id, old_item[1])
+        latest_item = store.claim_next_enrichment()
+        assert latest_item is not None
+        assert latest_item[0].body == expanded.body
+        assert latest_item[1] > old_item[1]
+    finally:
+        store.close()
+
+
+def test_news_processor_start_automatically_enriches_recovered_article(
+    monkeypatch, tmp_path
+):
+    db = tmp_path / "news.sqlite3"
+    article = _article(datetime.now(timezone.utc), external_id="restart-recovery")
+    store = NewsStore(str(db))
+    store.put(article, NewsAnalysis(mode="deterministic"))
+    analyzer = NewsAnalyzer(("SPY",), ollama_model="test-model")
+    monkeypatch.setattr(
+        analyzer,
+        "analyze",
+        lambda queued_article, use_llm=True: NewsAnalysis(
+            summary=queued_article.title,
+            symbol_scores={"SPY": 0.5},
+            mode="ollama:test-model",
+        ),
+    )
+    processor = NewsProcessor(store, analyzer)
+    try:
+        processor.start()
+        deadline = time.monotonic() + 2.0
+        while store.pending_enrichment_count() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert store.pending_enrichment_count() == 0
+        assert store.article_state(article.article_id)["analysis_mode"] == "ollama:test-model"
+    finally:
+        processor.stop()
         store.close()
 
 
