@@ -180,6 +180,42 @@ def test_build_node_rejects_live_before_adapter_registration(monkeypatch):
     assert adapter_registration_called is False
 
 
+def test_build_node_rejects_invalid_short_configuration_before_adapter_registration(monkeypatch):
+    adapter_registration_called = False
+
+    def fail_if_called():
+        nonlocal adapter_registration_called
+        adapter_registration_called = True
+
+    monkeypatch.setattr(run_live, "register_ibkr_execution_fixes", fail_if_called)
+    with pytest.raises(ValueError, match="US equities"):
+        run_live.build_node(
+            tickers=["BTC"],
+            host="127.0.0.1",
+            port=7497,
+            client_id=1,
+            is_live=False,
+            params={},
+            account_id="DU123",
+            asset_class="crypto",
+            allow_short_positions=True,
+        )
+    with pytest.raises(ValueError, match="client ID"):
+        run_live.build_node(
+            tickers=["QQQ"],
+            host="127.0.0.1",
+            port=7497,
+            client_id=29,
+            is_live=False,
+            params={},
+            account_id="DU123",
+            asset_class="equity",
+            allow_short_positions=True,
+            short_control_client_id=29,
+        )
+    assert adapter_registration_called is False
+
+
 def test_crypto_live_instrument_ids_and_bar_type():
     assert instrument_ids_for_asset(["btc"], "crypto") == ["BTC/USD.ZEROHASH"]
     assert bar_type_suffix_for_asset("crypto") == "-1-DAY-MID-EXTERNAL"

@@ -1,7 +1,7 @@
 # Unattended Paper-Trading Operations
 
-Live capital remains disabled. These controls harden long-only IBKR equity
-paper trading and collect the evidence needed for a later production review;
+Live capital remains disabled. These controls harden IBKR equity paper trading
+and collect the evidence needed for a later production review;
 they do not prove profitability or make IBKR/TWS itself continuously available.
 
 ## Preflight
@@ -38,6 +38,31 @@ drawdown, daily loss, gross leverage, execution certainty, reconciliation,
 telemetry freshness, market-data age, and data-quality state. Depending on the
 failure it issues `FREEZE_ENTRIES`, `FLATTEN`, or permanent `KILL`. Canceling the
 paper job also cancels its companion supervisor before stopping Nautilus.
+
+## Short-enabled paper jobs
+
+Shorting remains off unless the job explicitly passes `--allow-shorts` or the
+dashboard switch is enabled. The runner opens a separate TWS client (default
+ID 29) for live shortable shares/tier, halt and Rule-201 inputs, and IBKR
+account/what-if checks. Current indicative fee and availability data come from
+IBKR's `usa.txt` short-stock feed. Client IDs 1, 29, 30 and 31 are reserved by
+default for execution, short controls, news and the dashboard broker monitor.
+
+```bash
+quant/.quant312/bin/python -m quant.run.run_live \
+  --asset-class equity --tickers QQQ --port 7497 \
+  --account-id "$TWS_ACCOUNT" --allow-shorts \
+  --short-max-borrow-fee-pct 5 \
+  --short-min-margin-cushion-pct 20 \
+  --short-locate-buffer-ratio 1.25
+```
+
+A short entry is always a DAY limit order and is submitted only after the
+inventory, fee, halt, Rule-201, PDT, account-margin and order-specific what-if
+checks pass. A persistent control failure on an open short starts the configured
+grace period and then requests a buy-to-cover. The detached risk
+supervisor independently freezes entries when the control infrastructure is
+unhealthy and flattens when telemetry reports an active short-control breach.
 
 Manual audited controls are available locally:
 

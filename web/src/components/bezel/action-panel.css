@@ -53,8 +53,12 @@
 }
 
 .action-panel__field input[type="checkbox"] {
-  width: auto;
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
   align-self: start;
+  accent-color: var(--color-trace-cyan);
 }
 
 .action-panel__confirm-input {

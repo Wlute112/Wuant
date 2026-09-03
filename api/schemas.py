@@ -21,6 +21,16 @@ class FeatureConfig(BaseModel):
     n_lags: int | None = None  # AR (lagged log-return) block; 0 disables it
     cross_asset_lags: int | None = None
     spread_lags: int | None = None
+    use_industry_features: bool | None = None
+    industry_map: dict[str, str] | None = None
+    industry_benchmark_map: dict[str, str] | None = None
+    sector_map: dict[str, str] | None = None
+    industry_correlation_window_bars: int | None = Field(default=None, ge=2)
+    industry_correlation_half_life_bars: int | None = Field(default=None, ge=1)
+    industry_minimum_observations: int | None = Field(default=None, ge=2)
+    industry_minimum_correlation: float | None = Field(default=None, ge=0, lt=1)
+    industry_correlation_shrinkage: float | None = Field(default=None, ge=0, le=1)
+    industry_momentum_bars: int | None = Field(default=None, ge=1)
     use_regime_features: bool | None = None
     use_hmm_feature: bool | None = None
     regime_source: str | None = None  # "fit" | "raw"
@@ -45,6 +55,12 @@ class RiskConfigOverrides(BaseModel):
     kill_switch_pct: float | None = None
     kill_warn_pct: float | None = None
     kelly_max_fraction: float | None = None
+    max_order_notional_pct: float | None = Field(default=None, gt=0, le=1)
+    max_symbol_exposure_pct: float | None = Field(default=None, gt=0, le=1)
+    max_sector_exposure_pct: float | None = Field(default=None, gt=0, le=1)
+    max_gross_exposure_pct: float | None = Field(default=None, gt=0)
+    max_concentration_pct: float | None = Field(default=None, gt=0, le=1)
+    price_collar_pct: float | None = Field(default=None, gt=0, le=1)
 
     def as_overrides(self) -> dict:
         return {k: v for k, v in self.model_dump().items() if v is not None}
@@ -61,6 +77,16 @@ class IbkrFetchOptions(BaseModel):
     # existing frequency and never mix frequencies into one file.
     ibkr_bar_hours: int | None = None
     include_extended_hours: bool = False
+
+
+class ShortControlOptions(BaseModel):
+    client_id: int = Field(default=29, ge=0)
+    borrow_api_url: str = "ftp://shortstock@ftp2.interactivebrokers.com/usa.txt"
+    borrow_api_verify_tls: bool = False
+    max_borrow_fee_pct: float = Field(default=5.0, gt=0, le=100)
+    min_margin_cushion_pct: float = Field(default=20.0, gt=0, lt=100)
+    locate_buffer_ratio: float = Field(default=1.25, ge=1, le=10)
+    recall_grace_secs: float = Field(default=60.0, gt=0, le=3600)
 
 
 class BacktestJobRequest(BaseModel):
@@ -111,6 +137,7 @@ class PaperJobRequest(BaseModel):
     asset_class: Literal["crypto", "equity"] = "crypto"
     primary_exchange: str = ""
     allow_shorts: bool = False
+    short_controls: ShortControlOptions = ShortControlOptions()
     bar_hours: Literal[1, 2, 3, 4, 8, 24] | None = None
     include_extended_hours: bool = False
     host: str = "127.0.0.1"
@@ -131,6 +158,7 @@ class LiveJobRequest(BaseModel):
     asset_class: Literal["crypto", "equity"] = "crypto"
     primary_exchange: str = ""
     allow_shorts: bool = False
+    short_controls: ShortControlOptions = ShortControlOptions()
     bar_hours: Literal[1, 2, 3, 4, 8, 24] | None = None
     include_extended_hours: bool = False
     host: str = "127.0.0.1"

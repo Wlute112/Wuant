@@ -135,13 +135,36 @@ def test_paper_route_rejects_unsupported_crypto_paper():
         jobs_routes.start_paper(PaperJobRequest(tickers=["BTC"], port=7497))
 
 
-def test_paper_route_rejects_short_selling_until_controls_exist():
-    with pytest.raises(HTTPException, match="Short selling is disabled"):
+def test_paper_route_forwards_fail_closed_short_controls(monkeypatch, tmp_path):
+    manager = StubJobManager()
+    monkeypatch.setattr(jobs_routes, "manager", manager)
+    monkeypatch.setattr(jobs_routes, "JOBS_DIR", tmp_path)
+
+    jobs_routes.start_paper(
+        PaperJobRequest(
+            tickers=["QQQ"],
+            asset_class="equity",
+            port=7497,
+            account_id="DU123",
+            allow_shorts=True,
+        )
+    )
+
+    args = manager.submitted["args"]
+    assert "--allow-shorts" in args
+    assert args[args.index("--short-control-client-id") + 1] == "29"
+    assert args[args.index("--short-max-borrow-fee-pct") + 1] == "5.0"
+    assert args[args.index("--short-min-margin-cushion-pct") + 1] == "20.0"
+
+
+def test_paper_route_rejects_short_control_client_id_collision():
+    with pytest.raises(HTTPException, match="client ID"):
         jobs_routes.start_paper(
             PaperJobRequest(
                 tickers=["QQQ"],
                 asset_class="equity",
                 port=7497,
+                client_id=29,
                 allow_shorts=True,
             )
         )

@@ -194,6 +194,48 @@ python -m quant.optimize.optimize --csv quant/data/ibkr_bars.csv \
     --score 1.5 --trials 200 --seed 42
 ```
 
+### Stability campaign (required before promotion)
+
+Run independent 100–150 trial studies with multivariate/grouped TPE. The
+sampler seed changes; the CSV hash, ticker universe, fold/holdout dates,
+embargoes, structural settings, cash, evaluation seed, and normal/stressed
+cost assumptions are locked into one invariant validation contract. Seed
+studies use `--defer-final-test`, so none can inspect the outer holdout.
+
+```bash
+python -m quant.optimize.multi_seed \
+    --campaign-id crypto_daily_v1 \
+    --seeds 42 43 44 45 \
+    --trials 100 \
+    --csv quant/data/ibkr_bars.csv \
+    --asset-class crypto \
+    --tickers BTC ETH SOL XRP DOGE
+
+python -m quant.optimize.compare \
+    --campaign quant/optimize/campaigns/crypto_daily_v1.json \
+    --out quant/optimize/campaigns/crypto_daily_v1_comparison.json
+
+python -m quant.optimize.robustness \
+    --campaign quant/optimize/campaigns/crypto_daily_v1.json \
+    --comparison quant/optimize/campaigns/crypto_daily_v1_comparison.json \
+    --finalists 5
+
+python -m quant.optimize.promote \
+    --campaign quant/optimize/campaigns/crypto_daily_v1.json \
+    --out-params quant/optimize/promoted_params.json
+```
+
+`compare` ranks studies by the top-10 distribution and fold/cost robustness,
+prints parameter consensus, and flags split feature adoption. `robustness`
+re-runs 5–10 locked finalists on altered fold boundaries, expanding versus
+rolling context, longer embargoes, both cost assumptions, every individual
+ticker, and bull/bear/sideways/high-volatility development episodes.
+`promote` is fail-closed: it requires a similar stable cluster from at least
+three seeds, non-outlier top performance, positive normal and stressed folds,
+and a passing robustness suite. It atomically marks the outer holdout consumed
+before running the selected candidate under normal and 2× costs. Failed or
+interrupted holdout evaluation cannot be retried or followed by more tuning.
+
 `optimize.py` also takes `--asset-class equity` (same meaning as Stage 1's
 `run_backtest.py`), e.g. `python -m quant.optimize.optimize --csv
 quant/data/equity_bars.csv --asset-class equity --tickers SPY QQQ --trials 40`.
@@ -299,13 +341,15 @@ first run without allowing those historical bars to trade. See
 “IBKR paper-trading setup” below. Use paper TWS port 7497 or paper Gateway
 port 4002.
 
-The dashboard Paper/Live forms expose the same asset-class selection and optional
-equity primary exchange. Short selling is locked until the P1 borrow, margin,
-recall, and short-sale restriction controls exist. Strategy parameters are
-selected with the browser's native JSON file picker; the frontend validates
-the JSON and sends its contents to the API, which writes a job-scoped params
-file for `run_live.py`. No server-side file path needs to be typed. The API
-also forwards `asset_class` and `primary_exchange`; execution remains long-only.
+The dashboard Paper/Live forms expose the same asset-class selection, optional
+equity primary exchange, and fail-closed short-selling opt-in. Short entries
+require fresh TWS shortable-share/tier and NBBO data, the IBKR borrow-fee feed,
+account/PDT/margin state, and a passing order-specific IBKR what-if check.
+Strategy parameters are selected with the browser's native JSON file picker;
+the frontend validates the JSON and sends its contents to the API, which writes
+a job-scoped params file for `run_live.py`. No server-side file path needs to be
+typed. The API also forwards `asset_class`, `primary_exchange`, `allow_shorts`,
+and the short-control thresholds.
 
 ## Stage 5 — Live trading (disabled pending readiness approval)
 
@@ -319,7 +363,8 @@ promotion process.
 The paper runner trades equities through the same `MLStrategy` used by the
 backtest. It persists orders, positions, account events, model warmup history,
 chart telemetry, daily halts, and the permanent kill-switch in Redis. Shorting
-is rejected until the P1 short-selling controls are complete.
+is disabled by default and can be enabled explicitly with `--allow-shorts` or
+the dashboard switch.
 
 ## 1. Start persistence
 
@@ -633,9 +678,10 @@ alignment/no-lookahead verification.
   being "a pipeline exerciser, not market reality."
 - **Equity live/paper scope:** `run_live.py` now supports SMART-routed US
   stocks/ETFs with whole-share sizing, RTH-by-default data, and LAST bars at
-  the configured cadence.
-  Shorting is rejected until borrow, fee, recall, SSR, permission, and margin
-  controls exist. Options, futures,
+  the configured cadence. Opt-in shorting is fail-closed behind current IBKR
+  shortability and fee data, a locate buffer, halt/Rule-201 checks, PDT and
+  margin account state, an order-specific what-if preview, protected exits,
+  and supervised cover on a persistent control breach. Options, futures,
   extended-hours equity trading, and mixed crypto/equity runs are not covered.
 - **Real API status:** `run_live.py` has been exercised end-to-end against
   paper TWS on port 7497: managed-account discovery, Zero Hash BTC/ETH/SOL
@@ -644,8 +690,10 @@ alignment/no-lookahead verification.
   Redis restore all succeeded. The equity path was also verified with a
   SMART-routed SPY contract (qualified to ARCA), whole-share instrument
   precision, RTH LAST history (251 bars), continuing subscription,
-  reconciliation, Redis save, and Redis restore. `ibkr_fetch.py`'s standalone
-  CLI remains unverified against TWS.
+  reconciliation, Redis save, and Redis restore. The short-control path has
+  deterministic tests but still requires a supported paper TWS/Gateway
+  validation campaign before approval. `ibkr_fetch.py`'s standalone CLI remains
+  unverified against TWS.
 - **Adapter shutdown noise:** a graceful paper stop saves state and exits zero,
   but Nautilus 1.229 may log IBKR error 162 for the intentionally cancelled
   historical subscription and a pending `_stop_async` task warning while its

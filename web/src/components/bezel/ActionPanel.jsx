@@ -3,6 +3,7 @@ import { cloneElement, isValidElement, useEffect, useId, useRef, useState } from
 import { api } from "../../lib/api.js";
 import { regimeWindowForBarHours } from "../../lib/assetProfiles.js";
 import { formatTime } from "../../lib/format.js";
+import { isJobActive } from "../../lib/jobs.js";
 import FeaturePanel, { DEFAULT_FEATURES, DEFAULT_SEARCH_MODES } from "../features/FeaturePanel.jsx";
 import RiskPanel, { DEFAULT_RISK, toRiskOverrides } from "../features/RiskPanel.jsx";
 import "./action-panel.css";
@@ -102,6 +103,23 @@ export default function ActionPanel({
   const tradingParamsInput = useRef(null);
   const [primaryExchange, setPrimaryExchange] = useState(persisted.primaryExchange ?? "");
   const [allowShorts, setAllowShorts] = useState(false);
+  const [shortControlClientId, setShortControlClientId] = useState(persisted.shortControlClientId ?? 29);
+  const [shortBorrowApiUrl, setShortBorrowApiUrl] = useState(
+    persisted.shortBorrowApiUrl ?? "ftp://shortstock@ftp2.interactivebrokers.com/usa.txt",
+  );
+  const [shortBorrowApiVerifyTls, setShortBorrowApiVerifyTls] = useState(
+    Boolean(persisted.shortBorrowApiVerifyTls),
+  );
+  const [shortMaxBorrowFeePct, setShortMaxBorrowFeePct] = useState(persisted.shortMaxBorrowFeePct ?? 5);
+  const [shortMinMarginCushionPct, setShortMinMarginCushionPct] = useState(
+    persisted.shortMinMarginCushionPct ?? 20,
+  );
+  const [shortLocateBufferRatio, setShortLocateBufferRatio] = useState(
+    persisted.shortLocateBufferRatio ?? 1.25,
+  );
+  const [shortRecallGraceSecs, setShortRecallGraceSecs] = useState(
+    persisted.shortRecallGraceSecs ?? 60,
+  );
   const [barHours, setBarHours] = useState(persisted.barHours ?? profile.defaults?.bar_hours ?? 4);
   const [includeExtendedHours, setIncludeExtendedHours] = useState(Boolean(persisted.includeExtendedHours));
   const [liveConfirmation, setLiveConfirmation] = useState("");
@@ -132,9 +150,13 @@ export default function ActionPanel({
   const [resumeRunId, setResumeRunId] = useState(persisted.resumeRunId ?? "");
   const optimizeRuns = runs.filter((r) => r.kind === "optimize" && (r.asset_class || "crypto") === assetClass);
   const paperJob = jobs.find(
-    (job) => job.kind === "paper" && job.status === "running" && (job.config?.asset_class || "crypto") === assetClass,
+    (job) => job.kind === "paper"
+      && !job.parent_job_id
+      && isJobActive(job)
+      && (job.config?.asset_class || "crypto") === assetClass,
   );
   const previousAssetClass = useRef(assetClass);
+  const previousTab = useRef(tab);
   const preserveProfileFields = useRef(false);
 
   function applyProfileDefaults(nextAssetClass) {
@@ -178,6 +200,10 @@ export default function ActionPanel({
   }, [assetClass, assetProfiles]);
 
   useEffect(() => {
+    if (previousTab.current !== tab) {
+      setAllowShorts(false);
+      previousTab.current = tab;
+    }
     setError(null);
   }, [tab]);
 
@@ -233,7 +259,13 @@ export default function ActionPanel({
           tradingParams,
           tradingParamsName,
           primaryExchange,
-          allowShorts,
+          shortControlClientId,
+          shortBorrowApiUrl,
+          shortBorrowApiVerifyTls,
+          shortMaxBorrowFeePct,
+          shortMinMarginCushionPct,
+          shortLocateBufferRatio,
+          shortRecallGraceSecs,
           barHours,
           includeExtendedHours,
           features,
@@ -272,7 +304,13 @@ export default function ActionPanel({
     tradingParams,
     tradingParamsName,
     primaryExchange,
-    allowShorts,
+    shortControlClientId,
+    shortBorrowApiUrl,
+    shortBorrowApiVerifyTls,
+    shortMaxBorrowFeePct,
+    shortMinMarginCushionPct,
+    shortLocateBufferRatio,
+    shortRecallGraceSecs,
     barHours,
     includeExtendedHours,
     features,
@@ -396,6 +434,18 @@ export default function ActionPanel({
     };
   }
 
+  function shortControlPayload() {
+    return {
+      client_id: Number(shortControlClientId),
+      borrow_api_url: shortBorrowApiUrl.trim(),
+      borrow_api_verify_tls: shortBorrowApiVerifyTls,
+      max_borrow_fee_pct: Number(shortMaxBorrowFeePct),
+      min_margin_cushion_pct: Number(shortMinMarginCushionPct),
+      locate_buffer_ratio: Number(shortLocateBufferRatio),
+      recall_grace_secs: Number(shortRecallGraceSecs),
+    };
+  }
+
   async function submit() {
     setPending(true);
     setError(null);
@@ -447,7 +497,10 @@ export default function ActionPanel({
           tickers: parseTickers(tickers) || ["BTC"],
           asset_class: assetClass,
           primary_exchange: primaryExchange,
-          allow_shorts: false,
+          allow_shorts: assetClass === "equity" && allowShorts,
+          ...(assetClass === "equity" && allowShorts
+            ? { short_controls: shortControlPayload() }
+            : {}),
           bar_hours: Number(barHours),
           include_extended_hours: assetClass === "equity" && includeExtendedHours,
           host,
@@ -467,7 +520,10 @@ export default function ActionPanel({
           tickers: parseTickers(tickers) || ["BTC"],
           asset_class: assetClass,
           primary_exchange: primaryExchange,
-          allow_shorts: false,
+          allow_shorts: assetClass === "equity" && allowShorts,
+          ...(assetClass === "equity" && allowShorts
+            ? { short_controls: shortControlPayload() }
+            : {}),
           bar_hours: Number(barHours),
           include_extended_hours: assetClass === "equity" && includeExtendedHours,
           host,
@@ -781,13 +837,11 @@ export default function ActionPanel({
                       placeholder="SMART auto-qualification"
                     />
                   </Field>
-                  <Field label="Short positions (P1 locked)">
+                  <Field label="Short positions">
                     <input
                       type="checkbox"
-                      checked={false}
-                      disabled
-                      aria-description="Short selling remains disabled until borrow, margin, recall, and short-sale restriction controls are complete."
-                      onChange={() => {}}
+                      checked={allowShorts}
+                      onChange={(event) => setAllowShorts(event.target.checked)}
                     />
                   </Field>
                   <Field label="Include extended hours">
@@ -851,17 +905,44 @@ export default function ActionPanel({
                     }}
                   />
                 </Field>
+                {assetClass === "equity" && allowShorts && (
+                  <>
+                    <Field label="Short-control client ID">
+                      <input type="number" min="0" value={shortControlClientId} onChange={(event) => setShortControlClientId(event.target.value)} />
+                    </Field>
+                    <Field label="IBKR borrow feed URL" wide>
+                      <input value={shortBorrowApiUrl} onChange={(event) => setShortBorrowApiUrl(event.target.value)} />
+                    </Field>
+                    <Field label="Verify HTTP feed TLS">
+                      <input type="checkbox" checked={shortBorrowApiVerifyTls} onChange={(event) => setShortBorrowApiVerifyTls(event.target.checked)} />
+                    </Field>
+                    <Field label="Maximum borrow fee (%)">
+                      <input type="number" min="0.01" max="100" step="0.05" value={shortMaxBorrowFeePct} onChange={(event) => setShortMaxBorrowFeePct(event.target.value)} />
+                    </Field>
+                    <Field label="Minimum margin cushion (%)">
+                      <input type="number" min="0.01" max="99" step="1" value={shortMinMarginCushionPct} onChange={(event) => setShortMinMarginCushionPct(event.target.value)} />
+                    </Field>
+                    <Field label="Locate buffer">
+                      <input type="number" min="1" max="10" step="0.05" value={shortLocateBufferRatio} onChange={(event) => setShortLocateBufferRatio(event.target.value)} />
+                    </Field>
+                    <Field label="Recall grace (seconds)">
+                      <input type="number" min="1" max="3600" step="1" value={shortRecallGraceSecs} onChange={(event) => setShortRecallGraceSecs(event.target.value)} />
+                    </Field>
+                  </>
+                )}
               </div>
             </details>}
             <div className="action-panel__actions">
               <button
                 className={paperJob ? "button-danger" : "button-primary"}
-                disabled={pending || (!paperJob && assetClass === "crypto")}
+                disabled={pending || paperJob?.status === "cancelling" || (!paperJob && assetClass === "crypto")}
                 onClick={paperJob ? stopPaperTrading : submit}
               >
                 {pending
                   ? (paperJob ? "Stopping…" : "Starting…")
-                  : (paperJob ? "Stop Paper Trading" : "Start Paper Trading")}
+                  : paperJob?.status === "cancelling"
+                    ? "Stopping Paper Trading…"
+                    : (paperJob ? "Stop Paper Trading" : "Start Paper Trading")}
               </button>
             </div>
           </>
@@ -909,13 +990,11 @@ export default function ActionPanel({
                       placeholder="SMART auto-qualification"
                     />
                   </Field>
-                  <Field label="Short positions (P1 locked)">
+                  <Field label="Short positions">
                     <input
                       type="checkbox"
-                      checked={false}
-                      disabled
-                      aria-description="Short selling remains disabled until borrow, margin, recall, and short-sale restriction controls are complete."
-                      onChange={() => {}}
+                      checked={allowShorts}
+                      onChange={(event) => setAllowShorts(event.target.checked)}
                     />
                   </Field>
                   <Field label="Include extended hours">
@@ -987,6 +1066,31 @@ export default function ActionPanel({
                     }}
                   />
                 </Field>
+                {assetClass === "equity" && allowShorts && (
+                  <>
+                    <Field label="Short-control client ID">
+                      <input type="number" min="0" value={shortControlClientId} onChange={(event) => setShortControlClientId(event.target.value)} />
+                    </Field>
+                    <Field label="IBKR borrow feed URL" wide>
+                      <input value={shortBorrowApiUrl} onChange={(event) => setShortBorrowApiUrl(event.target.value)} />
+                    </Field>
+                    <Field label="Verify HTTP feed TLS">
+                      <input type="checkbox" checked={shortBorrowApiVerifyTls} onChange={(event) => setShortBorrowApiVerifyTls(event.target.checked)} />
+                    </Field>
+                    <Field label="Maximum borrow fee (%)">
+                      <input type="number" min="0.01" max="100" step="0.05" value={shortMaxBorrowFeePct} onChange={(event) => setShortMaxBorrowFeePct(event.target.value)} />
+                    </Field>
+                    <Field label="Minimum margin cushion (%)">
+                      <input type="number" min="0.01" max="99" step="1" value={shortMinMarginCushionPct} onChange={(event) => setShortMinMarginCushionPct(event.target.value)} />
+                    </Field>
+                    <Field label="Locate buffer">
+                      <input type="number" min="1" max="10" step="0.05" value={shortLocateBufferRatio} onChange={(event) => setShortLocateBufferRatio(event.target.value)} />
+                    </Field>
+                    <Field label="Recall grace (seconds)">
+                      <input type="number" min="1" max="3600" step="1" value={shortRecallGraceSecs} onChange={(event) => setShortRecallGraceSecs(event.target.value)} />
+                    </Field>
+                  </>
+                )}
               </div>
             </details>
             <div className="action-panel__actions">

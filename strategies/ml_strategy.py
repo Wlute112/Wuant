@@ -54,6 +54,11 @@ from nautilus_trader.model.objects import Quantity
 from nautilus_trader.trading.strategy import Strategy
 
 from quant.data.quality import BarQualityGate
+from quant.models.cross_asset import PriceHistory
+from quant.models.industry import (
+    industry_peers_for_symbol,
+    sector_for_symbol,
+)
 from quant.models.prediction_engine import PredictionConfig, PredictionEngine
 from quant.news.core import NewsFeatureReader, NewsFeatureSnapshot
 from quant.ops.state import OperationsStore
@@ -168,6 +173,22 @@ class MLStrategyConfig(StrategyConfig, frozen=True):
     cross_asset_lags: int = 0
     spread_lags: int = 0
     cross_asset_symbols: tuple[str, ...] = ()
+
+    # --- correlation-weighted same-industry alpha ----------------------
+    # Industry and sector membership are structural and fixed before a run.
+    # None uses quant.models.industry's deterministic built-in classification;
+    # explicit maps extend/replace entries by symbol. Unknown symbols receive
+    # no industry factor and an isolated sector-risk bucket.
+    use_industry_features: bool = False
+    industry_map: dict[str, str] | None = None
+    industry_benchmark_map: dict[str, str] | None = None
+    sector_map: dict[str, str] | None = None
+    industry_correlation_window_bars: int = 60
+    industry_correlation_half_life_bars: int = 20
+    industry_minimum_observations: int = 40
+    industry_minimum_correlation: float = 0.25
+    industry_correlation_shrinkage: float = 0.20
+    industry_momentum_bars: int = 5
 
     # --- causal live/historical news alpha -------------------------------
     # The reader sees only articles whose first received_at timestamp is no
@@ -337,6 +358,7 @@ class MLStrategy(Strategy):
         # lookups for cross-asset features don't re-parse strings every bar.
         self._iid_by_raw: dict[str, InstrumentId] = {}
         self._raw_by_iid: dict[InstrumentId, str] = {}
+        self._sector_by_iid: dict[InstrumentId, str] = {}
         self._last_bar_ns: dict[InstrumentId, int] = defaultdict(int)
         self._data_quality = BarQualityGate(
             expected_interval_seconds=max(1, config.expected_bar_interval_secs),
@@ -353,8 +375,11 @@ class MLStrategy(Strategy):
         self._telemetry: LiveTelemetryRecorder | None = None
         self._telemetry_failed = False
         self._historical_telemetry_count = 0
+        self._short_control = None
+        self._short_control_breaches: dict[InstrumentId, datetime] = {}
         self._operations: OperationsStore | None = None
         self._operations_failed = False
+        self._operations_entries_frozen = False
         self._external_supervisor_unhealthy = False
         self._last_audited_safety_state: tuple[str, str] | None = None
         # Model-derived reference levels for positions/orders. Telemetry marks
@@ -382,6 +407,10 @@ class MLStrategy(Strategy):
             if config.execution_mode in {"paper", "live"}
             else "NOT_APPLICABLE"
         )
+
+    def attach_short_control(self, controller) -> None:
+        """Attach the runner-owned IBKR short-control service before startup."""
+        self._short_control = controller
 
     # ---- lifecycle ------------------------------------------------------
     def on_start(self) -> None:
@@ -451,6 +480,22 @@ class MLStrategy(Strategy):
                 peers = tuple(s for s in self.config.cross_asset_symbols if s != raw)
             else:
                 peers = tuple(r for r in self.config.instrument_ids if r != raw)
+            industry_peers = (
+                industry_peers_for_symbol(
+                    raw,
+                    self.config.instrument_ids,
+                    industry_map=self.config.industry_map,
+                    benchmark_map=self.config.industry_benchmark_map,
+                )
+                if self.config.use_industry_features
+                else ()
+            )
+            sector = sector_for_symbol(
+                raw,
+                industry_map=self.config.industry_map,
+                sector_map=self.config.sector_map,
+            )
+            self._sector_by_iid[iid] = sector or f"UNCLASSIFIED:{raw}"
             self._engines[iid] = PredictionEngine(
                 PredictionConfig(
                     n_lags=self.config.n_lags,
@@ -469,6 +514,16 @@ class MLStrategy(Strategy):
                     cross_asset_lags=self.config.cross_asset_lags,
                     spread_lags=self.config.spread_lags,
                     peer_symbols=peers,
+                    use_industry_features=bool(industry_peers),
+                    industry_peer_symbols=industry_peers,
+                    industry_correlation_window_bars=self.config.industry_correlation_window_bars,
+                    industry_correlation_half_life_bars=(
+                        self.config.industry_correlation_half_life_bars
+                    ),
+                    industry_minimum_observations=self.config.industry_minimum_observations,
+                    industry_minimum_correlation=self.config.industry_minimum_correlation,
+                    industry_correlation_shrinkage=self.config.industry_correlation_shrinkage,
+                    industry_momentum_bars=self.config.industry_momentum_bars,
                     use_news_features=self.config.use_news_features,
                     news_source=self.config.news_source,
                     news_raw_scale=self.config.news_raw_scale,
@@ -656,6 +711,7 @@ class MLStrategy(Strategy):
         for command in commands:
             try:
                 if command.action == "FREEZE_ENTRIES":
+                    self._operations_entries_frozen = True
                     self._execution_safety.freeze(
                         command.reason,
                         ts_ns=self.clock.timestamp_ns(),
@@ -674,6 +730,7 @@ class MLStrategy(Strategy):
                         and not self._external_supervisor_unhealthy
                     )
                     if allowed:
+                        self._operations_entries_frozen = False
                         self._execution_safety.resume(
                             command.reason,
                             ts_ns=self.clock.timestamp_ns(),
@@ -1130,17 +1187,56 @@ class MLStrategy(Strategy):
         elif (
             self._execution_safety.state == ExecutionSafetyState.FROZEN
             and self._risk.state == TradingState.ACTIVE
+            and not self._operations_entries_frozen
+            and not self._external_supervisor_unhealthy
         ):
             self._execution_safety.resume(
                 "Market-data/session health recovered.",
                 ts_ns=now_ns,
             )
 
+        self._supervise_short_positions(when)
+
         self._reconcile_committed_notional()
         gross = sum(self._committed_notional.values())
         if gross > self.config.max_gross_exposure_pct * equity + 1e-9:
             self._begin_risk_exit("gross exposure limit breached", permanent=True)
         self._audit_safety_state_if_changed()
+
+    def _supervise_short_positions(self, when: datetime) -> None:
+        if not self.config.allow_short_positions or self.config.execution_mode == "backtest":
+            return
+        for iid, raw in self._raw_by_iid.items():
+            net, _ = self._broker_position_state(iid)
+            if net >= 0:
+                self._short_control_breaches.pop(iid, None)
+                continue
+            symbol = raw.split(".", 1)[0].split("/", 1)[0]
+            if self._short_control is None:
+                self._request_instrument_exit(iid, "short-control service unavailable")
+                continue
+            decision = self._short_control.supervise(symbol, quantity=abs(net))
+            if decision.allowed:
+                self._short_control_breaches.pop(iid, None)
+                continue
+            self._cancel_working_entry_orders(iid, reason=decision.code)
+            started = self._short_control_breaches.setdefault(iid, when)
+            grace = float(self._short_control.config.recall_grace_secs)
+            if (
+                (when - started).total_seconds() >= grace
+                and iid not in self._pending_exits
+            ):
+                self._audit_event(
+                    "SHORT_CONTROL_EXIT",
+                    {
+                        "instrument_id": str(iid),
+                        "code": decision.code,
+                        "reason": decision.reason,
+                        "grace_seconds": grace,
+                    },
+                    severity="CRITICAL",
+                )
+                self._request_instrument_exit(iid, f"short control: {decision.code}")
 
     def _has_broker_exposure(self) -> bool:
         return bool(
@@ -1235,7 +1331,7 @@ class MLStrategy(Strategy):
             trs.append(tr)
         return sum(trs) / len(trs) if trs else None
 
-    def _peer_closes(self, iid: InstrumentId) -> dict[str, np.ndarray]:
+    def _peer_closes(self, iid: InstrumentId) -> dict[str, PriceHistory]:
         """Gather this instrument's peer close series for cross-asset features.
 
         Returns {} when the engine has no peer_symbols (feature off). Every
@@ -1245,7 +1341,7 @@ class MLStrategy(Strategy):
         never a future one. All feature construction happens inside
         PredictionEngine; this strategy only assembles the raw closes.
         """
-        peers = self._engines[iid].cfg.peer_symbols
+        peers = self._engines[iid].cfg.required_peer_symbols
         if not peers:
             return {}
         out = {}
@@ -1255,7 +1351,10 @@ class MLStrategy(Strategy):
                 continue
             pc = self._closes.get(piid)
             if pc:
-                out[raw] = np.asarray(pc, dtype=float)
+                out[raw] = PriceHistory(
+                    closes=np.asarray(pc, dtype=float),
+                    timestamps=np.asarray(self._bar_times[piid], dtype=np.int64),
+                )
         return out
 
     def _flatten_all(self, reason: str) -> None:
@@ -1445,6 +1544,42 @@ class MLStrategy(Strategy):
         equity = self._equity()
         readings = self._risk.telemetry(equity)
         gross = sum(abs(value) for value in self._committed_notional.values())
+        if self._short_control is not None:
+            short_control_state = self._short_control.snapshot()
+            if self._short_control_breaches:
+                now = self.clock.utc_now()
+                grace = float(self._short_control.config.recall_grace_secs)
+                active_breaches = [
+                    {
+                        "instrument_id": str(iid),
+                        "since": observed.isoformat(),
+                        "grace_remaining_secs": max(
+                            grace - (now - observed).total_seconds(),
+                            0.0,
+                        ),
+                    }
+                    for iid, observed in self._short_control_breaches.items()
+                ]
+                grace_active = all(
+                    breach["grace_remaining_secs"] > 0 for breach in active_breaches
+                )
+                short_control_state.update(
+                    {
+                        "healthy": False,
+                        "state": "RECALL_GRACE" if grace_active else "ACTIVE_BREACH",
+                        "grace_active": grace_active,
+                        "active_breaches": active_breaches,
+                    }
+                )
+        else:
+            short_control_state = {
+                "enabled": bool(self.config.allow_short_positions),
+                "healthy": not self.config.allow_short_positions,
+                "state": (
+                    "DISABLED" if not self.config.allow_short_positions else "UNAVAILABLE"
+                ),
+                "symbols": {},
+            }
         readings.update(
             {
                 "gross_leverage": gross / equity if equity > 0 else 0.0,
@@ -1525,6 +1660,7 @@ class MLStrategy(Strategy):
                     "recovery_required_bars": self.config.data_quality_recovery_bars,
                     "issues": list(self._data_quality_issues),
                 },
+                "short_controls": short_control_state,
             }
         )
         if self._session_calendars:
@@ -1750,7 +1886,7 @@ class MLStrategy(Strategy):
     def _cross_asset_data_is_fresh(self, iid: InstrumentId, ts_ns: int) -> bool:
         if (
             self.config.execution_mode not in {"paper", "live"}
-            or (self.config.cross_asset_lags <= 0 and self.config.spread_lags <= 0)
+            or not self._engines[iid].cfg.required_peer_symbols
         ):
             return True
         stale: list[str] = []
@@ -1763,7 +1899,7 @@ class MLStrategy(Strategy):
             if len(self._bar_times[iid]) >= 2
             else int(ts_ns)
         )
-        for raw in self._engines[iid].cfg.peer_symbols:
+        for raw in self._engines[iid].cfg.required_peer_symbols:
             peer = self._iid_by_raw.get(raw)
             latest = self._last_bar_ns.get(peer, 0) if peer is not None else 0
             if latest <= 0 or latest < prior_target_ns:
@@ -1879,7 +2015,10 @@ class MLStrategy(Strategy):
         )
         if fit_allowed and (needs_baseline or bar_index % cadence == 0):
             if not eng.refit_on_history(
-                list(closes), peer_closes, news_features=news_features
+                list(closes),
+                peer_closes,
+                news_features=news_features,
+                timestamps=np.asarray(self._bar_times[iid], dtype=np.int64),
             ):
                 return
             self._trained[iid] = True
@@ -1890,7 +2029,10 @@ class MLStrategy(Strategy):
 
         # --- alpha: get yhat, then BUFFER (submission happens in the batch) ---
         yhat = eng.predict_move(
-            list(closes), peer_closes, news_features=news_features
+            list(closes),
+            peer_closes,
+            news_features=news_features,
+            timestamps=np.asarray(self._bar_times[iid], dtype=np.int64),
         )
         if yhat is None:
             return
@@ -1900,7 +2042,7 @@ class MLStrategy(Strategy):
             return
 
         self._record_telemetry(bar, ts, yhat=float(yhat), atr=atr)
-        audited = self._audit_event(
+        self._audit_event(
             "SIGNAL_EVALUATED",
             {
                 "instrument_id": str(iid),
@@ -2160,7 +2302,7 @@ class MLStrategy(Strategy):
             signal_version=signal_version,
             ts_ns=self.clock.timestamp_ns(),
         )
-        self._audit_event(
+        audited = self._audit_event(
             "ORDER_REGISTERED",
             {
                 "client_order_id": order_id,
@@ -2288,20 +2430,66 @@ class MLStrategy(Strategy):
 
         limit_px = None
         submission_price = price
-        if self.config.use_limit_orders:
+        use_limit_order = self.config.use_limit_orders
+        if use_limit_order:
             off = price * (self.config.limit_offset_bps / 10_000.0)
             limit_px = price - off if side == OrderSide.BUY else price + off
+            submission_price = limit_px
+
+        if (
+            side == OrderSide.SELL
+            and self.config.allow_short_positions
+            and self.config.execution_mode in {"paper", "live"}
+        ):
+            if self._short_control is None:
+                self.log.error(f"Short entry rejected for {iid}: short-control service unavailable")
+                return
+            symbol = str(iid).split(".", 1)[0].split("/", 1)[0]
+            decision = self._short_control.preflight(
+                symbol,
+                quantity=target_qty.as_double(),
+                reference_price=price,
+                proposed_limit_price=limit_px,
+            )
+            self._audit_event(
+                "SHORT_PREFLIGHT",
+                {
+                    "instrument_id": str(iid),
+                    "quantity": target_qty.as_double(),
+                    "allowed": decision.allowed,
+                    "code": decision.code,
+                    "reason": decision.reason,
+                    "ssr_active": decision.ssr_active,
+                    "snapshot": decision.snapshot,
+                    "what_if": decision.what_if,
+                },
+                severity="INFO" if decision.allowed else "WARNING",
+            )
+            if not decision.allowed or decision.limit_price is None:
+                self.log.warning(
+                    f"Short entry rejected for {iid}: {decision.code}: {decision.reason}"
+                )
+                return
+            use_limit_order = True
+            limit_px = decision.limit_price
             submission_price = limit_px
 
         target_notional = target_qty.as_double() * submission_price
         gross_after = sum(
             value for current, value in self._committed_notional.items() if current != iid
         ) + target_notional
+        sector = self._sector_by_iid.get(iid, f"UNCLASSIFIED:{iid}")
+        sector_exposure_after = sum(
+            value
+            for current, value in self._committed_notional.items()
+            if current != iid and self._sector_by_iid.get(current) == sector
+        ) + target_notional
         violations = self._risk.pretrade_violations(
             equity=equity,
             order_notional=target_notional,
             symbol_exposure_after=target_notional,
             gross_exposure_after=gross_after,
+            sector_exposure_after=sector_exposure_after,
             order_price=submission_price,
             reference_price=self._last_mark.get(iid, price),
         )
@@ -2331,7 +2519,7 @@ class MLStrategy(Strategy):
                 self.log.error(f"Entry rejected for {iid}: available funds unavailable/insufficient")
                 return
 
-        if self.config.use_limit_orders:
+        if use_limit_order:
             order = self.order_factory.limit(
                 instrument_id=iid,
                 order_side=side,
@@ -2385,7 +2573,7 @@ class MLStrategy(Strategy):
         # immediately, before the fill (and resulting net_position) lands. Using
         # the ordered qty * price is a conservative synchronous proxy; on a
         # reversal it replaces (not stacks on) the instrument's prior notional.
-        self._committed_notional[iid] = target_qty.as_double() * price
+        self._committed_notional[iid] = target_qty.as_double() * submission_price
         direction = 1 if side == OrderSide.BUY else -1
         self._position_references[iid] = {
             "side": "LONG" if direction > 0 else "SHORT",
@@ -2948,12 +3136,13 @@ class MLStrategy(Strategy):
         if self._risk is None:
             return {}
         payload = {
-            "version": 6,
+            "version": 8,
             "instrument_ids": sorted(self.config.instrument_ids),
             "risk": self._risk.snapshot(),
             "account_equity_baseline": self._account_equity_baseline,
             "execution": self._execution.snapshot(),
             "execution_safety": self._execution_safety.snapshot(),
+            "operations_entries_frozen": self._operations_entries_frozen,
             "data_quality": self._data_quality.snapshot(),
             "data_quality_issues": list(self._data_quality_issues),
             "data_quality_blocked_instruments": sorted(self._data_quality_blocked_instruments),
@@ -2967,6 +3156,11 @@ class MLStrategy(Strategy):
             "pending_exits": {
                 self._raw_by_iid[iid]: reason
                 for iid, reason in self._pending_exits.items()
+                if iid in self._raw_by_iid
+            },
+            "short_control_breaches": {
+                self._raw_by_iid[iid]: observed.isoformat()
+                for iid, observed in self._short_control_breaches.items()
                 if iid in self._raw_by_iid
             },
             "instruments": {
@@ -3002,7 +3196,7 @@ class MLStrategy(Strategy):
         if raw is None:
             return
         payload = json.loads(raw.decode("utf-8"))
-        if payload.get("version") not in {1, 2, 3, 4, 5, 6}:
+        if payload.get("version") not in {1, 2, 3, 4, 5, 6, 7, 8}:
             raise ValueError(f"Unsupported MLStrategy state version: {payload.get('version')}")
         self._loaded_state = payload
 
@@ -3035,6 +3229,12 @@ class MLStrategy(Strategy):
                 payload["execution_safety"]
             )
             self._execution_safety.on_restart(ts_ns=self.clock.timestamp_ns())
+            self._operations_entries_frozen = bool(
+                payload.get(
+                    "operations_entries_frozen",
+                    self._execution_safety.state == ExecutionSafetyState.FROZEN,
+                )
+            )
         if payload.get("data_quality"):
             self._data_quality.restore(payload["data_quality"])
         self._data_quality_issues.extend(payload.get("data_quality_issues", ()))
@@ -3084,6 +3284,18 @@ class MLStrategy(Strategy):
             iid = self._iid_by_raw.get(raw)
             if iid is not None:
                 self._pending_exits[iid] = str(reason)
+        for raw, value in payload.get("short_control_breaches", {}).items():
+            iid = self._iid_by_raw.get(raw)
+            if iid is None:
+                continue
+            try:
+                observed = datetime.fromisoformat(str(value))
+                if observed.tzinfo is None:
+                    observed = observed.replace(tzinfo=timezone.utc)
+                observed = observed.astimezone(timezone.utc)
+                self._short_control_breaches[iid] = min(observed, self.clock.utc_now())
+            except (TypeError, ValueError):
+                self.log.warning(f"Ignoring invalid persisted short-control timestamp for {raw}")
         if self._telemetry is not None:
             self._telemetry.restore_series(payload.get("telemetry_series", {}))
             if self._telemetry.points:

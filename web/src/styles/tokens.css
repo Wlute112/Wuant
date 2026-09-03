@@ -2,6 +2,8 @@
    source of truth -- components reference these custom properties, never a
    raw hex or px value. */
 :root {
+  color-scheme: dark;
+
   /* Neutrals */
   --color-void: #0a0b0d;
   --color-panel: #121418;
@@ -22,6 +24,12 @@
   --color-live-warning: #9e1b1b;
   --color-positive: #35c98d;
   --color-negative: #e0483f;
+  --color-overlay: rgb(0 0 0 / 66%);
+
+  /* Theme selector swatches remain constant across every active theme. */
+  --theme-swatch-dark: #121418;
+  --theme-swatch-light: #ffffff;
+  --theme-swatch-lilac: #d8c8e8;
 
   /* Typography */
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
@@ -52,4 +60,44 @@
   --bezel-height: 44px;
   --control-min-height: 36px;
   --touch-target-size: 44px;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-void: #edf0f3;
+  --color-panel: #ffffff;
+  --color-panel-raised: #e6eaee;
+  --color-hairline: #b8c0c8;
+  --color-paper: #f6f7f8;
+  --color-text-primary: #171b20;
+  --color-text-dim: #59636f;
+  --color-trace-amber: #8f5e00;
+  --color-trace-cyan: #006c73;
+  --color-trace-violet: #5945b5;
+  --color-threshold-warn: #805500;
+  --color-threshold-danger: #a82f29;
+  --color-live-warning: #8d211d;
+  --color-positive: #08764f;
+  --color-negative: #a82f29;
+  --color-overlay: rgb(23 27 32 / 32%);
+}
+
+:root[data-theme="lilac"] {
+  color-scheme: light;
+  --color-void: #ece7f3;
+  --color-panel: #fbf9fd;
+  --color-panel-raised: #e3dceb;
+  --color-hairline: #b9acc8;
+  --color-paper: #f5f1f8;
+  --color-text-primary: #241b2d;
+  --color-text-dim: #665a72;
+  --color-trace-amber: #835700;
+  --color-trace-cyan: #006b71;
+  --color-trace-violet: #6540aa;
+  --color-threshold-warn: #7d5200;
+  --color-threshold-danger: #a33142;
+  --color-live-warning: #8d2534;
+  --color-positive: #006a48;
+  --color-negative: #a33142;
+  --color-overlay: rgb(36 27 45 / 34%);
 }

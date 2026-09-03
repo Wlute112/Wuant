@@ -19,9 +19,10 @@ Anti-overfitting discipline:
   * The winning parameters are evaluated on the outer test once, after search.
 
 Reproducibility:
-  * By DEFAULT the Optuna sampler now draws a FRESH random seed each run, so
-    re-running genuinely re-explores the space. Pass ``--seed N`` to reproduce
-    a specific search exactly. The seed used is always printed.
+  * Multivariate/grouped TPE models interactions across the conditional search
+    space after 20 startup trials.
+  * ``--seed`` controls only parameter proposals. ``--evaluation-seed`` controls
+    simulated fills and remains fixed across multi-seed campaigns.
 
 Usage:
     python -m quant.optimize.optimize --csv quant/data/sample_bars.csv \
@@ -393,8 +394,12 @@ def make_objective(
     min_positive_fraction: float = 0.6,
     stress_cost_multiplier: float = 2.0,
     normal_slippage_probability: float = 0.05,
-    seed: int = 0,
+    evaluation_seed: int = 1729,
+    seed: int | None = None,
 ):
+    if seed is not None:
+        # Backward-compatible alias for callers predating --evaluation-seed.
+        evaluation_seed = seed
     window_floor = max(warmup_bars, min_train_bars)
     training_windows = tuple(
         sorted({0, window_floor, window_floor * 2, window_floor * 4, window_floor * 8})
@@ -499,7 +504,10 @@ def make_objective(
                 "backtest_model_fit_end_ns": fold.model_fit_end_ns(horizon_embargo),
                 "backtest_trade_start_ns": fold.validation_start_ns,
             }
-            fill_seed = seed + trial.number * 10_000 + fold.number
+            # The fill seed is deliberately independent of the TPE sampler
+            # seed. Identical parameters therefore receive identical cost/fill
+            # assumptions in every seed study.
+            fill_seed = evaluation_seed + fold.number
             normal_engine = build_and_run(
                 csv_path=fold.csv_path,
                 tickers=tickers,
@@ -591,6 +599,19 @@ def make_objective(
         trial.set_user_attr("std_fold_ratio", float(np.std(
             [result.ratio for result in normal_results]
         )))
+        trial.set_user_attr("median_stressed_ratio", float(np.median(
+            [result.ratio for result in stressed_results]
+        )))
+        trial.set_user_attr("median_turnover", float(np.median(
+            [result.turnover for result in normal_results]
+        )))
+        trial.set_user_attr("trade_count", int(sum(
+            result.trades for result in normal_results
+        )))
+        trial.set_user_attr("normal_to_stress_degradation", float(np.median([
+            max(0.0, normal.ratio - stressed.ratio)
+            for normal, stressed in zip(normal_results, stressed_results)
+        ])))
         return final_score
 
     return objective
@@ -617,7 +638,7 @@ def _make_target_callback(target_score: float):
     return callback
 
 
-def main(refit_every_n_bars: int = 1) -> None:
+def main(refit_every_n_bars: int | None = 1) -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--csv", default="quant/data/sample_bars.csv")
     p.add_argument(
@@ -719,6 +740,26 @@ def main(refit_every_n_bars: int = 1) -> None:
         help="Fixed Optuna sampler seed. Omit for a FRESH random search.",
     )
     p.add_argument(
+        "--evaluation-seed",
+        type=int,
+        default=1729,
+        help="Fixed simulated-fill seed, independent of the sampler seed. Keep "
+        "this invariant across seed studies (default 1729).",
+    )
+    p.add_argument(
+        "--refit-every-n-bars",
+        type=int,
+        default=None,
+        help="Fixed Huber refit cadence. When omitted in the CLI, prompt "
+        "interactively for backward compatibility.",
+    )
+    p.add_argument(
+        "--defer-final-test",
+        action="store_true",
+        help="Finish the development search without evaluating the outer "
+        "holdout. Required for multi-seed stability campaigns.",
+    )
+    p.add_argument(
         "--out-params",
         default="quant/optimize/best_params.json",
         help="Where to save the best params so run_backtest can load them.",
@@ -807,6 +848,12 @@ def main(refit_every_n_bars: int = 1) -> None:
         "resuming) so a later run can pick it back up with --resume-run-id.",
     )
     args = p.parse_args()
+    if args.refit_every_n_bars is not None:
+        refit_every_n_bars = args.refit_every_n_bars
+    elif refit_every_n_bars is None:
+        refit_every_n_bars = _prompt_refit_every_n_bars()
+    if refit_every_n_bars is None or refit_every_n_bars < 1:
+        p.error("--refit-every-n-bars must be >= 1")
     if args.fetch_missing and args.replace_bars:
         p.error("--fetch-missing and --replace-bars are mutually exclusive")
     if args.train_frac is not None:
@@ -858,17 +905,28 @@ def main(refit_every_n_bars: int = 1) -> None:
     # Asset profile defaults are structural and therefore identical across
     # every trial. Explicit JSON values win over the profile.
     structural_overrides = strategy_defaults_for_asset(args.asset_class)
-    structural_overrides["regime_window"] = 20 * infer_bars_per_session(
-        args.csv, tickers
-    )
+    bars_per_session = infer_bars_per_session(args.csv, tickers)
+    structural_overrides["regime_window"] = 20 * bars_per_session
+    structural_overrides.update({
+        "industry_correlation_window_bars": 60 * bars_per_session,
+        "industry_correlation_half_life_bars": 20 * bars_per_session,
+        "industry_minimum_observations": 40 * bars_per_session,
+        "industry_momentum_bars": 5 * bars_per_session,
+    })
     if args.structural_json:
         with open(args.structural_json) as fh:
             structural_overrides.update(json.load(fh))
         print(f"Structural feature/risk overrides from {args.structural_json}: {structural_overrides}")
     if structural_overrides.get("regime_window") == 20:
-        structural_overrides["regime_window"] = 20 * infer_bars_per_session(
-            args.csv, tickers
-        )
+        structural_overrides["regime_window"] = 20 * bars_per_session
+    for key, sessions in {
+        "industry_correlation_window_bars": 60,
+        "industry_correlation_half_life_bars": 20,
+        "industry_minimum_observations": 40,
+        "industry_momentum_bars": 5,
+    }.items():
+        if structural_overrides.get(key) == sessions:
+            structural_overrides[key] = sessions * bars_per_session
 
     started_at = time.time()
     seed = args.seed if args.seed is not None else secrets.randbelow(2**31)
@@ -906,7 +964,9 @@ def main(refit_every_n_bars: int = 1) -> None:
         f"newest {args.final_test_frac:.1%} reserved for one final test"
     )
 
-    sampler = optuna.samplers.TPESampler(seed=seed)
+    sampler = optuna.samplers.TPESampler(
+        seed=seed, multivariate=True, group=True, n_startup_trials=20
+    )
     # MedianPruner: after n_startup_trials have fully completed (seeding the
     # per-step medians) and past n_warmup_steps checkpoints within a trial,
     # prune any trial whose intermediate profile ratio trails the running median at
@@ -927,6 +987,7 @@ def main(refit_every_n_bars: int = 1) -> None:
     )
     validation_contract = {
         "scheme": "purged_nested_walk_forward_v1",
+        "source_csv": str(Path(args.csv).resolve()),
         "source_csv_sha256": _file_sha256(args.csv),
         "tickers": tickers,
         "asset_class": args.asset_class,
@@ -939,11 +1000,24 @@ def main(refit_every_n_bars: int = 1) -> None:
         "min_positive_fold_fraction": args.min_positive_fold_fraction,
         "normal_slippage_probability": args.normal_slippage_probability,
         "stress_cost_multiplier": args.stress_cost_multiplier,
+        "starting_cash": args.cash,
+        "evaluation_seed": args.evaluation_seed,
+        "include_extended_hours": args.include_extended_hours,
         "warmup_bars": warmup_bars,
         "min_train_bars": min_train_bars,
         "refit_every_n_bars": refit_every_n_bars,
         "structural_overrides": structural_overrides,
         "news_snapshot_sha256": news_snapshot_sha256,
+        "fold_boundaries": [
+            {
+                "number": fold.number,
+                "validation_start_ns": fold.validation_start_ns,
+                "validation_end_ns": fold.validation_end_ns,
+            }
+            for fold in nested_data.folds
+        ],
+        "outer_holdout_start_ns": nested_data.final_test_start_ns,
+        "outer_holdout_end_ns": nested_data.final_test_end_ns,
     }
     prior_contract = study.user_attrs.get("validation_contract")
     if study.trials and prior_contract is None:
@@ -961,6 +1035,9 @@ def main(refit_every_n_bars: int = 1) -> None:
             "accept more trials without contaminating that holdout"
         )
     study.set_user_attr("validation_contract", validation_contract)
+    study.set_user_attr("sampler_seed", seed)
+    study.set_user_attr("evaluation_seed", args.evaluation_seed)
+    study.set_user_attr("outer_holdout_status", "UNTOUCHED")
     if args.resume_run_id:
         print(f"Resuming study {study_name!r}: {len(study.trials)} trial(s) already "
               f"recorded; adding more on top.")
@@ -987,7 +1064,7 @@ def main(refit_every_n_bars: int = 1) -> None:
             min_positive_fraction=args.min_positive_fold_fraction,
             stress_cost_multiplier=args.stress_cost_multiplier,
             normal_slippage_probability=args.normal_slippage_probability,
-            seed=seed,
+            evaluation_seed=args.evaluation_seed,
         ),
         n_trials=n_trials,
         callbacks=callbacks,
@@ -1026,6 +1103,7 @@ def main(refit_every_n_bars: int = 1) -> None:
         "in_sample_value": study.best_value,
         "selection_value": study.best_value,
         "seed": seed,
+        "evaluation_seed": args.evaluation_seed,
         "trials": args.trials,
         # train_frac remains as compatibility metadata for older dashboard
         # clients. It is no longer a one-shot optimization split.
@@ -1046,7 +1124,11 @@ def main(refit_every_n_bars: int = 1) -> None:
         "best_fold_results": study.best_trial.user_attrs.get(
             "walk_forward_folds", []
         ),
-        "promotion_status": "REQUIRES_SHADOW_AND_PAPER_AGREEMENT",
+        "promotion_status": (
+            "AWAITING_CROSS_SEED_ROBUSTNESS"
+            if args.defer_final_test
+            else "REQUIRES_SHADOW_AND_PAPER_AGREEMENT"
+        ),
         "source_csv": args.csv,
         "news_snapshot_sha256": news_snapshot_sha256,
         # Recorded OUTSIDE "params" (which holds only Optuna-tuned keys) because
@@ -1065,6 +1147,13 @@ def main(refit_every_n_bars: int = 1) -> None:
     with open(args.out_params, "w") as fh:
         json.dump(payload, fh, indent=2)
     print(f"\nSaved best params -> {args.out_params}")
+
+    if args.defer_final_test:
+        study.set_user_attr("optimization_complete", True)
+        study.set_user_attr("locked_candidate", payload)
+        print("Outer holdout: UNTOUCHED (--defer-final-test)")
+        split_workspace.cleanup()
+        return
 
     # Evaluate the locked winner on the untouched outer period. This data was
     # not loaded by any Optuna trial. Normal and stressed assumptions each run
@@ -1086,6 +1175,7 @@ def main(refit_every_n_bars: int = 1) -> None:
     # consumes information and must prevent later tuning in this study.
     study.set_user_attr("final_test_evaluated", True)
     study.set_user_attr("final_test_evaluated_at", time.time())
+    study.set_user_attr("outer_holdout_status", "CONSUMED")
     engine = build_and_run(
         csv_path=nested_data.final_context_path,
         tickers=tickers,
@@ -1096,7 +1186,7 @@ def main(refit_every_n_bars: int = 1) -> None:
         asset_class=args.asset_class,
         cost_multiplier=1.0,
         slippage_probability=args.normal_slippage_probability,
-        fill_model_seed=seed,
+        fill_model_seed=args.evaluation_seed,
     )
     final_normal = _engine_performance(engine, args.cash, args.asset_class)
     stressed_engine = build_and_run(
@@ -1111,7 +1201,7 @@ def main(refit_every_n_bars: int = 1) -> None:
         slippage_probability=min(
             1.0, args.normal_slippage_probability * 2.0
         ),
-        fill_model_seed=seed,
+        fill_model_seed=args.evaluation_seed,
     )
     final_stressed = _engine_performance(
         stressed_engine, args.cash, args.asset_class
@@ -1202,5 +1292,4 @@ if __name__ == "__main__":
     # Interactive prompt at the very start of execution: the refit cadence is a
     # fixed structural setting supplied from the terminal, NOT an Optuna-tuned
     # parameter (see _prompt_refit_every_n_bars / the GUARDRAIL in make_objective).
-    _refit_every_n_bars = _prompt_refit_every_n_bars()
-    main(refit_every_n_bars=_refit_every_n_bars)
+    main(refit_every_n_bars=None)

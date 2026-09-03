@@ -54,6 +54,7 @@ export const FALLBACK_ASSET_PROFILES = {
       "Whole-share rounding can suppress trades in small allocations.",
       "Extended-hours bars and orders are opt-in and have thinner liquidity.",
       "Overnight gaps can cross an ATR risk reference before the next bar.",
+      "Shorts require live IBKR borrow, fee, margin, Rule-201, and what-if approval.",
     ],
   },
 };

@@ -16,7 +16,7 @@
 .workflow-shell__backdrop {
   position: absolute;
   inset: 0;
-  background: rgb(0 0 0 / 66%);
+  background: var(--color-overlay);
   opacity: 0;
   transition: opacity var(--duration-normal) var(--ease-out-expo);
 }

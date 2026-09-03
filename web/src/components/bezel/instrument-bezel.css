@@ -57,6 +57,20 @@
   background: var(--color-panel);
 }
 
+.broker-status__segment {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.broker-status__divider {
+  width: 1px;
+  height: 14px;
+  flex: 0 0 auto;
+  background: var(--color-hairline);
+}
+
 .broker-status__dot {
   width: 8px;
   height: 8px;
@@ -69,23 +83,29 @@
   animation: pulse 1.6s var(--ease-out-expo) infinite;
 }
 
-.broker-status.is-unknown,
-.broker-status.is-disconnected,
-.broker-status.is-error {
+.broker-status__dot.is-durable {
+  background: var(--color-text-primary);
+}
+
+.broker-status__segment.is-unknown,
+.broker-status__segment.is-disconnected,
+.broker-status__segment.is-error {
   color: var(--color-negative);
 }
 
-.broker-status.is-unknown .broker-status__dot,
-.broker-status.is-disconnected .broker-status__dot,
-.broker-status.is-error .broker-status__dot {
+.broker-status__segment.is-unknown .broker-status__dot,
+.broker-status__segment.is-disconnected .broker-status__dot,
+.broker-status__segment.is-error .broker-status__dot {
   background: var(--color-negative);
 }
 
-.broker-status.is-connecting {
+.broker-status__segment.is-connecting,
+.broker-status__segment.is-loading {
   color: var(--color-threshold-warn);
 }
 
-.broker-status.is-connecting .broker-status__dot {
+.broker-status__segment.is-connecting .broker-status__dot,
+.broker-status__segment.is-loading .broker-status__dot {
   background: var(--color-threshold-warn);
 }
 

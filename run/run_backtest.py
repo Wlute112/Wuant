@@ -81,6 +81,17 @@ STRUCTURAL_KEYS = {
     "news_industry_weight",
     "news_commodity_weight",
     "news_macro_weight",
+    # --- correlation-weighted same-industry factor ---------------------
+    "use_industry_features",
+    "industry_map",
+    "industry_benchmark_map",
+    "sector_map",
+    "industry_correlation_window_bars",
+    "industry_correlation_half_life_bars",
+    "industry_minimum_observations",
+    "industry_minimum_correlation",
+    "industry_correlation_shrinkage",
+    "industry_momentum_bars",
     # --- risk rails (dashboard-editable, NOT Optuna-tuned) ---
     "risk_budget_pct",
     "max_trade_risk_pct",
@@ -89,6 +100,12 @@ STRUCTURAL_KEYS = {
     "kill_switch_pct",
     "kill_warn_pct",
     "kelly_max_fraction",
+    "max_order_notional_pct",
+    "max_symbol_exposure_pct",
+    "max_sector_exposure_pct",
+    "max_gross_exposure_pct",
+    "max_concentration_pct",
+    "price_collar_pct",
 }
 
 
@@ -217,6 +234,14 @@ def main() -> None:
     bars_per_session = infer_bars_per_session(args.csv, tickers)
     if "regime_window" not in loaded_overrides or loaded_overrides.get("regime_window") == 20:
         overrides["regime_window"] = 20 * bars_per_session
+    for key, sessions in {
+        "industry_correlation_window_bars": 60,
+        "industry_correlation_half_life_bars": 20,
+        "industry_minimum_observations": 40,
+        "industry_momentum_bars": 5,
+    }.items():
+        if key not in loaded_overrides or loaded_overrides.get(key) == sessions:
+            overrides[key] = sessions * bars_per_session
     overrides.update(loaded_overrides)
     if args.no_news:
         overrides["use_news_features"] = False

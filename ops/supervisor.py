@@ -52,6 +52,25 @@ def evaluate_snapshot(payload: dict | None, *, age_seconds: float | None, max_ag
     data_quality = risk.get("data_quality") or {}
     if data_quality and not bool(data_quality.get("healthy", False)):
         return SupervisorDecision(False, "FREEZE_ENTRIES", "DATA_QUALITY_FAILED", "strategy reports a critical market-data quality issue", "CRITICAL")
+    short_controls = risk.get("short_controls") or {}
+    if short_controls.get("enabled") and not bool(short_controls.get("healthy", False)):
+        positions = payload.get("positions") or []
+        has_short = any(str(position.get("side", "")).upper() == "SHORT" for position in positions)
+        grace_active = short_controls.get("state") == "RECALL_GRACE"
+        active_breach = short_controls.get("state") == "ACTIVE_BREACH"
+        return SupervisorDecision(
+            False,
+            "FLATTEN" if has_short and active_breach else "FREEZE_ENTRIES",
+            "SHORT_CONTROL_FAILED",
+            (
+                "an existing short is inside the configured control-loss grace period"
+                if has_short and grace_active
+                else "an existing short exceeded the configured control-loss grace period"
+                if has_short and active_breach
+                else "required borrow, fee, margin, or short-sale-restriction controls are not healthy"
+            ),
+            "CRITICAL",
+        )
     session = risk.get("session") or {}
     data_age = session.get("data_age_seconds")
     if data_age is not None and float(data_age) > max_age_seconds:

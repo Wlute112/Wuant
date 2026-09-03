@@ -45,6 +45,21 @@ def test_supervisor_decisions_are_fail_closed_and_escalate_by_rail():
     assert evaluate_snapshot(_telemetry(), age_seconds=1, max_age_seconds=10).healthy
 
 
+def test_supervisor_freezes_new_shorts_and_flattens_existing_shorts():
+    controls = {"enabled": True, "healthy": False, "state": "BLOCKED"}
+    no_position = _telemetry(short_controls=controls)
+    with_position = {
+        **_telemetry(short_controls=controls),
+        "positions": [{"symbol": "QQQ", "side": "SHORT", "qty": 5}],
+    }
+    assert evaluate_snapshot(no_position, age_seconds=1, max_age_seconds=10).action == "FREEZE_ENTRIES"
+    assert evaluate_snapshot(with_position, age_seconds=1, max_age_seconds=10).action == "FREEZE_ENTRIES"
+    with_position["risk"]["short_controls"]["state"] = "RECALL_GRACE"
+    assert evaluate_snapshot(with_position, age_seconds=1, max_age_seconds=10).action == "FREEZE_ENTRIES"
+    with_position["risk"]["short_controls"]["state"] = "ACTIVE_BREACH"
+    assert evaluate_snapshot(with_position, age_seconds=1, max_age_seconds=10).action == "FLATTEN"
+
+
 def test_alert_dispatch_is_deduplicated(tmp_path):
     store = OperationsStore(str(tmp_path / "ops.sqlite3"))
     sink = _MemorySink()

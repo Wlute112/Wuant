@@ -19,6 +19,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from quant.models.cross_asset import PriceHistory
+from quant.models.industry import industry_peers_for_symbol
 from quant.models.prediction_engine import PredictionConfig, PredictionEngine
 from quant.models.regime import build_regime_frame
 from quant.news.core import NewsFeatureReader
@@ -46,6 +48,12 @@ _PREDICTION_OVERRIDE_KEYS = (
     "training_window_bars",
     "cross_asset_lags",
     "spread_lags",
+    "industry_correlation_window_bars",
+    "industry_correlation_half_life_bars",
+    "industry_minimum_observations",
+    "industry_minimum_correlation",
+    "industry_correlation_shrinkage",
+    "industry_momentum_bars",
     "use_regime_features",
     "use_hmm_feature",
     "regime_source",
@@ -183,13 +191,36 @@ def ml_performance_by_ticker(
     cross_lags = int(overrides.get("cross_asset_lags", 0) or 0)
     spread_lags = int(overrides.get("spread_lags", 0) or 0)
     wants_peers = cross_lags > 0 or spread_lags > 0
+    wants_industry = bool(overrides.get("use_industry_features", False))
     cfg_kwargs = {k: overrides[k] for k in _PREDICTION_OVERRIDE_KEYS if k in overrides}
 
     results = {}
     for tk in tickers:
         peer_symbols = tuple(t for t in tickers if t != tk) if wants_peers else ()
-        cfg = PredictionConfig(peer_symbols=peer_symbols, **cfg_kwargs)
-        peer_closes = {p: closes_by_ticker[p] for p in peer_symbols} if peer_symbols else None
+        industry_peers = (
+            industry_peers_for_symbol(
+                tk,
+                tickers,
+                industry_map=overrides.get("industry_map"),
+                benchmark_map=overrides.get("industry_benchmark_map"),
+            )
+            if wants_industry
+            else ()
+        )
+        cfg = PredictionConfig(
+            peer_symbols=peer_symbols,
+            use_industry_features=bool(industry_peers),
+            industry_peer_symbols=industry_peers,
+            **cfg_kwargs,
+        )
+        required_peers = cfg.required_peer_symbols
+        peer_closes = {
+            peer: PriceHistory(
+                closes=closes_by_ticker[peer],
+                timestamps=timestamps_by_ticker[peer],
+            )
+            for peer in required_peers
+        } or None
         ticker_news = news_series.get(tk, [])
         news_features = (
             np.asarray([float(item.get("score", 0.0)) for item in ticker_news])
@@ -202,6 +233,7 @@ def ml_performance_by_ticker(
                 closes_by_ticker[tk],
                 peer_closes,
                 n_splits=n_splits,
+                timestamps=timestamps_by_ticker[tk],
                 news_features=news_features,
                 return_folds=True,
                 return_series=True,

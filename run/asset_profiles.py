@@ -92,6 +92,7 @@ ASSET_PROFILES = {
             "Whole-share rounding can suppress trades in small allocations.",
             "Extended-hours bars and orders are opt-in and have thinner liquidity.",
             "Overnight gaps can cross an ATR risk reference before the next bar.",
+            "Shorts require live IBKR borrow, fee, margin, Rule-201, and what-if approval.",
         ],
     },
 }
@@ -137,12 +138,19 @@ def strategy_defaults_for_asset(
 ) -> dict:
     """Structural alpha defaults applied unless the operator overrides them."""
     defaults = get_asset_profile(asset_class)["defaults"]
+    regime_window = regime_window_for_bar_hours(
+        asset_class,
+        bar_hours,
+        include_extended_hours=include_extended_hours,
+    )
+    bars_per_session = max(1, regime_window // 20)
     return {
-        "regime_window": regime_window_for_bar_hours(
-            asset_class,
-            bar_hours,
-            include_extended_hours=include_extended_hours,
-        ),
+        "regime_window": regime_window,
         "regime_bull_threshold": defaults["regime_bull_threshold"],
         "regime_bear_threshold": defaults["regime_bear_threshold"],
+        "use_industry_features": asset_class == "equity",
+        "industry_correlation_window_bars": 60 * bars_per_session,
+        "industry_correlation_half_life_bars": 20 * bars_per_session,
+        "industry_minimum_observations": 40 * bars_per_session,
+        "industry_momentum_bars": 5 * bars_per_session,
     }

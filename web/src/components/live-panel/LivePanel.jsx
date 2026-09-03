@@ -3,6 +3,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useInterval } from "../../hooks/useInterval.js";
 import { api } from "../../lib/api.js";
 import { formatNum, formatPct, formatTime, formatUsd } from "../../lib/format.js";
+import {
+  executionJobFor,
+  isJobActive,
+  jobStatusLabel,
+  supervisorFor,
+} from "../../lib/jobs.js";
 import ModelDecisionTape from "../model-tape/ModelDecisionTape.jsx";
 import NewsTape from "../news-tape/NewsTape.jsx";
 import DockWorkspace from "../workspace/DockWorkspace.jsx";
@@ -97,10 +103,14 @@ export default function LivePanel({
   assetClass = "crypto",
   profile,
   brokerStatus = {},
+  apiHealth = {},
+  jobs = [],
   toolbarNavigation = null,
   toolbarLead = null,
   toolbarActions = null,
   toolbarStatus = null,
+  theme = "dark",
+  onThemeChange = null,
 }) {
   const [telemetry, setTelemetry] = useState(null);
   const [ticker, setTicker] = useState(null);
@@ -356,21 +366,34 @@ export default function LivePanel({
   const orders = isDemo ? [] : risk.orders || [];
   const fills = isDemo ? [] : risk.fills || [];
   const operatorAlerts = isDemo ? [] : risk.operator_alerts || [];
+  const executionJob = executionJobFor(
+    jobs,
+    mode,
+    assetClass,
+    telemetry?.job_id || null,
+  );
+  const riskSupervisorJob = supervisorFor(jobs, executionJob);
+  const executionJobStatus = telemetry?.job_status
+    || executionJob?.status
+    || (telemetry?.status === "running" ? "running" : null);
+  const sessionStarting = !isDemo
+    && (executionJobStatus === "starting" || telemetry?.status === "connecting");
+  const sessionCancelling = !isDemo && executionJobStatus === "cancelling";
   const sessionRunning = !isDemo
     && telemetry?.status === "running"
-    && telemetry?.job_status === "running";
-  const isLastKnown = Boolean(telemetry)
-    && !isDemo
-    && !sessionRunning
-    && telemetry.status !== "connecting";
+    && (!executionJobStatus || executionJobStatus === "running");
+  const isLastKnown = !isDemo
+    && ["completed", "failed", "cancelled"].includes(executionJobStatus);
   const statusUnknown = feedStatus === "error"
     || isDemo
     || isLastKnown
+    || sessionStarting
+    || sessionCancelling
     || (!telemetry && feedStatus !== "loading");
   const executionUncertain = !isDemo
     && sessionRunning
     && (risk.entries_allowed !== true || risk.reconciliation_state === "UNCERTAIN");
-  const isConnecting = telemetry?.status === "connecting" || feedStatus === "loading";
+  const isConnecting = sessionStarting || feedStatus === "loading";
   const marketOnly = marketBars.length > 0 && realModelPoints.length === 0;
   const chartMock = isDemo && marketBars.length === 0;
   const modelOverlayActive = chartMock
@@ -400,13 +423,15 @@ export default function LivePanel({
       aria-live="polite"
     >
       {isConnecting
-        ? "CONNECTING"
+        ? "STARTING"
+        : sessionCancelling
+          ? "STOPPING"
         : executionUncertain
           ? "EXECUTION LOCKED"
           : isLastKnown
             ? "LAST KNOWN"
             : sessionRunning
-              ? "AUTOMATION RUNNING"
+              ? "RUNNING"
               : isDemo
                 ? "DEMONSTRATION"
                 : "SESSION OFF"}
@@ -531,12 +556,15 @@ export default function LivePanel({
       title: "Live telemetry",
       kind: "telemetry",
       reading: String(brokerStatus.status || "UNKNOWN").toUpperCase(),
-      defaultLayout: { x: 8, y: 3, w: 4, h: 2 },
+      defaultLayout: { x: 8, y: 3, w: 4, h: 5 },
       minW: 3,
-      minH: 2,
+      minH: 4,
       content: (
         <TelemetryReadout
           brokerStatus={brokerStatus}
+          apiHealth={apiHealth}
+          executionJob={executionJob}
+          riskSupervisorJob={riskSupervisorJob}
           risk={risk}
           session={session}
           feedError={feedError}
@@ -550,7 +578,7 @@ export default function LivePanel({
       title: "News score / model impact",
       kind: "news",
       reading: `${newsFeed?.items?.length || 0} HEADLINES`,
-      defaultLayout: { x: 8, y: 5, w: 4, h: 7 },
+      defaultLayout: { x: 8, y: 8, w: 4, h: 4 },
       minW: 3,
       minH: 3,
       content: (
@@ -619,6 +647,8 @@ export default function LivePanel({
       toolbarLead={toolbarLead}
       toolbarActions={toolbarActions}
       toolbarStatus={toolbarStatus}
+      theme={theme}
+      onThemeChange={onThemeChange}
     />
   );
 
@@ -674,20 +704,101 @@ function RiskReadout({ risk, statusUnknown, isDemo }) {
   );
 }
 
-function TelemetryReadout({ brokerStatus, risk, session, feedError, operatorAlerts, isDemo }) {
+function TelemetryReadout({
+  brokerStatus,
+  apiHealth,
+  executionJob,
+  riskSupervisorJob,
+  risk,
+  session,
+  feedError,
+  operatorAlerts,
+  isDemo,
+}) {
+  const shortControls = risk.short_controls || {};
+  const registryReady = apiHealth.status === "ok" && apiHealth.job_registry === "redis";
+  const registryValue = registryReady
+    ? "REDIS DURABLE"
+    : apiHealth.status === "loading"
+      ? "CHECKING"
+      : "UNKNOWN";
+  const sessionJobValue = isDemo
+    ? "NO ACTIVE JOB"
+    : executionJob
+      ? jobStatusLabel(executionJob.status).toUpperCase()
+      : "NOT REGISTERED";
+  const supervisorValue = isDemo
+    ? "OFF"
+    : riskSupervisorJob
+      ? jobStatusLabel(riskSupervisorJob.status).toUpperCase()
+      : isJobActive(executionJob)
+        ? "MISSING"
+        : "NOT STARTED";
+  const reconciliationHealthy = [
+    "STRATEGY_CACHE_RECONCILED",
+    "BROKER_RECONCILED",
+  ].includes(risk.reconciliation_state);
+  const dataQuality = risk.data_quality || {};
+  const dataQualityValue = isDemo
+    ? "DEMO"
+    : dataQuality.healthy === true
+      ? "HEALTHY"
+      : dataQuality.healthy === false
+        ? "FAILED"
+        : "UNKNOWN";
+  const supervisorUnsafe = !isDemo
+    && executionJob?.status === "running"
+    && riskSupervisorJob?.status !== "running";
+
   return (
     <div className="live-panel__telemetry-readout">
       {feedError && <div className="live-panel__feed-error" role="alert">{feedError}</div>}
       <div className="live-panel__authority" aria-label="Authoritative broker and execution state">
+        <AuthorityItem label="Job registry" value={registryValue} unsafe={!registryReady} />
+        <AuthorityItem label="Session job" value={sessionJobValue} unsafe={!isDemo && (!executionJob || executionJob.status === "failed")} />
+        <AuthorityItem label="Risk supervisor" value={supervisorValue} unsafe={supervisorUnsafe} />
         <AuthorityItem label="Broker" value={isDemo ? "NO ACTIVE BROKER" : String(brokerStatus.status || "UNKNOWN").toUpperCase()} unsafe={!isDemo && brokerStatus.status !== "connected"} />
-        <AuthorityItem label="Reconcile" value={isDemo ? "DEMO" : risk.reconciliation_state || "UNKNOWN"} unsafe={!isDemo && risk.reconciliation_state !== "STRATEGY_CACHE_RECONCILED"} />
+        <AuthorityItem label="Reconcile" value={isDemo ? "DEMO" : risk.reconciliation_state || "UNKNOWN"} unsafe={!isDemo && !reconciliationHealthy} />
         <AuthorityItem label="Execution" value={isDemo ? "OFF" : risk.execution_state || "UNKNOWN"} unsafe={!isDemo && risk.execution_state !== "ACTIVE"} />
         <AuthorityItem label="Entries" value={isDemo ? "OFF" : risk.entries_allowed === true ? "ENABLED" : "FROZEN"} unsafe={!isDemo && risk.entries_allowed !== true} />
+        <AuthorityItem label="Data quality" value={dataQualityValue} unsafe={!isDemo && dataQuality.healthy !== true} />
+        <AuthorityItem
+          label="Short controls"
+          value={isDemo ? "OFF" : shortControls.state || "DISABLED"}
+          unsafe={!isDemo && shortControls.enabled === true && shortControls.healthy !== true}
+        />
         <AuthorityItem label="Session" value={session.phase || (isDemo ? "DEMO" : "UNKNOWN")} unsafe={!isDemo && ["UNKNOWN", "HALTED", "STALE"].includes(session.phase)} />
         <AuthorityItem label="Data age" value={formatAge(session.data_age_seconds)} unsafe={!isDemo && !Number.isFinite(session.data_age_seconds)} />
         <AuthorityItem label="Next open" value={formatTime(session.next_open)} unsafe={!isDemo && !session.next_open} />
         <AuthorityItem label="Next close" value={formatTime(session.next_close)} unsafe={!isDemo && !session.next_close} />
       </div>
+      {!isDemo && shortControls.enabled === true && (
+        <div className="live-panel__short-controls">
+          <div className="live-panel__short-control-summary label">
+            <span>Margin cushion {Number.isFinite(shortControls.margin_cushion_pct) ? `${formatNum(shortControls.margin_cushion_pct, 1)}%` : "UNKNOWN"}</span>
+            <span>Fee max {Number.isFinite(shortControls.max_borrow_fee_pct) ? `${formatNum(shortControls.max_borrow_fee_pct, 2)}%` : "UNKNOWN"}</span>
+            <span>Locate {Number.isFinite(shortControls.locate_buffer_ratio) ? `${formatNum(shortControls.locate_buffer_ratio, 2)}×` : "UNKNOWN"}</span>
+          </div>
+          <div className="live-panel__short-control-scroll">
+            <table className="live-panel__table live-panel__short-control-table">
+              <caption className="sr-only">Per-symbol IBKR short control state</caption>
+              <thead><tr><th>Symbol</th><th>State</th><th>Available</th><th>Fee</th><th>Rule 201</th><th>Age</th></tr></thead>
+              <tbody>
+                {Object.entries(shortControls.symbols || {}).map(([symbol, state]) => (
+                  <tr key={symbol}>
+                    <td>{symbol}</td>
+                    <td className={state.state === "READY" ? "is-positive" : "is-negative"}>{state.code || state.state || "UNKNOWN"}</td>
+                    <td className="num">{Number.isFinite(state.shortable_shares) ? formatNum(state.shortable_shares, 0) : "UNKNOWN"}</td>
+                    <td className="num">{Number.isFinite(state.borrow_fee_pct) ? `${formatNum(state.borrow_fee_pct, 2)}%` : "UNKNOWN"}</td>
+                    <td>{state.ssr_active === true ? "ACTIVE" : state.ssr_active === false ? "CLEAR" : "UNKNOWN"}</td>
+                    <td>{formatAge(state.age_seconds)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       {!isDemo && operatorAlerts.length > 0 && (
         <div className="live-panel__alerts" role="alert">
           {[...operatorAlerts].reverse().slice(0, 3).map((alert, index) => (
@@ -723,8 +834,9 @@ function PositionsTable({ positions, ticker, assetClass, isDemo, statusUnknown, 
             );
           })}
           {isDemo && !positions.length && <tr><td colSpan={8} className="live-panel__empty">No active paper/live strategy</td></tr>}
-          {!isDemo && statusUnknown && !positions.length && <tr><td colSpan={8} className="live-panel__empty is-error">Position status unknown</td></tr>}
-          {!isDemo && !statusUnknown && !positions.length && <tr><td colSpan={8} className="live-panel__empty">{isConnecting ? "Waiting for broker reconciliation…" : "No open positions"}</td></tr>}
+          {!isDemo && isConnecting && !positions.length && <tr><td colSpan={8} className="live-panel__empty">Waiting for broker reconciliation…</td></tr>}
+          {!isDemo && !isConnecting && statusUnknown && !positions.length && <tr><td colSpan={8} className="live-panel__empty is-error">Position status unknown</td></tr>}
+          {!isDemo && !isConnecting && !statusUnknown && !positions.length && <tr><td colSpan={8} className="live-panel__empty">No open positions</td></tr>}
         </tbody>
       </table>
     </div>

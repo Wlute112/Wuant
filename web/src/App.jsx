@@ -24,6 +24,8 @@ import {
   optunaTrialsCount,
 } from "./lib/deriveChannels.js";
 import { formatUsd } from "./lib/format.js";
+import { activeRootJobCount, isJobActive } from "./lib/jobs.js";
+import { applyDashboardTheme, initialDashboardTheme } from "./lib/theme.js";
 
 const DRAWDOWN_THRESHOLDS = [
   { value: -5, label: "DRAWDOWN WARN 5%", kind: "warn" },
@@ -68,6 +70,7 @@ export default function App() {
   const [jobs, setJobs] = useState([]);
   const [dataStatus, setDataStatus] = useState({ runs: "loading", jobs: "loading" });
   const [dataErrors, setDataErrors] = useState({ runs: null, jobs: null, detail: null });
+  const [apiHealth, setApiHealth] = useState({ status: "loading", job_registry: null });
   const [brokerStatus, setBrokerStatus] = useState({ status: "loading" });
   const [activeRunId, setActiveRunId] = useState(null);
   const [compareRunId, setCompareRunId] = useState(null);
@@ -80,7 +83,12 @@ export default function App() {
   const [controlDrawerOpen, setControlDrawerOpen] = useState(false);
   const [assetClass, setAssetClass] = useState(initialAssetClass);
   const [profiles, setProfiles] = useState(FALLBACK_ASSET_PROFILES);
+  const [theme, setTheme] = useState(initialDashboardTheme);
   const selectedProfile = assetProfile(assetClass, profiles);
+
+  useEffect(() => {
+    applyDashboardTheme(theme);
+  }, [theme]);
 
   const workflowCopy = {
     backtest: {
@@ -127,7 +135,15 @@ export default function App() {
     try {
       const list = await api.listJobs();
       setJobs((current) =>
-        sameCollection(current, list, ["id", "status", "finished_at"]) ? current : list,
+        sameCollection(current, list, [
+          "id",
+          "status",
+          "finished_at",
+          "cancel_requested_at",
+          "failure_reason",
+          "return_code",
+          "parent_job_id",
+        ]) ? current : list,
       );
       setDataStatus((current) => ({ ...current, jobs: "ready" }));
       setDataErrors((current) => ({ ...current, jobs: null }));
@@ -136,6 +152,19 @@ export default function App() {
       setDataErrors((current) => ({
         ...current,
         jobs: `Job data unavailable: ${error.message}. Job status is unknown.`,
+      }));
+    }
+  }
+
+  async function refreshApiHealth() {
+    try {
+      setApiHealth(await api.health());
+      setDataErrors((current) => ({ ...current, health: null }));
+    } catch (error) {
+      setApiHealth({ status: "unknown", job_registry: null, error: error.message });
+      setDataErrors((current) => ({
+        ...current,
+        health: `API health unavailable: ${error.message}. Durable job state is unknown.`,
       }));
     }
   }
@@ -171,6 +200,7 @@ export default function App() {
   useEffect(() => {
     refreshRuns();
     refreshJobs();
+    refreshApiHealth();
     refreshBrokerStatus();
     refreshProfiles();
   }, []);
@@ -183,6 +213,7 @@ export default function App() {
 
   useInterval(refreshJobs, 3000);
   useInterval(refreshRuns, 8000);
+  useInterval(refreshApiHealth, 5000);
   useInterval(refreshBrokerStatus, 3000);
 
   useEffect(() => {
@@ -253,7 +284,10 @@ export default function App() {
       // polling the run list so the new run appears without a manual refresh.
       const poll = setInterval(async () => {
         const detail = await api.getJob(job.id).catch(() => null);
-        if (detail && detail.status !== "running") {
+        if (detail) {
+          setJobs((current) => current.map((item) => (item.id === detail.id ? detail : item)));
+        }
+        if (detail && !isJobActive(detail)) {
           clearInterval(poll);
           if (detail.status === "completed") {
             refreshRuns();
@@ -270,11 +304,11 @@ export default function App() {
   }
 
   const isResearchTab = workflowTab === "backtest" || workflowTab === "optimize";
-  const runningJobCount = jobs.filter((j) => j.status === "running").length;
+  const runningJobCount = activeRootJobCount(jobs);
   const connectionStatus =
-    dataStatus.runs === "error" || dataStatus.jobs === "error"
+    dataStatus.runs === "error" || dataStatus.jobs === "error" || apiHealth.status === "unknown"
       ? "unknown"
-      : dataStatus.runs === "loading" || dataStatus.jobs === "loading"
+      : dataStatus.runs === "loading" || dataStatus.jobs === "loading" || apiHealth.status === "loading"
         ? "loading"
         : "ready";
   const dataError = Object.values(dataErrors).filter(Boolean).join(" ");
@@ -442,7 +476,7 @@ export default function App() {
       id: "jobs",
       title: "Job console",
       kind: "jobs",
-      reading: `${runningJobCount} RUNNING`,
+      reading: `${runningJobCount} ACTIVE`,
       defaultLayout: { x: 4, y: 9, w: 8, h: 3 },
       minW: 4,
       minH: 2,
@@ -452,6 +486,7 @@ export default function App() {
           loadStatus={dataStatus.jobs}
           selectedJobId={selectedJobId}
           onSelectJob={setSelectedJobId}
+          onJobUpdated={handleJobStopped}
         />
       ),
     },
@@ -466,6 +501,7 @@ export default function App() {
     <BrokerStatus
       runningJobCount={runningJobCount}
       brokerStatus={brokerStatus}
+      apiHealth={apiHealth}
     />
   );
 
@@ -483,7 +519,7 @@ export default function App() {
         {pageDataError && (
           <div className="app__connection-error" role="alert">
             <span>{pageDataError}</span>
-            <button type="button" onClick={() => { refreshRuns(); refreshJobs(); }}>Retry connection</button>
+            <button type="button" onClick={() => { refreshRuns(); refreshJobs(); refreshApiHealth(); }}>Retry connection</button>
           </div>
         )}
         {isResearchTab ? (
@@ -495,6 +531,8 @@ export default function App() {
             toolbarNavigation={workspaceNavigation}
             toolbarLead={profileSwitch}
             toolbarStatus={workspaceBrokerStatus}
+            theme={theme}
+            onThemeChange={setTheme}
             panels={researchPanels}
           />
         ) : (
@@ -503,12 +541,16 @@ export default function App() {
             assetClass={assetClass}
             profile={selectedProfile}
             brokerStatus={brokerStatus}
+            apiHealth={apiHealth}
+            jobs={jobs}
             toolbarNavigation={workspaceNavigation}
             toolbarLead={profileSwitch}
             toolbarActions={(
               <button type="button" onClick={() => setControlDrawerOpen(true)}>Session controls</button>
             )}
             toolbarStatus={workspaceBrokerStatus}
+            theme={theme}
+            onThemeChange={setTheme}
           />
         )}
       </main>

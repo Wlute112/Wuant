@@ -123,6 +123,15 @@ pair so a breach is never confused with a data channel.
 - **Text Primary** (`#e8e6df`): numerals and bezel labels — warm off-white, never pure white (that would read as a screen, not an instrument).
 - **Text Dim** (`#828998`): secondary labels, timestamps, disabled state.
 
+### Theme Variants
+The toolbar theme control offers Dark, White, and Lilac as persisted dashboard-wide
+schemes. Dark remains the canonical instrument palette. White uses neutral paper
+and housing surfaces for bright environments; Lilac uses a restrained lavender
+canvas with pale lilac panels. Each scheme remaps the neutral and semantic tokens
+as a set while preserving channel meaning, threshold meaning, flat layering, and
+text contrast. Components never branch on the selected theme or introduce local
+theme colors.
+
 ### Named Rules
 **The Reserved-Channel Rule.** Trace Amber, Cyan, and Violet are bound one-to-one to the equity/PnL, ML-performance, and regime channels. Amber is additionally allowed on the primary run action because that action arms a recorder channel. Selection, focus, connection, and navigation states use Text Primary or semantic status colors, never a reserved trace hue.
 

@@ -26,6 +26,13 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import HuberRegressor
 
+from quant.models.cross_asset import (
+    INDUSTRY_FEATURE_NAMES,
+    aligned_peer_returns,
+    coerce_price_history,
+    make_industry_correlation_feature_row,
+    make_industry_correlation_features,
+)
 from quant.models.regime import RegimeConfig, RegimeFeatureEngine, STATE_NAMES
 
 
@@ -83,6 +90,19 @@ class PredictionConfig:
     cross_asset_lags: int = 0
     spread_lags: int = 0
     peer_symbols: tuple[str, ...] = ()
+    # --- industry correlation factor -----------------------------------
+    # ``industry_peer_symbols`` is resolved structurally before the engine is
+    # created. The five resulting columns are a correlation-weighted peer
+    # return, peer momentum, beta residual z-score, breadth, and average
+    # correlation. They are fit-mode features and are never raw-added to yhat.
+    use_industry_features: bool = False
+    industry_peer_symbols: tuple[str, ...] = ()
+    industry_correlation_window_bars: int = 60
+    industry_correlation_half_life_bars: int = 20
+    industry_minimum_observations: int = 40
+    industry_minimum_correlation: float = 0.25
+    industry_correlation_shrinkage: float = 0.20
+    industry_momentum_bars: int = 5
     # --- live/historical news feature -----------------------------------
     # One bounded, source-weighted score aligned to each completed bar.  The
     # caller supplies the causal series; values are built only from articles
@@ -125,6 +145,20 @@ class PredictionConfig:
         return len(self.peer_symbols) * (self.cross_asset_lags + self.spread_lags)
 
     @property
+    def n_industry_cols(self) -> int:
+        return len(INDUSTRY_FEATURE_NAMES) if self.use_industry_features else 0
+
+    @property
+    def required_peer_symbols(self) -> tuple[str, ...]:
+        legacy = (
+            self.peer_symbols
+            if self.cross_asset_lags > 0 or self.spread_lags > 0
+            else ()
+        )
+        industry = self.industry_peer_symbols if self.use_industry_features else ()
+        return tuple(dict.fromkeys((*legacy, *industry)))
+
+    @property
     def n_news_cols(self) -> int:
         return int(self.use_news_features and self.news_source != "raw")
 
@@ -148,8 +182,9 @@ def _log_returns(close: np.ndarray) -> np.ndarray:
 
 def make_cross_asset_features(
     target_close: np.ndarray,
-    peer_closes: dict[str, np.ndarray],
+    peer_closes: dict[str, object],
     cfg: PredictionConfig,
+    target_timestamps: np.ndarray | None = None,
 ) -> np.ndarray | None:
     """Build the ARDL + spread cross-asset feature matrix aligned to `target_close`.
 
@@ -183,12 +218,9 @@ def make_cross_asset_features(
 
     cols = []
     for sym in cfg.peer_symbols:
-        peer_close = np.asarray(peer_closes.get(sym, []), dtype=float)
-        peer_r_full = _log_returns(peer_close) if peer_close.size else np.zeros(0)
-        peer_r = np.zeros(n)
-        m = min(n, peer_r_full.size)
-        if m:
-            peer_r[n - m:] = peer_r_full[-m:]
+        peer_r, _ = aligned_peer_returns(
+            n, target_timestamps, peer_closes.get(sym, ())
+        )
         peer_r = pd.Series(peer_r)
 
         for lag in range(1, cfg.cross_asset_lags + 1):
@@ -206,14 +238,16 @@ def make_features_targets(
     cfg: PredictionConfig,
     regime_feats: np.ndarray | None = None,
     cross_feats: np.ndarray | None = None,
+    industry_feats: np.ndarray | None = None,
     news_feats: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Build (X, y, valid_index) with a strict no-lookahead alignment.
 
     X[i]  uses returns at i-n_lags .. i-1   (past only), followed by the regime
           feature columns for bar i (regime_feats[i]), followed by the
-          cross-asset ARDL/spread columns for bar i (cross_feats[i]), followed
-          by the news score available at bar i (news_feats[i]).
+          cross-asset ARDL/spread columns for bar i (cross_feats[i]), industry
+          correlation columns (industry_feats[i]), followed by the news score
+          available at bar i (news_feats[i]).
     y[i]  = sum of returns at i+1 .. i+horizon (future only) -> fwd return
 
     `regime_feats`, when supplied, is an (n, k) array aligned to `close` indices
@@ -233,6 +267,7 @@ def make_features_targets(
     L, H = cfg.n_lags, cfg.horizon
     k_regime = 0 if regime_feats is None else regime_feats.shape[1]
     k_cross = 0 if cross_feats is None else cross_feats.shape[1]
+    k_industry = 0 if industry_feats is None else industry_feats.shape[1]
     k_news = 0 if news_feats is None else news_feats.shape[1]
 
     X_rows, y_rows, idx = [], [], []
@@ -242,6 +277,8 @@ def make_features_targets(
             x = np.concatenate([x, regime_feats[i]])  # append regime cols for i
         if cross_feats is not None:
             x = np.concatenate([x, cross_feats[i]])    # append cross-asset cols
+        if industry_feats is not None:
+            x = np.concatenate([x, industry_feats[i]]) # append industry cols
         if news_feats is not None:
             x = np.concatenate([x, news_feats[i]])     # append causal news cols
         fwd = r[i + 1:i + 1 + H].sum()      # strictly-future cumulative return
@@ -249,7 +286,7 @@ def make_features_targets(
         y_rows.append(fwd)
         idx.append(i)
     if not X_rows:
-        return np.empty((0, L + k_regime + k_cross + k_news)), np.empty((0,)), np.empty((0,), dtype=int)
+        return np.empty((0, L + k_regime + k_cross + k_industry + k_news)), np.empty((0,)), np.empty((0,), dtype=int)
     return np.asarray(X_rows), np.asarray(y_rows), np.asarray(idx, dtype=int)
 
 
@@ -268,7 +305,24 @@ class PredictionEngine:
             raise ValueError("news_source must be 'fit' or 'raw'")
         if self.cfg.news_score_clip <= 0:
             raise ValueError("news_score_clip must be > 0")
+        if self.cfg.industry_correlation_window_bars < 2:
+            raise ValueError("industry_correlation_window_bars must be >= 2")
+        if self.cfg.industry_correlation_half_life_bars < 1:
+            raise ValueError("industry_correlation_half_life_bars must be >= 1")
+        if self.cfg.industry_minimum_observations < 2:
+            raise ValueError("industry_minimum_observations must be >= 2")
+        if not 0.0 <= self.cfg.industry_minimum_correlation < 1.0:
+            raise ValueError("industry_minimum_correlation must be in [0, 1)")
+        if not 0.0 <= self.cfg.industry_correlation_shrinkage <= 1.0:
+            raise ValueError("industry_correlation_shrinkage must be in [0, 1]")
+        if self.cfg.industry_momentum_bars < 1:
+            raise ValueError("industry_momentum_bars must be >= 1")
         self._state = _FitState()
+        self._industry_cache: np.ndarray | None = None
+        self._industry_cache_target_state: (
+            tuple[int, float | None, object | None] | None
+        ) = None
+        self._industry_cache_peer_state: dict[str, tuple[int, float | None, int, object | None]] = {}
         # One cached, incremental regime engine per PredictionEngine instance.
         # It is stateful so the per-bar refit in the backtest only computes the
         # new tail (see models/regime.py). None when regime features are off.
@@ -316,7 +370,10 @@ class PredictionEngine:
         return total
 
     def _cross_feats(
-        self, close: np.ndarray, peer_closes: dict[str, np.ndarray] | None
+        self,
+        close: np.ndarray,
+        peer_closes: dict[str, object] | None,
+        timestamps: np.ndarray | None = None,
     ) -> np.ndarray | None:
         """Walk-forward ARDL/spread cross-asset feature matrix, or None.
 
@@ -326,7 +383,134 @@ class PredictionEngine:
         """
         if not self.cfg.peer_symbols or not peer_closes:
             return None
-        return make_cross_asset_features(np.asarray(close, float), peer_closes, self.cfg)
+        return make_cross_asset_features(
+            np.asarray(close, float), peer_closes, self.cfg, timestamps
+        )
+
+    def _industry_feats(
+        self,
+        close: np.ndarray,
+        peer_closes: dict[str, object] | None,
+        timestamps: np.ndarray | None = None,
+    ) -> np.ndarray | None:
+        if not self.cfg.use_industry_features:
+            return None
+        target = np.asarray(close, dtype=float)
+        peer_closes = peer_closes or {}
+        target_state = self._target_history_state(target, timestamps)
+        peer_state = self._peer_history_state(peer_closes)
+        if (
+            self._industry_cache is not None
+            and target_state == self._industry_cache_target_state
+            and peer_state == self._industry_cache_peer_state
+        ):
+            return self._industry_cache
+
+        can_append = (
+            self._industry_cache is not None
+            and len(target) == len(self._industry_cache) + 1
+            and self._target_history_extends(target, timestamps)
+            and self._peer_histories_extend(peer_closes)
+        )
+        kwargs = self._industry_feature_kwargs()
+        if can_append:
+            latest = make_industry_correlation_feature_row(
+                target,
+                peer_closes,
+                self.cfg.industry_peer_symbols,
+                target_timestamps=timestamps,
+                **kwargs,
+            )
+            result = np.vstack([self._industry_cache, latest])
+        else:
+            result = make_industry_correlation_features(
+                target,
+                peer_closes,
+                self.cfg.industry_peer_symbols,
+                target_timestamps=timestamps,
+                **kwargs,
+            )
+        self._industry_cache = result
+        self._industry_cache_target_state = target_state
+        self._industry_cache_peer_state = peer_state
+        return result
+
+    def _industry_feature_kwargs(self) -> dict:
+        return dict(
+            correlation_window_bars=self.cfg.industry_correlation_window_bars,
+            correlation_half_life_bars=self.cfg.industry_correlation_half_life_bars,
+            minimum_observations=self.cfg.industry_minimum_observations,
+            minimum_correlation=self.cfg.industry_minimum_correlation,
+            correlation_shrinkage=self.cfg.industry_correlation_shrinkage,
+            momentum_bars=self.cfg.industry_momentum_bars,
+        )
+
+    @staticmethod
+    def _last_timestamp(timestamps: np.ndarray | None, index: int = -1) -> object | None:
+        if timestamps is None or len(timestamps) == 0:
+            return None
+        value = np.asarray(timestamps)[index]
+        return int(value.value) if hasattr(value, "value") else str(value)
+
+    @classmethod
+    def _target_history_state(
+        cls, target: np.ndarray, timestamps: np.ndarray | None
+    ) -> tuple[int, float | None, object | None]:
+        return (
+            len(target),
+            float(target[-1]) if len(target) else None,
+            cls._last_timestamp(timestamps),
+        )
+
+    def _peer_history_state(
+        self, peer_closes: dict[str, object]
+    ) -> dict[str, tuple[int, float | None, int, object | None]]:
+        state = {}
+        for symbol in self.cfg.industry_peer_symbols:
+            history = coerce_price_history(peer_closes.get(symbol, ()))
+            closes = np.asarray(history.closes, dtype=float)
+            timestamp_count = 0 if history.timestamps is None else len(history.timestamps)
+            state[symbol] = (
+                len(closes),
+                float(closes[-1]) if len(closes) else None,
+                timestamp_count,
+                self._last_timestamp(history.timestamps),
+            )
+        return state
+
+    def _target_history_extends(
+        self, target: np.ndarray, timestamps: np.ndarray | None
+    ) -> bool:
+        prior = self._industry_cache_target_state
+        if prior is None or prior[0] <= 0:
+            return prior is not None and prior[0] == 0
+        prior_length, prior_close, prior_timestamp = prior
+        return (
+            len(target) > prior_length
+            and float(target[prior_length - 1]) == prior_close
+            and self._last_timestamp(timestamps, prior_length - 1) == prior_timestamp
+        )
+
+    def _peer_histories_extend(self, peer_closes: dict[str, object]) -> bool:
+        for symbol, prior in self._industry_cache_peer_state.items():
+            history = coerce_price_history(peer_closes.get(symbol, ()))
+            closes = np.asarray(history.closes, dtype=float)
+            prior_close_count, prior_close, prior_ts_count, prior_ts = prior
+            if len(closes) < prior_close_count:
+                return False
+            if prior_close_count and float(closes[prior_close_count - 1]) != prior_close:
+                return False
+            if history.timestamps is None:
+                if prior_ts_count:
+                    return False
+            else:
+                if len(history.timestamps) < prior_ts_count:
+                    return False
+                if prior_ts_count and self._last_timestamp(
+                    history.timestamps, prior_ts_count - 1
+                ) != prior_ts:
+                    return False
+        return True
 
     def _news_full(
         self, close: np.ndarray, news_features: np.ndarray | None
@@ -389,15 +573,18 @@ class PredictionEngine:
     def fit(
         self,
         close: np.ndarray,
-        peer_closes: dict[str, np.ndarray] | None = None,
+        peer_closes: dict[str, object] | None = None,
         news_features: np.ndarray | None = None,
+        *,
+        timestamps: np.ndarray | None = None,
     ) -> "PredictionEngine":
         close = np.asarray(close, float)
         X, y, idx = make_features_targets(
             close,
             self.cfg,
             self._regime_feats(close),
-            self._cross_feats(close, peer_closes),
+            self._cross_feats(close, peer_closes, timestamps),
+            self._industry_feats(close, peer_closes, timestamps),
             self._news_fit(close, news_features),
         )
         if len(X) == 0:
@@ -410,8 +597,10 @@ class PredictionEngine:
     def refit_on_history(
         self,
         close: np.ndarray,
-        peer_closes: dict[str, np.ndarray] | None = None,
+        peer_closes: dict[str, object] | None = None,
         news_features: np.ndarray | None = None,
+        *,
+        timestamps: np.ndarray | None = None,
     ) -> bool:
         """Fit on PAST-ONLY history using the SAME windowing contract as
         walk_forward(): build (X, y) via make_features_targets, then fit on all
@@ -435,7 +624,8 @@ class PredictionEngine:
             close,
             self.cfg,
             self._regime_feats(close),
-            self._cross_feats(close, peer_closes),
+            self._cross_feats(close, peer_closes, timestamps),
+            self._industry_feats(close, peer_closes, timestamps),
             self._news_fit(close, news_features),
         )
         if len(X) == 0:
@@ -547,8 +737,10 @@ class PredictionEngine:
     def predict_move(
         self,
         recent_closes: np.ndarray,
-        peer_closes: dict[str, np.ndarray] | None = None,
+        peer_closes: dict[str, object] | None = None,
         news_features: np.ndarray | None = None,
+        *,
+        timestamps: np.ndarray | None = None,
     ) -> float | None:
         """Live entry point. Returns yhat (forward return) or None if not ready.
 
@@ -573,9 +765,12 @@ class PredictionEngine:
         # Append the CURRENT bar's cross-asset row (cross_feats[-1]); every
         # column in it is lagged >= 1 (see make_cross_asset_features), so it
         # never references a peer's return for "now" -- only its past.
-        cf = self._cross_feats(closes, peer_closes)
+        cf = self._cross_feats(closes, peer_closes, timestamps)
         if cf is not None:
             x = np.concatenate([x, cf[-1]])
+        industry = self._industry_feats(closes, peer_closes, timestamps)
+        if industry is not None:
+            x = np.concatenate([x, industry[-1]])
         nf = self._news_fit(closes, news_features)
         if nf is not None:
             x = np.concatenate([x, nf[-1]])
@@ -587,9 +782,10 @@ class PredictionEngine:
     def walk_forward(
         self,
         close: np.ndarray,
-        peer_closes: dict[str, np.ndarray] | None = None,
+        peer_closes: dict[str, object] | None = None,
         n_splits: int = 5,
         *,
+        timestamps: np.ndarray | None = None,
         news_features: np.ndarray | None = None,
         return_folds: bool = False,
         return_series: bool = False,
@@ -624,7 +820,8 @@ class PredictionEngine:
             close,
             self.cfg,
             self._regime_feats(close),
-            self._cross_feats(close, peer_closes),
+            self._cross_feats(close, peer_closes, timestamps),
+            self._industry_feats(close, peer_closes, timestamps),
             self._news_fit(close, news_features),
         )
         n = len(X)

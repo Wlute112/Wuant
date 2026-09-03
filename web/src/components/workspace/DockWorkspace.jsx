@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import GridLayout from "react-grid-layout";
 
+import { DASHBOARD_THEMES } from "../../lib/theme.js";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import "./dock-workspace.css";
@@ -112,6 +113,8 @@ export default function DockWorkspace({
   toolbarActions = null,
   toolbarStatus = null,
   status = null,
+  theme = "dark",
+  onThemeChange = null,
 }) {
   const initial = useMemo(() => savedWorkspace(workspaceId), [workspaceId]);
   const [layout, setLayout] = useState(() => mergeLayout(panels, initial));
@@ -247,6 +250,24 @@ export default function DockWorkspace({
         {toolbarLead && <div className="dock-workspace__lead">{toolbarLead}</div>}
         <div className="dock-workspace__actions">
           {toolbarActions}
+          <div className="dock-workspace__theme" role="group" aria-label="Dashboard theme">
+            <span>Theme</span>
+            <div className="dock-workspace__theme-options">
+              {DASHBOARD_THEMES.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={`dock-workspace__theme-option is-${option.id}`}
+                  aria-label={`Use ${option.label.toLowerCase()} dashboard theme`}
+                  aria-pressed={theme === option.id}
+                  title={`${option.label} theme`}
+                  onClick={() => onThemeChange?.(option.id)}
+                >
+                  <span aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+          </div>
           <label className="dock-workspace__density">
             <span>Density</span>
             <select value={density} onChange={(event) => setDensity(event.target.value)}>

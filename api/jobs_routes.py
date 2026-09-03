@@ -9,6 +9,7 @@ independent defense-in-depth controls for a future reviewed activation.
 from __future__ import annotations
 
 import json
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -47,6 +48,35 @@ def _safe_execution_config(req, *, redact_confirmation: bool = False) -> dict:
     if redact_confirmation and "confirm" in config:
         config["confirm"] = "<redacted>"
     return config
+
+
+def _validate_short_controls(req) -> None:
+    if not req.allow_shorts:
+        return
+    if req.asset_class != "equity":
+        raise HTTPException(400, "Short selling is supported only for US equities and ETFs.")
+    if req.short_controls.client_id in {req.client_id, 30}:
+        raise HTTPException(
+            400,
+            "Short-control client ID must differ from the trading and news client IDs.",
+        )
+    parsed = urlparse(req.short_controls.borrow_api_url)
+    if parsed.scheme not in {"ftp", "http", "https"} or not parsed.hostname:
+        raise HTTPException(400, "Borrow feed URL must be an FTP or HTTP(S) URL.")
+    if parsed.scheme == "ftp" and parsed.hostname not in {
+        "ftp2.interactivebrokers.com",
+        "ftp3.interactivebrokers.com",
+    }:
+        raise HTTPException(400, "FTP borrow feeds must use an Interactive Brokers host.")
+    if parsed.scheme in {"http", "https"} and not req.short_controls.borrow_api_verify_tls and parsed.hostname not in {
+        "127.0.0.1",
+        "localhost",
+        "::1",
+    }:
+        raise HTTPException(
+            400,
+            "TLS verification may be disabled only for a loopback borrow API.",
+        )
 
 
 def _write_params_file(
@@ -255,12 +285,7 @@ def start_paper(req: PaperJobRequest):
             f"Refusing to start a paper-trading job on LIVE port {req.port}. "
             "Use /api/jobs/live for live trading.",
         )
-    if req.allow_shorts:
-        raise HTTPException(
-            400,
-            "Short selling is disabled until borrow, SSR, margin, recall, and "
-            "forced-buy-in controls are implemented.",
-        )
+    _validate_short_controls(req)
     job_id = manager.new_job_id("paper")
     params_path = _write_params_file(job_id, req.params_path, req.params, {})
     args = _args_from(
@@ -277,10 +302,18 @@ def start_paper(req: PaperJobRequest):
             ("--bar-hours", req.bar_hours),
             ("--redis-host", req.redis_host),
             ("--redis-port", req.redis_port),
+            ("--short-control-client-id", req.short_controls.client_id),
+            ("--short-borrow-api-url", req.short_controls.borrow_api_url),
+            ("--short-max-borrow-fee-pct", req.short_controls.max_borrow_fee_pct),
+            ("--short-min-margin-cushion-pct", req.short_controls.min_margin_cushion_pct),
+            ("--short-locate-buffer-ratio", req.short_controls.locate_buffer_ratio),
+            ("--short-recall-grace-secs", req.short_controls.recall_grace_secs),
         ]
     )
     if req.allow_shorts:
         args.append("--allow-shorts")
+    if req.short_controls.borrow_api_verify_tls:
+        args.append("--short-borrow-api-verify-tls")
     if req.include_extended_hours:
         args.append("--include-extended-hours")
     return _submit_execution_with_supervisor(
@@ -304,12 +337,7 @@ def start_live(req: LiveJobRequest):
                 "incomplete": readiness["incomplete"],
             },
         )
-    if req.allow_shorts:
-        raise HTTPException(
-            400,
-            "Short selling is disabled until borrow, SSR, margin, recall, and "
-            "forced-buy-in controls are implemented.",
-        )
+    _validate_short_controls(req)
     if req.confirm != LIVE_CONFIRM_PHRASE:
         raise HTTPException(
             400,
@@ -338,10 +366,18 @@ def start_live(req: LiveJobRequest):
             ("--bar-hours", req.bar_hours),
             ("--redis-host", req.redis_host),
             ("--redis-port", req.redis_port),
+            ("--short-control-client-id", req.short_controls.client_id),
+            ("--short-borrow-api-url", req.short_controls.borrow_api_url),
+            ("--short-max-borrow-fee-pct", req.short_controls.max_borrow_fee_pct),
+            ("--short-min-margin-cushion-pct", req.short_controls.min_margin_cushion_pct),
+            ("--short-locate-buffer-ratio", req.short_controls.locate_buffer_ratio),
+            ("--short-recall-grace-secs", req.short_controls.recall_grace_secs),
         ]
     ) + ["--live"]
     if req.allow_shorts:
         args.append("--allow-shorts")
+    if req.short_controls.borrow_api_verify_tls:
+        args.append("--short-borrow-api-verify-tls")
     if req.include_extended_hours:
         args.append("--include-extended-hours")
     safe_config = _safe_execution_config(req, redact_confirmation=True)

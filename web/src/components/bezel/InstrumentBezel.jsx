@@ -21,11 +21,11 @@ export function WorkflowMenuButton({
   );
 }
 
-export function BrokerStatus({ runningJobCount = 0, brokerStatus = {} }) {
+export function BrokerStatus({ runningJobCount = 0, brokerStatus = {}, apiHealth = {} }) {
   const brokerState = brokerStatus.status || "loading";
-  const statusLabel =
+  const brokerLabel =
     brokerState === "connected"
-      ? `IBKR connected${runningJobCount > 0 ? ` · ${runningJobCount} job${runningJobCount === 1 ? "" : "s"}` : ""}`
+      ? `IBKR connected${runningJobCount > 0 ? ` · ${runningJobCount} active` : ""}`
       : brokerState === "connecting"
         ? "IBKR connecting"
         : brokerState === "error"
@@ -33,6 +33,17 @@ export function BrokerStatus({ runningJobCount = 0, brokerStatus = {} }) {
           : brokerState === "unknown" || brokerState === "loading"
             ? "IBKR status unknown"
             : "IBKR disconnected";
+  const registryState = apiHealth.status === "ok" && apiHealth.job_registry === "redis"
+    ? "durable"
+    : apiHealth.status === "loading"
+      ? "loading"
+      : "unknown";
+  const registryLabel = registryState === "durable"
+    ? "Jobs durable"
+    : registryState === "loading"
+      ? "Registry checking"
+      : "Registry unknown";
+  const statusLabel = `${brokerLabel}. ${registryLabel}.`;
 
   return (
     <div
@@ -42,11 +53,15 @@ export function BrokerStatus({ runningJobCount = 0, brokerStatus = {} }) {
       aria-label={statusLabel}
       title={statusLabel}
     >
-      <span
-        aria-hidden="true"
-        className={`broker-status__dot ${brokerState === "connected" ? "is-active" : ""}`}
-      />
-      <span className="broker-status__label label">{statusLabel}</span>
+      <span className={`broker-status__segment is-${brokerState}`} aria-hidden="true">
+        <span className={`broker-status__dot ${brokerState === "connected" ? "is-active" : ""}`} />
+        <span className="broker-status__label label">{brokerLabel}</span>
+      </span>
+      <span className="broker-status__divider" aria-hidden="true" />
+      <span className={`broker-status__segment is-${registryState}`} aria-hidden="true">
+        <span className={`broker-status__dot ${registryState === "durable" ? "is-durable" : ""}`} />
+        <span className="broker-status__label label">{registryLabel}</span>
+      </span>
     </div>
   );
 }

@@ -219,6 +219,13 @@ def build_node(
     asset_class: str = "crypto",
     primary_exchange: str = "",
     allow_short_positions: bool = False,
+    short_control_client_id: int = 29,
+    short_borrow_api_url: str = "ftp://shortstock@ftp2.interactivebrokers.com/usa.txt",
+    short_borrow_api_verify_tls: bool = False,
+    short_max_borrow_fee_pct: float = 5.0,
+    short_min_margin_cushion_pct: float = 20.0,
+    short_locate_buffer_ratio: float = 1.25,
+    short_recall_grace_secs: float = 60.0,
     bar_hours: int | None = None,
     include_extended_hours: bool = False,
     telemetry_path: str = "",
@@ -230,6 +237,10 @@ def build_node(
 ):
     if is_live:
         assert_live_capital_enabled()
+    if allow_short_positions and asset_class != "equity":
+        raise ValueError("short positions are supported only for US equities and ETFs")
+    if allow_short_positions and short_control_client_id == client_id:
+        raise ValueError("short-control client ID must differ from the TradingNode client ID")
     register_ibkr_execution_fixes()
     if asset_class == "crypto":
         # Teach nautilus 1.229 that ZEROHASH is a crypto venue before it
@@ -388,10 +399,33 @@ def build_node(
         **strategy_params,
     )
     strategy = MLStrategy(strat_cfg)
+    short_control = None
+    if allow_short_positions:
+        from quant.run.short_controls import IBKRShortControlService, ShortControlConfig
+
+        short_control = IBKRShortControlService(
+            ShortControlConfig(
+                account_id=account_id,
+                tickers=tuple(str(value).upper() for value in tickers),
+                host=host,
+                port=port,
+                client_id=short_control_client_id,
+                primary_exchange=primary_exchange,
+                include_extended_hours=include_extended_hours,
+                borrow_api_url=short_borrow_api_url,
+                borrow_api_verify_tls=short_borrow_api_verify_tls,
+                max_borrow_fee_pct=short_max_borrow_fee_pct,
+                min_margin_cushion_pct=short_min_margin_cushion_pct,
+                locate_buffer_ratio=short_locate_buffer_ratio,
+                recall_grace_secs=short_recall_grace_secs,
+            )
+        )
+        strategy.attach_short_control(short_control)
     node.trader.add_strategy(strategy)
     if persistence:
         node.trader.load()
     node.build()
+    node.quant_short_control = short_control
     return node
 
 
@@ -478,8 +512,19 @@ def main() -> None:
     p.add_argument(
         "--allow-shorts",
         action="store_true",
-        help="allow short positions (equity only; off by default)",
+        help="allow equity shorts behind live IBKR borrow, fee, margin, SSR, and what-if controls",
     )
+    p.add_argument("--short-control-client-id", type=int, default=29)
+    p.add_argument(
+        "--short-borrow-api-url",
+        default="ftp://shortstock@ftp2.interactivebrokers.com/usa.txt",
+        help="IBKR borrow feed URL used for current fee-rate and availability data",
+    )
+    p.add_argument("--short-borrow-api-verify-tls", action="store_true")
+    p.add_argument("--short-max-borrow-fee-pct", type=float, default=5.0)
+    p.add_argument("--short-min-margin-cushion-pct", type=float, default=20.0)
+    p.add_argument("--short-locate-buffer-ratio", type=float, default=1.25)
+    p.add_argument("--short-recall-grace-secs", type=float, default=60.0)
     args = p.parse_args()
 
     try:
@@ -491,13 +536,17 @@ def main() -> None:
         raise SystemExit(str(exc)) from exc
     if not args.account_id:
         raise SystemExit("Missing IBKR account id: pass --account-id or set TWS_ACCOUNT.")
-    if args.allow_shorts:
-        raise SystemExit(
-            "Short selling is disabled until shortability, borrow, SSR, margin, "
-            "recall, and forced-buy-in controls are implemented."
-        )
+    if args.allow_shorts and args.asset_class != "equity":
+        raise SystemExit("--allow-shorts is supported only with --asset-class equity.")
     if not args.no_news and not args.no_ibkr_news and args.news_client_id == args.client_id:
         raise SystemExit("--news-client-id must differ from the TradingNode --client-id")
+    if args.allow_shorts and args.short_control_client_id in {
+        args.client_id,
+        args.news_client_id if not args.no_news and not args.no_ibkr_news else -1,
+    }:
+        raise SystemExit(
+            "--short-control-client-id must differ from TradingNode and news client IDs"
+        )
     params_source = args.params
     if args.model_id:
         if args.params:
@@ -582,6 +631,13 @@ def main() -> None:
             asset_class=args.asset_class,
             primary_exchange=args.primary_exchange,
             allow_short_positions=args.allow_shorts,
+            short_control_client_id=args.short_control_client_id,
+            short_borrow_api_url=args.short_borrow_api_url,
+            short_borrow_api_verify_tls=args.short_borrow_api_verify_tls,
+            short_max_borrow_fee_pct=args.short_max_borrow_fee_pct,
+            short_min_margin_cushion_pct=args.short_min_margin_cushion_pct,
+            short_locate_buffer_ratio=args.short_locate_buffer_ratio,
+            short_recall_grace_secs=args.short_recall_grace_secs,
             bar_hours=bar_hours,
             include_extended_hours=args.include_extended_hours,
             telemetry_path=args.telemetry_path,
@@ -617,12 +673,17 @@ def main() -> None:
             )
         )
         news_service.start()
+    short_control = getattr(node, "quant_short_control", None)
     try:
+        if short_control is not None:
+            short_control.start()
         node.run()
     finally:
         node.dispose()
         if news_service is not None:
             news_service.stop()
+        if short_control is not None:
+            short_control.stop()
 
 
 if __name__ == "__main__":

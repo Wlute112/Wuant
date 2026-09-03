@@ -351,6 +351,29 @@
   border-top: 1px solid var(--color-hairline);
 }
 
+.live-panel__short-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-hairline);
+}
+
+.live-panel__short-control-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-md);
+  color: var(--color-text-dim);
+}
+
+.live-panel__short-control-scroll {
+  overflow-x: auto;
+}
+
+.dock-panel .live-panel__table.live-panel__short-control-table {
+  min-width: 460px;
+}
+
 .live-panel__execution-header {
   display: flex;
   justify-content: space-between;

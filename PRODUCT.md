@@ -69,8 +69,8 @@ truthfully claim.
   universe, and regime-threshold defaults.
 - The shared execution path is shaped for spot crypto and SMART-routed US
   equities/ETFs, but live-capital startup is disabled. Paper trading is
-  equity-only and long-only; short execution is locked until its P1 controls
-  exist.
+  equity-only; short execution is an explicit opt-in behind fail-closed IBKR
+  borrow, fee, Rule-201, margin, what-if, and supervised-cover controls.
 - The web dashboard exists under `web/`; no iOS or Android interface exists.
 - Backtest and Optuna reporting use real run artifacts. Paper/live nodes write
   an atomic strategy telemetry snapshot after every completed bar; the

@@ -7,8 +7,9 @@ environment-variable bypass.
 
 Paper and live use the same `build_node` and `MLStrategy` execution path. Mode
 changes only the broker account/port and whether capital permission can pass the
-readiness gate. IBKR paper execution is restricted to long-only US equities and
-ETFs; spot-crypto paper execution is unavailable at IBKR.
+readiness gate. IBKR paper execution is restricted to US equities and ETFs;
+shorts are explicit opt-in and fail closed when any required broker control is
+unavailable. Spot-crypto paper execution is unavailable at IBKR.
 
 ## Status vocabulary
 
@@ -30,8 +31,9 @@ ETFs; spot-crypto paper execution is unavailable at IBKR.
 | Exchange sessions | Implemented, validation pending | IBKR TradingHours/LiquidHours/timeZoneId parser; holidays, early closes, DST, overnight windows, phases, explicit halts and stale-data states | Capture and validate real contract-details variants; model exchange-wide unexpected closures and auction/halts using supported IBKR callbacks |
 | Session policies | Implemented, validation pending | RTH, extended and custom policies; open/close buffers; auction flags; no-entry-before-close; session-end entry cancellation; outside-RTH order validation | Expose and validate the full policy at CLI/API boundaries; paper-test daily after-close signals and each supported order type |
 | Session risk accounting | Implemented, validation pending | Daily risk reset keyed to exchange sessions with configurable overnight assignment; canonical equity execution cadence is now daily unless explicitly set | Define and test extended-session PnL ownership with live account updates across close/reopen and DST |
-| Real-time risk | Implemented, validation pending | One-second in-strategy checks plus an independently launched supervisor with a required heartbeat, durable freeze/flatten/kill commands, telemetry/data-age checks, alert delivery and bounded service watchdogs; broker equity, drawdown, leverage, daily loss, account availability, gross/symbol/order/concentration limits and price collars | Wire authoritative sector classification/exposure; explicit adapter disconnect callbacks; margin/settled-cash/what-if pre-trade checks; prove behavior against supported TWS/Gateway under disconnect and rejection faults |
-| Broker source of truth | Implemented, validation pending | Broker-neutral all-account position/order/execution/account reconciliation; deterministic stale lifecycle/fill recovery; post-Nautilus reconciliation cache normalization; manual/foreign exposure detection; account/currency/funds checks; immutable reports; unresolved state freezes execution | Prove IBKR snapshot-end ordering, permanent-ID/correction handling, all-client visibility and restart races on supported TWS/Gateway; obtain distinct broker buying-power and settled-cash fields rather than Nautilus's conservative available-funds proxy |
+| Real-time risk | Implemented, validation pending | One-second in-strategy checks plus an independently launched supervisor with a required heartbeat, durable freeze/flatten/kill commands, telemetry/data-age checks, alert delivery and bounded service watchdogs; broker equity, drawdown, leverage, daily loss, account availability, gross/symbol/order/concentration limits, price collars, direct IBKR margin/PDT state and order-specific what-if checks | Wire authoritative sector classification/exposure; explicit adapter disconnect callbacks; prove behavior against supported TWS/Gateway under disconnect and rejection faults |
+| Broker source of truth | Implemented, validation pending | Broker-neutral all-account position/order/execution/account reconciliation; deterministic stale lifecycle/fill recovery; post-Nautilus reconciliation cache normalization; manual/foreign exposure detection; direct IBKR buying-power, available-funds and excess-liquidity fields; immutable reports; unresolved state freezes execution | Prove IBKR snapshot-end ordering, permanent-ID/correction handling, all-client visibility and restart races on supported TWS/Gateway; obtain a distinct broker settled-cash field rather than Nautilus's conservative available-funds proxy |
+| Equity short controls | Implemented, validation pending | US/USD exchange allowlist; TWS shortable tier/share, halt, NBBO and Rule-201 checks; IBKR fee/availability feed; configurable fee, locate and margin cushions; PDT state; order-specific what-if margin/commission approval; limit-only entries; broker-protected exits; persistent-breach cover; independent-supervisor freeze/flatten | Paper-test easy/hard-to-borrow names, fee changes, zero inventory, SSR days, cash and margin accounts, PDT exhaustion, locate rejection, forced broker reductions, restart and disconnect behavior against supported IBKR builds |
 
 All entries in `P0_GATES` remain `complete=False`. Approval requires reviewed
 evidence for every row and a deliberate source change; it must not be inferred
@@ -39,13 +41,19 @@ from passing unit tests.
 
 ## P1 workstreams
 
-The following remain open and must stay visible in planning and promotion
-reviews:
+The following remain promotion workstreams and must stay visible in planning
+and reviews even where a fail-closed implementation now exists:
 
-1. Account/regulatory controls: cash vs margin, settled cash, buying power,
-   maintenance margin, PDT and IBKR what-if margin/commission checks.
-2. Short selling: real-time borrow availability, HTB fees, recalls, forced
-   buy-ins and SSR. Execution remains long-only until complete.
+1. Account/regulatory controls are implemented, validation pending: direct
+   buying power, available funds, excess liquidity, maintenance margin, PDT,
+   and IBKR what-if margin/commission checks now gate short entry. A distinct
+   settled-cash source remains required for the broader account control plane.
+2. Short selling is implemented, validation pending: real-time TWS inventory,
+   IBKR fee/availability data, Rule-201 price handling, protected short exits,
+   and forced cover after persistent fee/availability/control failure. Native
+   recall notifications are not exposed by the TWS socket API, so the system
+   uses conservative inventory/fee deterioration and broker position changes;
+   supported paper evidence is still a promotion requirement.
 3. Corporate actions and instrument identity: conId-first persistence,
    split/dividend/symbol-change processing, order/state rebuilds, and a strict
    US/USD stock-and-ETF universe contract.
@@ -81,8 +89,8 @@ Promotion is sequential and evidence-based:
 1. Deterministic backtest.
 2. Walk-forward out-of-sample validation.
 3. Shadow execution with order submission disabled.
-4. Supervised long-only equity paper trading.
-5. Multi-week unattended paper soak with incident review.
+4. Supervised long-only equity paper baseline, followed by short-enabled paper.
+5. Multi-week unattended paper soak with incident review for both directions.
 6. Small-capital live canary with strict exposure caps.
 7. Formal sign-off before any capital or universe expansion.
 
