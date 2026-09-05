@@ -423,6 +423,10 @@ def build_and_run(
         slippage_probability=slippage_probability,
         fill_model_seed=fill_model_seed,
     )
-    engine.add_data(all_bars)
-    engine.run()
+    try:
+        engine.add_data(all_bars)
+        engine.run()
+    except BaseException:
+        engine.dispose()
+        raise
     return engine

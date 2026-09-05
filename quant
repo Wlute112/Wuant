@@ -17,9 +17,20 @@ if [[ "${1:-}" == "doctor" ]]; then
     "$PYTHON_BIN" -m quant.ops.doctor --root "$ROOT_DIR" "$@"
 fi
 
+if [[ "${1:-}" == "compute" || "${1:-}" == "benchmark" ]]; then
+  RESEARCH_COMMAND="$1"
+  shift
+  RESEARCH_MODULE="quant.run.compute"
+  [[ "$RESEARCH_COMMAND" == "benchmark" ]] && RESEARCH_MODULE="quant.scripts.benchmark_compute"
+  cd "$WORK_DIR"
+  exec env PYTHONPATH="$WORK_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+    "$PYTHON_BIN" -m "$RESEARCH_MODULE" "$@"
+fi
+
 usage() {
   printf 'Usage: %s [--no-browser] [--no-redis] [--install]\n' "$0"
   printf '\nStarts Redis, the FastAPI dashboard, and the built static frontend.\n'
+  printf '%s\n' 'Research: ./quant compute | ./quant benchmark --workers 1 0'
   printf '%s\n' '--no-redis skips local service management; the API still requires an external Redis.'
 }
 

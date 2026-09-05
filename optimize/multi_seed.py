@@ -10,6 +10,7 @@ from pathlib import Path
 
 import optuna
 from optuna.trial import TrialState
+from quant.run.compute import add_compute_arguments, resolve_compute_plan
 
 from quant.optimize.campaign import (
     atomic_write_json,
@@ -90,7 +91,13 @@ def main() -> None:
         action="store_true",
         help="Run remaining seeds after one optimizer subprocess fails.",
     )
+    add_compute_arguments(parser)
     args, optimizer_args = parser.parse_known_args()
+    try:
+        resolve_compute_plan(args.workers, args.memory_budget_gb,
+                             args.worker_memory_gb, tasks=20)
+    except ValueError as error:
+        parser.error(str(error))
     if len(set(args.seeds)) < 3:
         parser.error("at least three distinct seeds are required")
     if len(set(args.seeds)) != len(args.seeds):
@@ -195,6 +202,9 @@ def main() -> None:
             "--defer-final-test",
             "--refit-every-n-bars",
             str(args.refit_every_n_bars),
+            "--workers", str(args.workers),
+            "--memory-budget-gb", str(args.memory_budget_gb),
+            "--worker-memory-gb", str(args.worker_memory_gb),
         ]
         started_at = time.time()
         result = subprocess.run(command, check=False)

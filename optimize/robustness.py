@@ -6,6 +6,7 @@ import json
 import math
 import tempfile
 import time
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -23,12 +24,12 @@ from quant.optimize.compare import build_comparison_report
 from quant.optimize.optimize import (
     FoldPerformance,
     WalkForwardFold,
-    _engine_performance,
     _file_sha256,
     _prepare_nested_walk_forward,
     stability_aware_score,
+    evaluate_folds,
 )
-from quant.run.backtest_common import build_and_run
+from quant.run.compute import ComputePool, add_compute_arguments, resolve_compute_plan
 
 
 def evaluate_fixed_parameters(
@@ -40,6 +41,7 @@ def evaluate_fixed_parameters(
     embargo_bars: int,
     scenario: str,
     training_window_override: int | None = None,
+    pool: ComputePool | None = None,
 ) -> dict[str, Any]:
     """Evaluate one locked parameter set; no trial suggestions or holdout data."""
     structural = dict(contract.get("structural_overrides", {}))
@@ -61,62 +63,28 @@ def evaluate_fixed_parameters(
     stress_multiplier = float(contract["stress_cost_multiplier"])
     cash = float(contract["starting_cash"])
     asset_class = str(contract["asset_class"])
-    for fold in folds:
-        overrides = {
-            **base_overrides,
-            "backtest_model_fit_end_ns": fold.model_fit_end_ns(effective_embargo),
-            "backtest_trade_start_ns": fold.validation_start_ns,
-        }
-        fill_seed = evaluation_seed + fold.number
-        engine = build_and_run(
-            csv_path=fold.csv_path,
-            tickers=tickers,
-            strategy_overrides=overrides,
-            starting_cash=cash,
-            log_level="ERROR",
-            bypass_logging=True,
-            asset_class=asset_class,
-            cost_multiplier=1.0,
-            slippage_probability=normal_slippage,
-            fill_model_seed=fill_seed,
-        )
-        try:
-            normal = _engine_performance(engine, cash, asset_class)
-        finally:
-            engine.dispose()
-        stressed_engine = build_and_run(
-            csv_path=fold.csv_path,
-            tickers=tickers,
-            strategy_overrides=overrides,
-            starting_cash=cash,
-            log_level="ERROR",
-            bypass_logging=True,
-            asset_class=asset_class,
-            cost_multiplier=stress_multiplier,
-            slippage_probability=min(1.0, normal_slippage * 2.0),
-            fill_model_seed=fill_seed,
-        )
-        try:
-            stressed = _engine_performance(stressed_engine, cash, asset_class)
-        finally:
-            stressed_engine.dispose()
-        normal_results.append(normal)
-        stressed_results.append(stressed)
-        rows.append(
-            {
-                "fold": fold.number,
-                "validation_start": pd.Timestamp(
-                    fold.validation_start_ns, unit="ns", tz="UTC"
-                ).isoformat(),
-                "validation_end": pd.Timestamp(
-                    fold.validation_end_ns, unit="ns", tz="UTC"
-                ).isoformat(),
-                "normal_ratio": normal.ratio,
-                "stressed_ratio": stressed.ratio,
-                "turnover": normal.turnover,
-                "trades": normal.trades,
-            }
-        )
+    with closing(evaluate_folds(
+        folds, tickers, base_overrides, cash, asset_class, effective_embargo,
+        evaluation_seed, normal_slippage, stress_multiplier, pool,
+    )) as results:
+        for fold, normal, stressed in results:
+            normal_results.append(normal)
+            stressed_results.append(stressed)
+            rows.append(
+                {
+                    "fold": fold.number,
+                    "validation_start": pd.Timestamp(
+                        fold.validation_start_ns, unit="ns", tz="UTC"
+                    ).isoformat(),
+                    "validation_end": pd.Timestamp(
+                        fold.validation_end_ns, unit="ns", tz="UTC"
+                    ).isoformat(),
+                    "normal_ratio": normal.ratio,
+                    "stressed_ratio": stressed.ratio,
+                    "turnover": normal.turnover,
+                    "trades": normal.trades,
+                }
+            )
     normal = [item.ratio for item in normal_results]
     stressed = [item.ratio for item in stressed_results]
     turnovers = [item.turnover for item in normal_results]
@@ -268,6 +236,7 @@ def run_robustness_suite(
     finalists: list[dict[str, Any]],
     contract: dict[str, Any],
     workspace: Path,
+    pool: ComputePool | None = None,
 ) -> list[dict[str, Any]]:
     source_csv = str(contract["source_csv"])
     if _file_sha256(source_csv) != contract["source_csv_sha256"]:
@@ -350,6 +319,7 @@ def run_robustness_suite(
                         embargo_bars=embargo,
                         scenario=f"{scheme_name}_embargo_{embargo}",
                         training_window_override=training_window_override,
+                        pool=pool,
                     )
                 )
         for ticker in tickers:
@@ -361,6 +331,7 @@ def run_robustness_suite(
                     contract=contract,
                     embargo_bars=max(embargoes),
                     scenario=f"individual_ticker_{ticker}",
+                    pool=pool,
                 )
             )
         for label, folds in regime_folds.items():
@@ -372,6 +343,7 @@ def run_robustness_suite(
                     contract=contract,
                     embargo_bars=max(embargoes),
                     scenario=f"market_regime_{label}",
+                    pool=pool,
                 )
             )
         normal_values = [item["normal_median"] for item in results]
@@ -409,7 +381,14 @@ def main() -> None:
     parser.add_argument("--finalists", type=int, default=5, choices=range(5, 11))
     parser.add_argument("--top-n", type=int, default=10, choices=range(5, 11))
     parser.add_argument("--out", help="Defaults beside the campaign manifest.")
+    add_compute_arguments(parser)
     args = parser.parse_args()
+    try:
+        compute_plan = resolve_compute_plan(
+            args.workers, args.memory_budget_gb, args.worker_memory_gb, tasks=20,
+        )
+    except ValueError as error:
+        parser.error(str(error))
 
     manifest = load_manifest(args.campaign)
     if manifest.get("outer_holdout", {}).get("status") != "UNTOUCHED":
@@ -443,13 +422,19 @@ def main() -> None:
             studies, top_n=args.top_n, finalist_count=args.finalists
         )
         finalists = comparison["finalists"]
-    with tempfile.TemporaryDirectory(prefix="quant_robustness_") as temporary:
+    print(f"Research compute: {json.dumps(compute_plan.as_dict(), sort_keys=True)}")
+    with (
+        tempfile.TemporaryDirectory(prefix="quant_robustness_") as temporary,
+        ComputePool(compute_plan) as pool,
+    ):
         evaluated = run_robustness_suite(
             finalists=finalists,
             contract=contract,
             workspace=Path(temporary),
+            pool=pool,
         )
     report = {
+        "compute_plan": compute_plan.as_dict(),
         "campaign_id": manifest["campaign_id"],
         "created_at": time.time(),
         "outer_holdout_status": "UNTOUCHED",

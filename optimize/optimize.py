@@ -41,6 +41,7 @@ import math
 import secrets
 import tempfile
 import time
+from contextlib import closing, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -64,6 +65,7 @@ from quant.run.scoring import (
     sortino_from_curve,
 )
 from quant.run.metrics import compute_metrics
+from quant.run.compute import ComputePool, add_compute_arguments, resolve_compute_plan
 
 DEFAULT_TICKERS = ["BTC", "ETH", "SOL", "XRP", "DOGE"]  # crypto (24/7)
 EQUITY_DEFAULT_TICKERS = ["SPY", "QQQ", "DIA", "IWM"]  # liquid index ETFs
@@ -377,6 +379,52 @@ def _prompt_refit_every_n_bars() -> int:
     return value
 
 
+def evaluate_backtest(task: dict) -> FoldPerformance:
+    """Picklable worker entry point. Return metrics, never a live engine."""
+    engine = build_and_run(**task)
+    try:
+        return _engine_performance(engine, task["starting_cash"], task["asset_class"])
+    finally:
+        engine.dispose()
+
+
+def fold_tasks(folds, tickers, overrides, starting_cash, asset_class,
+               embargo_bars, evaluation_seed, normal_slippage_probability,
+               stress_cost_multiplier):
+    """Serializable inputs for one independent engine per fold and cost assumption."""
+    tasks = []
+    for fold in folds:
+        for cost, slippage in ((1.0, normal_slippage_probability),
+                               (stress_cost_multiplier,
+                                min(1.0, normal_slippage_probability * 2.0))):
+            tasks.append(dict(
+                csv_path=fold.csv_path, tickers=tickers,
+                strategy_overrides={
+                    **overrides,
+                    "backtest_model_fit_end_ns": fold.model_fit_end_ns(embargo_bars),
+                    "backtest_trade_start_ns": fold.validation_start_ns,
+                },
+                starting_cash=starting_cash, log_level="ERROR", bypass_logging=True,
+                asset_class=asset_class, cost_multiplier=cost,
+                slippage_probability=slippage, fill_model_seed=evaluation_seed + fold.number,
+            ))
+    return tasks
+
+
+def evaluate_folds(folds, tickers, overrides, starting_cash, asset_class,
+                   embargo_bars, evaluation_seed, normal_slippage_probability,
+                   stress_cost_multiplier, pool: ComputePool | None = None):
+    """Independent fold/cost runs, consumed chronologically for deterministic pruning."""
+    tasks = fold_tasks(folds, tickers, overrides, starting_cash, asset_class,
+                       embargo_bars, evaluation_seed, normal_slippage_probability,
+                       stress_cost_multiplier)
+    context = (pool.results(evaluate_backtest, tasks) if pool is not None
+               else nullcontext(map(evaluate_backtest, tasks)))
+    with context as results:
+        for fold in folds:
+            yield fold, next(results), next(results)
+
+
 def make_objective(
     folds: tuple[WalkForwardFold, ...],
     tickers: list[str],
@@ -396,6 +444,7 @@ def make_objective(
     normal_slippage_probability: float = 0.05,
     evaluation_seed: int = 1729,
     seed: int | None = None,
+    pool: ComputePool | None = None,
 ):
     if seed is not None:
         # Backward-compatible alias for callers predating --evaluation-seed.
@@ -498,86 +547,43 @@ def make_objective(
         normal_results: list[FoldPerformance] = []
         stressed_results: list[FoldPerformance] = []
         fold_records = []
-        for step, fold in enumerate(folds):
-            fold_overrides = {
-                **overrides,
-                "backtest_model_fit_end_ns": fold.model_fit_end_ns(horizon_embargo),
-                "backtest_trade_start_ns": fold.validation_start_ns,
-            }
-            # The fill seed is deliberately independent of the TPE sampler
-            # seed. Identical parameters therefore receive identical cost/fill
-            # assumptions in every seed study.
-            fill_seed = evaluation_seed + fold.number
-            normal_engine = build_and_run(
-                csv_path=fold.csv_path,
-                tickers=tickers,
-                strategy_overrides=fold_overrides,
-                starting_cash=starting_cash,
-                log_level="ERROR",
-                bypass_logging=True,
-                asset_class=asset_class,
-                cost_multiplier=1.0,
-                slippage_probability=normal_slippage_probability,
-                fill_model_seed=fill_seed,
-            )
-            try:
-                normal = _engine_performance(
-                    normal_engine, starting_cash, asset_class
+        with closing(evaluate_folds(
+            folds, tickers, overrides, starting_cash, asset_class, horizon_embargo,
+            evaluation_seed, normal_slippage_probability, stress_cost_multiplier, pool,
+        )) as results:
+            for step, (fold, normal, stressed) in enumerate(results):
+                normal_results.append(normal)
+                stressed_results.append(stressed)
+                fold_records.append(
+                    {
+                        "fold": fold.number,
+                        "validation_start": pd.Timestamp(
+                            fold.validation_start_ns, unit="ns", tz="UTC"
+                        ).isoformat(),
+                        "validation_end": pd.Timestamp(
+                            fold.validation_end_ns, unit="ns", tz="UTC"
+                        ).isoformat(),
+                        "embargo_bars": horizon_embargo,
+                        "normal_ratio": normal.ratio,
+                        "stressed_ratio": stressed.ratio,
+                        "turnover": normal.turnover,
+                        "trades": normal.trades,
+                    }
                 )
-            finally:
-                normal_engine.dispose()
-
-            stressed_engine = build_and_run(
-                csv_path=fold.csv_path,
-                tickers=tickers,
-                strategy_overrides=fold_overrides,
-                starting_cash=starting_cash,
-                log_level="ERROR",
-                bypass_logging=True,
-                asset_class=asset_class,
-                cost_multiplier=stress_cost_multiplier,
-                slippage_probability=min(1.0, normal_slippage_probability * 2.0),
-                fill_model_seed=fill_seed,
-            )
-            try:
-                stressed = _engine_performance(
-                    stressed_engine, starting_cash, asset_class
+                interim = stability_aware_score(
+                    [result.ratio for result in normal_results],
+                    [result.ratio for result in stressed_results],
+                    [result.turnover for result in normal_results],
+                    std_weight=std_weight,
+                    turnover_weight=turnover_weight,
+                    cost_sensitivity_weight=cost_sensitivity_weight,
+                    min_positive_fraction=min_positive_fraction,
+                    require_positive_folds=False,
                 )
-            finally:
-                stressed_engine.dispose()
-
-            normal_results.append(normal)
-            stressed_results.append(stressed)
-            fold_records.append(
-                {
-                    "fold": fold.number,
-                    "validation_start": pd.Timestamp(
-                        fold.validation_start_ns, unit="ns", tz="UTC"
-                    ).isoformat(),
-                    "validation_end": pd.Timestamp(
-                        fold.validation_end_ns, unit="ns", tz="UTC"
-                    ).isoformat(),
-                    "embargo_bars": horizon_embargo,
-                    "normal_ratio": normal.ratio,
-                    "stressed_ratio": stressed.ratio,
-                    "turnover": normal.turnover,
-                    "trades": normal.trades,
-                }
-            )
-            interim = stability_aware_score(
-                [result.ratio for result in normal_results],
-                [result.ratio for result in stressed_results],
-                [result.turnover for result in normal_results],
-                std_weight=std_weight,
-                turnover_weight=turnover_weight,
-                cost_sensitivity_weight=cost_sensitivity_weight,
-                min_positive_fraction=min_positive_fraction,
-                require_positive_folds=False,
-            )
-            trial.report(interim, step)
-            if trial.should_prune():
-                trial.set_user_attr("walk_forward_folds", fold_records)
-                raise optuna.TrialPruned()
+                trial.report(interim, step)
+                if trial.should_prune():
+                    trial.set_user_attr("walk_forward_folds", fold_records)
+                    raise optuna.TrialPruned()
 
         final_score = stability_aware_score(
             [result.ratio for result in normal_results],
@@ -847,7 +853,15 @@ def main(refit_every_n_bars: int | None = 1) -> None:
         "here under a study_name (its own run_id, or --resume-run-id's when "
         "resuming) so a later run can pick it back up with --resume-run-id.",
     )
+    add_compute_arguments(p)
     args = p.parse_args()
+    try:
+        compute_plan = resolve_compute_plan(
+            args.workers, args.memory_budget_gb, args.worker_memory_gb,
+            tasks=max(1, 2 * args.walk_forward_folds),
+        )
+    except ValueError as error:
+        p.error(str(error))
     if args.refit_every_n_bars is not None:
         refit_every_n_bars = args.refit_every_n_bars
     elif refit_every_n_bars is None:
@@ -1053,25 +1067,28 @@ def main(refit_every_n_bars: int | None = 1) -> None:
         n_trials = args.trials if args.trials is not None else 40
         print(f"Running {n_trials} trials.")
 
-    study.optimize(
-        make_objective(
-            nested_data.folds, tickers, args.cash, refit_every_n_bars, args.asset_class,
-            warmup_bars, min_train_bars, structural_overrides,
-            embargo_bars=args.embargo_bars,
-            std_weight=args.stability_std_weight,
-            turnover_weight=args.turnover_penalty_weight,
-            cost_sensitivity_weight=args.cost_sensitivity_weight,
-            min_positive_fraction=args.min_positive_fold_fraction,
-            stress_cost_multiplier=args.stress_cost_multiplier,
-            normal_slippage_probability=args.normal_slippage_probability,
-            evaluation_seed=args.evaluation_seed,
-        ),
-        n_trials=n_trials,
-        callbacks=callbacks,
-        # A determinate progress bar needs a known trial count; skip it when the
-        # goal-mode search is uncapped (n_trials is None).
-        show_progress_bar=n_trials is not None,
-    )
+    print(f"Research compute: {json.dumps(compute_plan.as_dict(), sort_keys=True)}")
+    study.set_user_attr("compute_plan", compute_plan.as_dict())
+    with ComputePool(compute_plan) as pool:
+        study.optimize(
+            make_objective(
+                nested_data.folds, tickers, args.cash, refit_every_n_bars, args.asset_class,
+                warmup_bars, min_train_bars, structural_overrides,
+                embargo_bars=args.embargo_bars,
+                std_weight=args.stability_std_weight,
+                turnover_weight=args.turnover_penalty_weight,
+                cost_sensitivity_weight=args.cost_sensitivity_weight,
+                min_positive_fraction=args.min_positive_fold_fraction,
+                stress_cost_multiplier=args.stress_cost_multiplier,
+                normal_slippage_probability=args.normal_slippage_probability,
+                evaluation_seed=args.evaluation_seed,
+                pool=pool,
+            ),
+            n_trials=n_trials,
+            callbacks=callbacks,
+            # Uncapped goal mode has no determinate progress bar.
+            show_progress_bar=n_trials is not None,
+        )
 
     n_pruned = len(study.get_trials(states=(optuna.trial.TrialState.PRUNED,)))
     n_complete = len(study.get_trials(states=(optuna.trial.TrialState.COMPLETE,)))
@@ -1089,6 +1106,7 @@ def main(refit_every_n_bars: int | None = 1) -> None:
 
     # Persist the winning params so run_backtest / live can load them directly.
     payload = {
+        "compute_plan": compute_plan.as_dict(),
         "params": study.best_params,
         "asset_class": args.asset_class,
         "objective_metric": score_profile["metric"],
@@ -1261,6 +1279,7 @@ def main(refit_every_n_bars: int | None = 1) -> None:
             ibkr_bar_hours=args.ibkr_bar_hours if args.replace_bars else None,
             include_extended_hours=args.include_extended_hours,
             validation_metadata={
+                "compute_plan": compute_plan.as_dict(),
                 "scheme": "purged_nested_walk_forward",
                 "final_test_frac": args.final_test_frac,
                 "walk_forward_folds": args.walk_forward_folds,

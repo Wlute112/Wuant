@@ -10,6 +10,9 @@ compute or trade, only what they persist afterwards.
 """
 from __future__ import annotations
 
+from copy import deepcopy
+from functools import lru_cache
+
 import json
 import time
 import uuid
@@ -641,6 +644,25 @@ def save_optimize_artifact(
     return artifact
 
 
+@lru_cache(maxsize=512)
+def _run_summary(path: Path, version: tuple) -> dict:
+    """Cache only the small summary, invalidating on writes or atomic replacement."""
+    with path.open() as fh:
+        data = json.load(fh)
+    return {
+        "run_id": data.get("run_id", path.stem),
+        "kind": data.get("kind"),
+        "started_at": data.get("started_at"),
+        "finished_at": data.get("finished_at"),
+        "asset_class": data.get("asset_class"),
+        "objective_metric": data.get("objective_metric"),
+        "tickers": data.get("tickers"),
+        "metrics": data.get("metrics") or data.get("oos_metrics"),
+        "in_sample_value": data.get("in_sample_value"),
+        "oos_score": data.get("oos_score"),
+    }
+
+
 def list_run_summaries() -> list[dict]:
     """Lightweight summaries for the run list (newest first)."""
     if not RUNS_DIR.exists():
@@ -648,24 +670,12 @@ def list_run_summaries() -> list[dict]:
     summaries = []
     for path in RUNS_DIR.glob("*.json"):
         try:
-            with open(path) as fh:
-                data = json.load(fh)
+            path = path.resolve()
+            stat = path.stat()
+            version = (stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+            summaries.append(deepcopy(_run_summary(path, version)))
         except (json.JSONDecodeError, OSError):
             continue
-        summaries.append(
-            {
-                "run_id": data.get("run_id", path.stem),
-                "kind": data.get("kind"),
-                "started_at": data.get("started_at"),
-                "finished_at": data.get("finished_at"),
-                "asset_class": data.get("asset_class"),
-                "objective_metric": data.get("objective_metric"),
-                "tickers": data.get("tickers"),
-                "metrics": data.get("metrics") or data.get("oos_metrics"),
-                "in_sample_value": data.get("in_sample_value"),
-                "oos_score": data.get("oos_score"),
-            }
-        )
     summaries.sort(key=lambda s: s.get("finished_at") or "", reverse=True)
     return summaries
 

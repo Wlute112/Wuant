@@ -53,6 +53,9 @@ def test_optimize_route_forwards_nested_walk_forward_controls(monkeypatch, tmp_p
             final_test_frac=0.15,
             walk_forward_folds=7,
             embargo_bars=4,
+            workers=8,
+            memory_budget_gb=48,
+            worker_memory_gb=6,
         )
     )
 
@@ -60,6 +63,9 @@ def test_optimize_route_forwards_nested_walk_forward_controls(monkeypatch, tmp_p
     assert args[args.index("--final-test-frac") + 1] == "0.15"
     assert args[args.index("--walk-forward-folds") + 1] == "7"
     assert args[args.index("--embargo-bars") + 1] == "4"
+    assert args[args.index("--workers") + 1] == "8"
+    assert args[args.index("--memory-budget-gb") + 1] == "48.0"
+    assert args[args.index("--worker-memory-gb") + 1] == "6.0"
 
 
 def test_live_route_is_disabled_until_p0_gates_pass(monkeypatch, tmp_path):

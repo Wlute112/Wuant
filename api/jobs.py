@@ -47,6 +47,24 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _tail_lines(path: Path, count: int) -> list[str]:
+    """Read only the end of long-running research logs, including partial UTF-8 tails."""
+    if count <= 0:
+        return []
+    blocks = []
+    newlines = 0
+    with path.open("rb") as stream:
+        position = stream.seek(0, os.SEEK_END)
+        while position > 0 and newlines <= count:
+            size = min(8192, position)
+            position -= size
+            stream.seek(position)
+            block = stream.read(size)
+            blocks.append(block)
+            newlines += block.count(b"\n")
+    return b"".join(reversed(blocks)).decode("utf-8", errors="replace").splitlines()[-count:]
+
+
 def _sensitive_arg_values(args: list[str]) -> tuple[str, ...]:
     values: list[str] = []
     for index, value in enumerate(args[:-1]):
@@ -415,10 +433,8 @@ class JobManager:
         if not log_path.exists():
             lines: list[str] = []
         else:
-            with open(log_path, errors="replace") as log_file:
-                all_lines = log_file.readlines()
             lines = [
-                _ANSI_RE.sub("", line.rstrip("\n")) for line in all_lines[-tail_lines:]
+                _ANSI_RE.sub("", line) for line in _tail_lines(log_path, tail_lines)
             ]
         return {"job_id": job_id, "status": job["status"], "lines": lines}
 

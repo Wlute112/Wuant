@@ -270,7 +270,7 @@ class RegimeFeatureEngine:
 
     # ---- cache management ----------------------------------------------
     def _reset(self, close: np.ndarray) -> None:
-        self._closes = np.asarray(close, dtype=float)
+        self._closes = np.array(close, dtype=float, copy=True)
         n = self._closes.size
         self._states = np.full(n, SIDEWAYS, dtype=int)
         self._p_bull = np.zeros(n)
@@ -307,21 +307,20 @@ class RegimeFeatureEngine:
         if not self._is_extension_of_cache(close):
             self._reset(close)
         else:
-            self._closes = close  # adopt the longer array
+            self._closes = close.copy()  # own history so caller edits invalidate the cache
 
         n = close.size
-        self._grow_arrays(n)
-        # Extend the smoothed/hysteresis rule-based label from where we left
-        # off. Only the [processed, n) tail is computed sequentially (O(new
-        # bars)); the smoothing itself is a cheap vectorised pass over the
-        # full array, same cost profile as the previous full-recompute label.
-        self._extend_states(close, n)
+        if n > self._processed:
+            self._grow_arrays(n)
+            # Extend only when new bars arrive. Repeated fit/raw/predict
+            # requests for the same history reuse the processed arrays.
+            self._extend_states(close, n)
 
-        # Extend the transition-count walk-forward from where we left off.
-        self._extend_transitions(n)
-        # Extend the HMM latent-state decode from where we left off.
-        if self.cfg.use_hmm and _HMM_AVAILABLE:
-            self._extend_hmm(close, n)
+            # Extend the transition-count walk-forward from where we left off.
+            self._extend_transitions(n)
+            # Extend the HMM latent-state decode from where we left off.
+            if self.cfg.use_hmm and _HMM_AVAILABLE:
+                self._extend_hmm(close, n)
 
         self._processed = n
         hmm_signed = self._hmm_state.astype(float) - 1.0

@@ -106,6 +106,9 @@ class BacktestJobRequest(BaseModel):
 
 
 class OptimizeJobRequest(BaseModel):
+    workers: int | None = Field(default=None, ge=0)
+    memory_budget_gb: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    worker_memory_gb: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     csv: str = "quant/data/sample_bars.csv"
     asset_class: Literal["crypto", "equity"] = "crypto"
     tickers: list[str] | None = None

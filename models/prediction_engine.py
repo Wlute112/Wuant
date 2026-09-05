@@ -214,21 +214,26 @@ def make_cross_asset_features(
     if not cfg.peer_symbols or (cfg.cross_asset_lags <= 0 and cfg.spread_lags <= 0):
         return None
     n = len(target_close)
-    target_r = pd.Series(_log_returns(np.asarray(target_close, dtype=float)))
+    target_r = _log_returns(np.asarray(target_close, dtype=float))
+
+    def shifted(values, lag):
+        result = np.zeros(n, dtype=float)
+        if lag < n:
+            result[lag:] = values[:-lag]
+        result[np.isnan(result)] = 0.0
+        return result
 
     cols = []
     for sym in cfg.peer_symbols:
         peer_r, _ = aligned_peer_returns(
             n, target_timestamps, peer_closes.get(sym, ())
         )
-        peer_r = pd.Series(peer_r)
-
         for lag in range(1, cfg.cross_asset_lags + 1):
-            cols.append(peer_r.shift(lag).fillna(0.0).to_numpy())
+            cols.append(shifted(peer_r, lag))
         if cfg.spread_lags > 0:
             spread = target_r - peer_r
             for lag in range(1, cfg.spread_lags + 1):
-                cols.append(spread.shift(lag).fillna(0.0).to_numpy())
+                cols.append(shifted(spread, lag))
 
     return np.column_stack(cols) if cols else None
 
@@ -270,24 +275,20 @@ def make_features_targets(
     k_industry = 0 if industry_feats is None else industry_feats.shape[1]
     k_news = 0 if news_feats is None else news_feats.shape[1]
 
-    X_rows, y_rows, idx = [], [], []
-    for i in range(L, n - H):
-        x = r[i - L:i]                      # past L returns, ending at i-1
-        if regime_feats is not None:
-            x = np.concatenate([x, regime_feats[i]])  # append regime cols for i
-        if cross_feats is not None:
-            x = np.concatenate([x, cross_feats[i]])    # append cross-asset cols
-        if industry_feats is not None:
-            x = np.concatenate([x, industry_feats[i]]) # append industry cols
-        if news_feats is not None:
-            x = np.concatenate([x, news_feats[i]])     # append causal news cols
-        fwd = r[i + 1:i + 1 + H].sum()      # strictly-future cumulative return
-        X_rows.append(x)
-        y_rows.append(fwd)
-        idx.append(i)
-    if not X_rows:
+    count = n - H - L
+    if count <= 0:
         return np.empty((0, L + k_regime + k_cross + k_industry + k_news)), np.empty((0,)), np.empty((0,), dtype=int)
-    return np.asarray(X_rows), np.asarray(y_rows), np.asarray(idx, dtype=int)
+    # Views replace per-row Python slicing/concatenation. Sum each future
+    # window directly (not cumulative-sum subtraction), preserving rounding.
+    lagged = (np.lib.stride_tricks.sliding_window_view(r, L)[:count]
+              if L else np.empty((count, 0)))
+    blocks = [lagged]
+    blocks.extend(feats[L:n - H] for feats in
+                  (regime_feats, cross_feats, industry_feats, news_feats)
+                  if feats is not None)
+    X = np.concatenate(blocks, axis=1)
+    y = np.lib.stride_tricks.sliding_window_view(r, H)[L + 1:L + 1 + count].sum(axis=1)
+    return X, y, np.arange(L, n - H, dtype=int)
 
 
 class PredictionEngine:
