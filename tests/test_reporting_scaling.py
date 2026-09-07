@@ -18,9 +18,14 @@ def test_log_tail_handles_large_files_unicode_and_unterminated_lines(tmp_path):
 def test_run_summaries_reuse_small_cache_and_refresh_replaced_files(tmp_path, monkeypatch):
     monkeypatch.setattr(artifacts, "RUNS_DIR", tmp_path)
     path = tmp_path / "run.json"
-    path.write_text(json.dumps({"metrics": {"pnl": 1}, "equity_curve": list(range(10000))}))
+    path.write_text(json.dumps({
+        "name": "QQQ baseline",
+        "metrics": {"pnl": 1},
+        "equity_curve": list(range(10000)),
+    }))
     artifacts._run_summary.cache_clear()
     first = artifacts.list_run_summaries()
+    assert first[0]["name"] == "QQQ baseline"
     first[0]["metrics"]["pnl"] = 999
     assert artifacts.list_run_summaries()[0]["metrics"]["pnl"] == 1
     assert artifacts._run_summary.cache_info().hits == 1

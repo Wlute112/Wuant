@@ -3,7 +3,10 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from quant.strategies.sessions import resolve_session_policy, session_policy_payload
+from quant.run.equity_simulation import EquitySimulationConfig
 
 # The exact phrase a caller must send to /api/jobs/live. Deliberately long and
 # unambiguous -- this is the dashboard's "type to arm" safeguard for the one
@@ -75,7 +78,7 @@ class IbkrFetchOptions(BaseModel):
     ibkr_years: int = 5
     # Only used by replace_bars. Missing-ticker fetches inherit the CSV's
     # existing frequency and never mix frequencies into one file.
-    ibkr_bar_hours: int | None = None
+    ibkr_bar_hours: Literal[1, 2, 3, 4, 8, 24] | None = None
     include_extended_hours: bool = False
 
 
@@ -89,7 +92,22 @@ class ShortControlOptions(BaseModel):
     recall_grace_secs: float = Field(default=60.0, gt=0, le=3600)
 
 
-class BacktestJobRequest(BaseModel):
+class NamedResearchJobRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=80)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.split())
+        if any(ord(character) < 32 or ord(character) == 127 for character in normalized):
+            raise ValueError("name cannot contain control characters")
+        return normalized or None
+
+
+class BacktestJobRequest(NamedResearchJobRequest):
+    equity_simulation: EquitySimulationConfig | None = None
     csv: str = "quant/data/sample_bars.csv"
     asset_class: Literal["crypto", "equity"] = "crypto"
     tickers: list[str] | None = None
@@ -105,7 +123,8 @@ class BacktestJobRequest(BaseModel):
     ibkr: IbkrFetchOptions = IbkrFetchOptions()
 
 
-class OptimizeJobRequest(BaseModel):
+class OptimizeJobRequest(NamedResearchJobRequest):
+    equity_simulation: EquitySimulationConfig | None = None
     workers: int | None = Field(default=None, ge=0)
     memory_budget_gb: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     worker_memory_gb: float | None = Field(default=None, gt=0, allow_inf_nan=False)
@@ -135,7 +154,50 @@ class OptimizeJobRequest(BaseModel):
     ibkr: IbkrFetchOptions = IbkrFetchOptions()
 
 
-class PaperJobRequest(BaseModel):
+class CampaignSeedJobRequest(BaseModel):
+    campaign_id: str = Field(..., pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+    seeds: list[int] = Field(default=[42, 43, 44, 45], min_length=3)
+    trials: int = Field(default=100, ge=100, le=150)
+    csv: str = "quant/data/ibkr_bars.csv"
+    asset_class: Literal["crypto", "equity"] = "crypto"
+    tickers: list[str] | None = None
+    cash: float = Field(default=5000.0, gt=0)
+    final_test_frac: float = Field(default=0.20, gt=0, lt=0.5)
+    walk_forward_folds: int = Field(default=5, ge=2, le=10)
+    embargo_bars: int = Field(default=0, ge=0)
+    workers: int | None = Field(default=None, ge=0)
+    memory_budget_gb: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    worker_memory_gb: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+
+
+class CampaignStageJobRequest(BaseModel):
+    campaign_id: str = Field(..., pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+    finalists: int = Field(default=5, ge=5, le=10)
+    top_n: int = Field(default=10, ge=5, le=10)
+    max_cluster_distance: float = Field(default=0.20, gt=0, le=1)
+    workers: int | None = Field(default=None, ge=0)
+    memory_budget_gb: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    worker_memory_gb: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    confirm: str | None = None
+
+
+class ExecutionSessionRequest(BaseModel):
+    asset_class: Literal["crypto", "equity"] = "crypto"
+    include_extended_hours: bool = False
+    session_policy: dict | None = None
+
+    @model_validator(mode="after")
+    def validate_session(self):
+        policy = resolve_session_policy(
+            self.session_policy, asset_class=self.asset_class,
+            include_extended_hours=self.include_extended_hours,
+        )
+        if self.session_policy is not None:
+            self.session_policy = session_policy_payload(policy)
+        return self
+
+
+class PaperJobRequest(ExecutionSessionRequest):
     tickers: list[str] = Field(..., min_length=1)
     asset_class: Literal["crypto", "equity"] = "crypto"
     primary_exchange: str = ""
@@ -156,7 +218,7 @@ class PaperJobRequest(BaseModel):
     redis_port: int = 6379
 
 
-class LiveJobRequest(BaseModel):
+class LiveJobRequest(ExecutionSessionRequest):
     tickers: list[str] = Field(..., min_length=1)
     asset_class: Literal["crypto", "equity"] = "crypto"
     primary_exchange: str = ""

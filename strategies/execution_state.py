@@ -152,6 +152,15 @@ class ExecutionLedger:
         self.positions: dict[str, PositionState] = {}
         self._event_ids: set[str] = set()
         self._sequence = 0
+        self._research_splits: dict[str, dict] = {}
+
+    def apply_research_split(self, instrument_id, ratio, price, ts_ns, event_id):
+        """Simulation-only quantity/basis adjustment; original fills stay immutable."""
+        value = dict(instrument_id=instrument_id, ratio=str(ratio), price=str(price), ts_ns=int(ts_ns))
+        if event_id in self._research_splits and self._research_splits[event_id] != value:
+            raise ValueError("Conflicting research split event")
+        self._research_splits[event_id] = value
+        self._rebuild_position(instrument_id)
 
     def register_order(
         self,
@@ -398,7 +407,18 @@ class ExecutionLedger:
         quantity = ZERO
         average = ZERO
         realized = ZERO
-        for fill in fills:
+        events = [(fill.ts_ns, 1, fill) for fill in fills]
+        events += [(item["ts_ns"], 0, item) for item in self._research_splits.values() if item["instrument_id"] == instrument_id]
+        for _, kind, fill in sorted(events, key=lambda event: (event[0], event[1])):
+            if kind == 0:
+                ratio = _decimal(fill["ratio"])
+                exact = quantity * ratio
+                quantity = Decimal(int(exact))
+                average /= ratio
+                realized += (exact - quantity) * (_decimal(fill["price"]) - average)
+                if quantity == ZERO:
+                    average = ZERO
+                continue
             delta = fill.signed_quantity
             if quantity == ZERO or quantity * delta > ZERO:
                 total_abs = abs(quantity) + abs(delta)
@@ -448,6 +468,7 @@ class ExecutionLedger:
         return {
             "version": 1,
             "sequence": self._sequence,
+            "research_splits": self._research_splits,
             "event_ids": sorted(self._event_ids),
             "orders": [
                 {
@@ -479,6 +500,7 @@ class ExecutionLedger:
             raise ValueError(f"unsupported execution ledger version {payload.get('version')!r}")
         ledger = cls()
         ledger._sequence = int(payload.get("sequence", 0))
+        ledger._research_splits = dict(payload.get("research_splits", {}))
         ledger._event_ids = {str(value) for value in payload.get("event_ids", ())}
         for values in payload.get("orders", ()):
             record = OrderRecord(

@@ -1,5 +1,9 @@
 # Mac Studio scaling review
 
+Priorities and remaining work are tracked in the single
+[product readiness backlog](PRODUCTION_READINESS.md). This document retains
+its specifications, evidence and operating procedures.
+
 Work is on the repository's existing `Macci` branch. Review and measurements:
 2026-09-05. The current host reports Apple M4, 10 logical CPUs, four performance
 cores and 32 GiB RAM. Apple's [Mac Studio specifications](https://www.apple.com/mac-studio/specs/)

@@ -5,34 +5,14 @@ import ActionPanel from "./components/bezel/ActionPanel.jsx";
 import { BrokerStatus, WorkflowMenuButton } from "./components/bezel/InstrumentBezel.jsx";
 import WorkflowDrawer from "./components/bezel/WorkflowDrawer.jsx";
 import AssetProfileSwitch from "./components/asset-profile/AssetProfileSwitch.jsx";
-import ChannelStrip from "./components/channel-strip/ChannelStrip.jsx";
-import JobConsole from "./components/job-console/JobConsole.jsx";
 import LivePanel from "./components/live-panel/LivePanel.jsx";
-import MetricsPanel from "./components/metrics/MetricsPanel.jsx";
-import ModelDecisionTape from "./components/model-tape/ModelDecisionTape.jsx";
-import RunList from "./components/run-list/RunList.jsx";
-import DockWorkspace from "./components/workspace/DockWorkspace.jsx";
+import ResearchHub from "./components/research-hub/ResearchHub.jsx";
 import { useInterval } from "./hooks/useInterval.js";
 import { api } from "./lib/api.js";
 import { FALLBACK_ASSET_PROFILES, assetProfile, profileMap } from "./lib/assetProfiles.js";
-import {
-  drawdownPoints,
-  equityPoints,
-  runMetrics,
-  runTickers,
-  mlSummaryMetrics,
-  optunaTrialsCount,
-} from "./lib/deriveChannels.js";
-import { formatUsd } from "./lib/format.js";
+import { runTickers } from "./lib/deriveChannels.js";
 import { activeRootJobCount, isJobActive } from "./lib/jobs.js";
 import { applyDashboardTheme, initialDashboardTheme } from "./lib/theme.js";
-
-const DRAWDOWN_THRESHOLDS = [
-  { value: -5, label: "DRAWDOWN WARN 5%", kind: "warn" },
-  { value: -10, label: "KILL-SWITCH 10%", kind: "danger" },
-];
-const formatUsdTick = (value) => formatUsd(value);
-const formatPctTick = (value) => `${value.toFixed(1)}%`;
 
 function initialAssetClass() {
   const requested = new URLSearchParams(window.location.search).get("asset");
@@ -76,7 +56,6 @@ export default function App() {
   const [compareRunId, setCompareRunId] = useState(null);
   const [activeRun, setActiveRun] = useState(null);
   const [compareRun, setCompareRun] = useState(null);
-  const [selectedJobId, setSelectedJobId] = useState(null);
   const [ticker, setTicker] = useState(null);
   const [workflowTab, setWorkflowTab] = useState(initialWorkflow);
   const [workflowMenuOpen, setWorkflowMenuOpen] = useState(false);
@@ -261,14 +240,18 @@ export default function App() {
     () => runs.filter((run) => (run.asset_class || "crypto") === assetClass),
     [assetClass, runs],
   );
+  const workflowRuns = useMemo(
+    () => profileRuns.filter((run) => run.kind === workflowTab),
+    [profileRuns, workflowTab],
+  );
 
   useEffect(() => {
     window.localStorage.setItem("quant-dashboard.asset-profile.v1", assetClass);
     setActiveRunId((current) =>
-      profileRuns.some((run) => run.run_id === current) ? current : profileRuns[0]?.run_id ?? null,
+      workflowRuns.some((run) => run.run_id === current) ? current : workflowRuns[0]?.run_id ?? null,
     );
     setCompareRunId(null);
-  }, [assetClass, profileRuns]);
+  }, [assetClass, workflowRuns]);
 
   useEffect(() => {
     if (tickers.length && !tickers.includes(ticker)) {
@@ -278,7 +261,6 @@ export default function App() {
 
   function handleJobStarted(job) {
     setJobs((prev) => [job, ...prev]);
-    setSelectedJobId(job.id);
     if (job.run_id) {
       // Backtest/optimize jobs write a run artifact once they finish; keep
       // polling the run list so the new run appears without a manual refresh.
@@ -290,7 +272,7 @@ export default function App() {
         if (detail && !isJobActive(detail)) {
           clearInterval(poll);
           if (detail.status === "completed") {
-            refreshRuns();
+            await refreshRuns();
             setActiveRunId(job.run_id);
           }
         }
@@ -314,11 +296,6 @@ export default function App() {
   const dataError = Object.values(dataErrors).filter(Boolean).join(" ");
   const pageDataError = isResearchTab ? dataError : null;
 
-  const equitySeries = useMemo(() => equityPoints(activeRun), [activeRun]);
-  const compareEquitySeries = useMemo(() => equityPoints(compareRun), [compareRun]);
-  const drawdownSeries = useMemo(() => drawdownPoints(activeRun), [activeRun]);
-  const compareDrawdownSeries = useMemo(() => drawdownPoints(compareRun), [compareRun]);
-  const modelChart = ticker ? activeRun?.model_chart?.[ticker] || [] : [];
   const closeWorkflowMenu = useCallback(() => setWorkflowMenuOpen(false), []);
   const toggleWorkflowMenu = useCallback(() => setWorkflowMenuOpen((open) => !open), []);
   const selectWorkflow = useCallback((nextWorkflow) => {
@@ -348,149 +325,6 @@ export default function App() {
       brokerStatus={brokerStatus}
     />
   );
-  const researchPanels = [
-    {
-      id: "controls",
-      title: `${workflowCopy.label} controls`,
-      kind: "controls",
-      reading: selectedProfile.short_label,
-      defaultLayout: { x: 0, y: 0, w: 4, h: 6 },
-      minW: 3,
-      minH: 3,
-      content: actionPanel,
-    },
-    {
-      id: "runs",
-      title: "Run library",
-      kind: "runs",
-      reading: `${profileRuns.length} RUNS`,
-      defaultLayout: { x: 0, y: 6, w: 4, h: 3 },
-      minW: 3,
-      minH: 2,
-      content: (
-        <RunList
-          runs={profileRuns}
-          activeRunId={activeRunId}
-          compareRunId={compareRunId}
-          onSelect={setActiveRunId}
-          onCompare={setCompareRunId}
-          onDelete={handleDeleteRun}
-          loadStatus={dataStatus.runs}
-        />
-      ),
-    },
-    {
-      id: "metrics",
-      title: "Performance / model score",
-      kind: "metrics",
-      reading: selectedProfile.scoring.short_label,
-      defaultLayout: { x: 0, y: 9, w: 4, h: 3 },
-      minW: 3,
-      minH: 2,
-      content: (
-        <MetricsPanel
-          metrics={runMetrics(activeRun)}
-          title={activeRun?.kind === "optimize" ? "Out-of-sample metrics" : "Run metrics"}
-          mlMetrics={ticker ? mlSummaryMetrics(activeRun, ticker) : null}
-          mlTicker={ticker}
-          trialsCount={optunaTrialsCount(activeRun)}
-          objectiveMetric={activeRun?.objective_metric || selectedProfile.scoring.metric}
-        />
-      ),
-    },
-    {
-      id: "model",
-      title: "Model decision tape",
-      kind: "model",
-      reading: ticker || "NO SYMBOL",
-      defaultLayout: { x: 4, y: 0, w: 8, h: 7 },
-      minW: 4,
-      minH: 4,
-      content: (
-        <div className="app__research-model">
-          {tickers.length > 1 && (
-            <div className="app__ticker-select">
-              <label className="label" htmlFor="channel-ticker">Model symbol</label>
-              <select id="channel-ticker" value={ticker || ""} onChange={(event) => setTicker(event.target.value)}>
-                {tickers.map((symbol) => <option key={symbol} value={symbol}>{symbol}</option>)}
-              </select>
-            </div>
-          )}
-          <ModelDecisionTape
-            points={modelChart}
-            ticker={ticker || "—"}
-            model={{
-              ...activeRun?.model_chart_meta,
-              entry_threshold: modelChart.at(-1)?.entry_threshold,
-              protective_orders_submitted: false,
-            }}
-            assetClass={assetClass}
-          />
-        </div>
-      ),
-    },
-    {
-      id: "equity",
-      title: "Equity curve",
-      kind: "channel",
-      reading: equitySeries.length ? formatUsd(equitySeries.at(-1).y) : "—",
-      defaultLayout: { x: 4, y: 7, w: 4, h: 2 },
-      minW: 3,
-      minH: 2,
-      content: (
-        <ChannelStrip
-          label="EQUITY"
-          color="var(--color-trace-amber)"
-          series={equitySeries}
-          ghostSeries={compareRun ? compareEquitySeries : null}
-          ghostLabel={compareRun ? compareRunId : null}
-          currentValueLabel={equitySeries.length ? formatUsd(equitySeries.at(-1).y) : "—"}
-          emptyMessage="Run a backtest or Optuna sweep to populate this channel"
-          tickFormat={formatUsdTick}
-        />
-      ),
-    },
-    {
-      id: "drawdown",
-      title: "Drawdown / risk rails",
-      kind: "channel",
-      reading: drawdownSeries.length ? `${drawdownSeries.at(-1).y.toFixed(1)}%` : "—",
-      defaultLayout: { x: 8, y: 7, w: 4, h: 2 },
-      minW: 3,
-      minH: 2,
-      content: (
-        <ChannelStrip
-          label="DRAWDOWN %"
-          color="var(--color-trace-amber)"
-          series={drawdownSeries}
-          ghostSeries={compareRun ? compareDrawdownSeries : null}
-          ghostLabel={compareRun ? compareRunId : null}
-          thresholds={DRAWDOWN_THRESHOLDS}
-          currentValueLabel={drawdownSeries.length ? `${drawdownSeries.at(-1).y.toFixed(1)}%` : "—"}
-          emptyMessage="No equity curve yet"
-          tickFormat={formatPctTick}
-        />
-      ),
-    },
-    {
-      id: "jobs",
-      title: "Job console",
-      kind: "jobs",
-      reading: `${runningJobCount} ACTIVE`,
-      defaultLayout: { x: 4, y: 9, w: 8, h: 3 },
-      minW: 4,
-      minH: 2,
-      content: (
-        <JobConsole
-          jobs={jobs}
-          loadStatus={dataStatus.jobs}
-          selectedJobId={selectedJobId}
-          onSelectJob={setSelectedJobId}
-          onJobUpdated={handleJobStopped}
-        />
-      ),
-    },
-  ];
   const workspaceNavigation = (
     <WorkflowMenuButton
       menuOpen={workflowMenuOpen}
@@ -506,7 +340,7 @@ export default function App() {
   );
 
   return (
-    <div className={`app ${workflowTab === "live" ? "is-live" : ""}`}>
+    <div className={`app ${isResearchTab ? "is-research" : ""} ${workflowTab === "live" ? "is-live" : ""}`}>
       <a className="skip-link" href="#dashboard-main">Skip to dashboard</a>
       <WorkflowDrawer
         open={workflowMenuOpen}
@@ -523,17 +357,34 @@ export default function App() {
           </div>
         )}
         {isResearchTab ? (
-          <DockWorkspace
-            key={`${workflowTab}-${assetClass}`}
-            workspaceId={`${workflowTab}-${assetClass}`}
-            title={`${workflowCopy.label} · ${selectedProfile.short_label}`}
-            subtitle={workflowCopy.description}
+          <ResearchHub
+            key={workflowTab}
+            workflow={workflowTab}
+            profile={selectedProfile}
+            assetProfiles={profiles}
+            assetClass={assetClass}
+            onAssetClassChange={setAssetClass}
+            runs={workflowRuns}
+            allRuns={profileRuns}
+            activeRunId={activeRunId}
+            compareRunId={compareRunId}
+            activeRun={activeRun}
+            compareRun={compareRun}
+            onSelectRun={setActiveRunId}
+            onCompareRun={setCompareRunId}
+            onDeleteRun={handleDeleteRun}
+            runLoadStatus={dataStatus.runs}
+            jobs={jobs}
+            onJobStarted={handleJobStarted}
+            onJobStopped={handleJobStopped}
+            brokerStatus={brokerStatus}
             toolbarNavigation={workspaceNavigation}
             toolbarLead={profileSwitch}
             toolbarStatus={workspaceBrokerStatus}
             theme={theme}
             onThemeChange={setTheme}
-            panels={researchPanels}
+            ticker={ticker}
+            onTickerChange={setTicker}
           />
         ) : (
           <LivePanel

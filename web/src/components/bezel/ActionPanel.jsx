@@ -1,15 +1,20 @@
 import { cloneElement, isValidElement, useEffect, useId, useRef, useState } from "react";
 
 import { api } from "../../lib/api.js";
+import { settledCashLabel } from "../../lib/accountEvidence.js";
 import { regimeWindowForBarHours } from "../../lib/assetProfiles.js";
 import { formatTime } from "../../lib/format.js";
 import { isJobActive } from "../../lib/jobs.js";
+import { DEFAULT_SESSION_POLICY, sessionPolicyPayload } from "../../lib/sessionPolicy.js";
+import SessionPolicyEditor from "./SessionPolicyEditor.jsx";
 import FeaturePanel, { DEFAULT_FEATURES, DEFAULT_SEARCH_MODES } from "../features/FeaturePanel.jsx";
 import RiskPanel, { DEFAULT_RISK, toRiskOverrides } from "../features/RiskPanel.jsx";
+import EquitySimulationEditor, { DEFAULT_SIMULATION } from "./EquitySimulationEditor.jsx";
 import "./action-panel.css";
 
 const LIVE_CONFIRM_PHRASE = "I UNDERSTAND THIS DEPLOYS REAL CAPITAL";
 const PAPER_PORTS = new Set([7497, 4002]);
+const IBKR_NATIVE_BAR_HOURS = [1, 2, 3, 4, 8, 24];
 const SETTINGS_STORAGE_KEY = "quant-dashboard.action-settings.v1";
 const UNKNOWN_LIVE_READINESS = {
   live_capital_enabled: false,
@@ -66,9 +71,10 @@ export default function ActionPanel({
   const tab = workflow;
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(null);
+  const [jobName, setJobName] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(Boolean(persisted.showAdvanced));
   const brokerCash = brokerStatus.account?.cash;
-  const accountCashLabel = Number.isFinite(brokerCash)
+  const accountCashLabel = brokerStatus.status === "connected" && Number.isFinite(brokerCash)
     ? new Intl.NumberFormat("en-US", {
         style: "currency",
         currency: brokerStatus.account?.currency || "USD",
@@ -84,6 +90,9 @@ export default function ActionPanel({
     persisted.tickers ?? (profile.defaults?.tickers || ["BTC", "ETH", "SOL", "XRP", "DOGE"]).join(","),
   );
   const [csvPath, setCsvPath] = useState(persisted.csvPath ?? "");
+  const [csvFileName, setCsvFileName] = useState("");
+  const [uploadingCsv, setUploadingCsv] = useState(false);
+  const csvInput = useRef(null);
   const [cash, setCash] = useState(persisted.cash ?? 5000);
   const [trials, setTrials] = useState(persisted.trials ?? 40);
   const [stopMode, setStopMode] = useState(persisted.stopMode || "trials"); // "trials" | "score"
@@ -122,6 +131,7 @@ export default function ActionPanel({
   );
   const [barHours, setBarHours] = useState(persisted.barHours ?? profile.defaults?.bar_hours ?? 4);
   const [includeExtendedHours, setIncludeExtendedHours] = useState(Boolean(persisted.includeExtendedHours));
+  const [sessionPolicy, setSessionPolicy] = useState({ ...DEFAULT_SESSION_POLICY, ...persisted.sessionPolicy });
   const [liveConfirmation, setLiveConfirmation] = useState("");
   const [liveReadiness, setLiveReadiness] = useState({
     ...UNKNOWN_LIVE_READINESS,
@@ -137,12 +147,17 @@ export default function ActionPanel({
     ...(persisted.searchModes || {}),
   });
   const [risk, setRisk] = useState({ ...DEFAULT_RISK, ...(persisted.risk || {}) });
+  const [equitySimulation, setEquitySimulation] = useState({ ...DEFAULT_SIMULATION, ...persisted.equitySimulation });
   const [dataFetchMode, setDataFetchMode] = useState(
     persisted.dataFetchMode ?? (persisted.fetchMissing ? "missing" : "none"),
   );
   const [ibkrPort, setIbkrPort] = useState(persisted.ibkrPort ?? 7497);
   const [ibkrYears, setIbkrYears] = useState(persisted.ibkrYears ?? 5);
-  const [ibkrBarHours, setIbkrBarHours] = useState(persisted.ibkrBarHours ?? 4);
+  const [ibkrBarHours, setIbkrBarHours] = useState(
+    IBKR_NATIVE_BAR_HOURS.includes(Number(persisted.ibkrBarHours))
+      ? Number(persisted.ibkrBarHours)
+      : 4,
+  );
 
   const [sourceRunId, setSourceRunId] = useState(persisted.sourceRunId ?? "");
   const [loadedParams, setLoadedParams] = useState(persisted.loadedParams ?? null);
@@ -164,12 +179,15 @@ export default function ActionPanel({
     if (!next) return;
     setTickers(next.defaults.tickers.join(","));
     setCsvPath("");
+    setCsvFileName("");
+    if (csvInput.current) csvInput.current.value = "";
     setTargetScore(next.defaults.target_score);
     setBarHours(next.defaults.bar_hours);
     setIbkrBarHours(next.defaults.bar_hours);
     setPrimaryExchange(next.defaults.primary_exchange || "");
     setAllowShorts(false);
     setIncludeExtendedHours(false);
+    setSessionPolicy({ ...DEFAULT_SESSION_POLICY });
     setSourceRunId("");
     setLoadedParams(null);
     setResumeRunId("");
@@ -268,9 +286,11 @@ export default function ActionPanel({
           shortRecallGraceSecs,
           barHours,
           includeExtendedHours,
+          sessionPolicy,
           features,
           searchModes,
           risk,
+          equitySimulation,
           dataFetchMode,
           ibkrPort,
           ibkrYears,
@@ -313,9 +333,11 @@ export default function ActionPanel({
     shortRecallGraceSecs,
     barHours,
     includeExtendedHours,
+    sessionPolicy,
     features,
     searchModes,
     risk,
+    equitySimulation,
     dataFetchMode,
     ibkrPort,
     ibkrYears,
@@ -364,6 +386,30 @@ export default function ActionPanel({
     }
   }
 
+  async function handleCsvFile(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setUploadingCsv(true);
+    setError(null);
+    try {
+      const uploaded = await api.uploadCsv(file);
+      setCsvPath(uploaded.path);
+      setCsvFileName(uploaded.filename || file.name);
+    } catch (err) {
+      setCsvFileName("");
+      event.target.value = "";
+      setError(`Could not load data CSV: ${err.message}`);
+    } finally {
+      setUploadingCsv(false);
+    }
+  }
+
+  function clearCsvFile() {
+    setCsvPath("");
+    setCsvFileName("");
+    if (csvInput.current) csvInput.current.value = "";
+  }
+
   function clearTradingParams() {
     setTradingParams(null);
     setTradingParamsName("");
@@ -388,6 +434,7 @@ export default function ActionPanel({
     setError(null);
     try {
       const run = await api.getRun(runId);
+      if (run.equity_simulation?.config) setEquitySimulation(run.equity_simulation.config);
       const params = run.best_params || {};
       setLoadedParams(params);
       setFeatures((prev) => ({
@@ -421,6 +468,7 @@ export default function ActionPanel({
     return {
       features: effectiveFeatures(),
       risk: toRiskOverrides(risk),
+      ...(assetClass === "equity" ? { equity_simulation: equitySimulation } : {}),
       ibkr: {
         fetch_missing: dataFetchMode === "missing",
         replace_bars: dataFetchMode === "replace",
@@ -463,8 +511,11 @@ export default function ActionPanel({
         );
       }
       let job;
+      const executionSession = ["paper", "live"].includes(tab) && assetClass === "equity"
+        ? sessionPolicyPayload(sessionPolicy, includeExtendedHours) : null;
       if (tab === "backtest") {
         job = await api.startBacktest({
+          name: jobName.trim() || null,
           csv: csvPath.trim() || defaultCsvPath(assetClass),
           tickers: parseTickers(tickers),
           asset_class: assetClass,
@@ -474,6 +525,7 @@ export default function ActionPanel({
         });
       } else if (tab === "optimize") {
         job = await api.startOptimize({
+          name: jobName.trim() || null,
           csv: csvPath.trim() || defaultCsvPath(assetClass),
           tickers: parseTickers(tickers),
           asset_class: assetClass,
@@ -505,6 +557,7 @@ export default function ActionPanel({
           include_extended_hours: assetClass === "equity" && includeExtendedHours,
           host,
           port: Number(port),
+          session_policy: executionSession,
           client_id: Number(clientId),
           account_id: accountId || null,
           params: { ...(tradingParams || {}), ...toRiskOverrides(risk) },
@@ -528,6 +581,7 @@ export default function ActionPanel({
           include_extended_hours: assetClass === "equity" && includeExtendedHours,
           host,
           port: Number(livePort),
+          session_policy: executionSession,
           client_id: Number(clientId),
           account_id: accountId || null,
           cash: Number(cash),
@@ -536,6 +590,7 @@ export default function ActionPanel({
         });
       }
       onJobStarted?.(job);
+      if (tab === "backtest" || tab === "optimize") setJobName("");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -575,6 +630,14 @@ export default function ActionPanel({
         {(tab === "backtest" || tab === "optimize") && (
           <>
             <div className="action-panel__fields action-panel__fields--research">
+              <Field label="Run name (optional)" wide>
+                <input
+                  value={jobName}
+                  maxLength={80}
+                  onChange={(event) => setJobName(event.target.value)}
+                  placeholder={tab === "backtest" ? "e.g. QQQ regime baseline" : "e.g. Crypto stability sweep"}
+                />
+              </Field>
               <Field label="Tickers">
                 <input value={tickers} onChange={(e) => setTickers(e.target.value)} />
               </Field>
@@ -588,10 +651,13 @@ export default function ActionPanel({
                 <input type="number" value={cash} onChange={(e) => setCash(e.target.value)} />
               </Field>
               <Field label="Data CSV" wide>
-                <input
-                  value={csvPath}
-                  onChange={(e) => setCsvPath(e.target.value)}
-                  placeholder={`${defaultCsvPath(assetClass)} (default)`}
+                <DataCsvPicker
+                  inputRef={csvInput}
+                  fileName={csvFileName}
+                  loading={uploadingCsv}
+                  defaultPath={defaultCsvPath(assetClass)}
+                  onChange={handleCsvFile}
+                  onClear={clearCsvFile}
                 />
               </Field>
 
@@ -605,7 +671,7 @@ export default function ActionPanel({
                     <option value="">— none (defaults) —</option>
                     {optimizeRuns.map((r) => (
                       <option key={r.run_id} value={r.run_id}>
-                        {r.run_id} ({formatTime(r.finished_at)})
+                        {r.name ? `${r.name} · ${r.run_id}` : r.run_id} ({formatTime(r.finished_at)})
                       </option>
                     ))}
                   </select>
@@ -720,6 +786,7 @@ export default function ActionPanel({
                   allowOptunaSearch={tab === "optimize"}
                 />
                 <RiskPanel value={risk} onChange={setRisk} />
+                {assetClass === "equity" && <EquitySimulationEditor value={equitySimulation} onChange={setEquitySimulation} />}
                 <div className="action-panel__ibkr">
                   <div className="action-panel__ibkr-mode">
                     <Field label="Historical data action">
@@ -735,7 +802,7 @@ export default function ActionPanel({
                         {dataFetchMode === "missing"
                           ? "Only absent tickers are fetched. Their bars inherit the current CSV frequency."
                           : dataFetchMode === "replace"
-                            ? "The requested universe replaces the CSV completely at the selected frequency."
+                            ? "The requested universe replaces the CSV completely at the selected IBKR-native frequency."
                             : "No IBKR request will be made; the selected CSV is used unchanged."}
                       </p>
                     </div>
@@ -780,13 +847,12 @@ export default function ActionPanel({
                               }));
                             }}
                           >
-                            <option value={1}>1 hour</option>
-                            <option value={2}>2 hours</option>
-                            <option value={3}>3 hours</option>
-                            <option value={4}>4 hours</option>
-                            <option value={8}>8 hours</option>
-                            <option value={12}>12 hours</option>
-                            <option value={24}>24 hours (profile default)</option>
+                            <option value={1}>1 hour · IBKR native</option>
+                            <option value={2}>2 hours · IBKR native</option>
+                            <option value={3}>3 hours · IBKR native</option>
+                            <option value={4}>4 hours · IBKR native</option>
+                            <option value={8}>8 hours · IBKR native</option>
+                            <option value={24}>1 day · IBKR native</option>
                           </select>
                         </Field>
                       )}
@@ -804,6 +870,10 @@ export default function ActionPanel({
               </div>
             )}
           </>
+        )}
+
+        {["paper", "live"].includes(tab) && assetClass === "equity" && !paperJob && (
+          <SessionPolicyEditor value={sessionPolicy} onChange={setSessionPolicy} Field={Field} />
         )}
 
         {tab === "paper" && (
@@ -863,6 +933,13 @@ export default function ActionPanel({
               <Field label="Account cash">
                 <div className="action-panel__account-cash" role="status">
                   <span className="num action-panel__account-cash-value">{accountCashLabel}</span>
+                </div>
+              </Field>
+              <Field label="Settled cash (IBKR)">
+                <div className="action-panel__account-cash" role="status">
+                  <span className="num action-panel__account-cash-value">
+                    {settledCashLabel(brokerStatus.account?.settled_cash, { connected: brokerStatus.status === "connected" })}
+                  </span>
                 </div>
               </Field>
               <Field label="Strategy" wide>
@@ -1179,6 +1256,51 @@ function StrategyParamsPicker({ inputRef, fileName, onChange, onClear }) {
         aria-live="polite"
       >
         {fileName || "Built-in strategy defaults"}
+      </span>
+    </div>
+  );
+}
+
+function DataCsvPicker({ inputRef, fileName, loading, defaultPath, onChange, onClear }) {
+  return (
+    <div className="action-panel__file-control">
+      <input
+        ref={inputRef}
+        className="action-panel__file-input"
+        type="file"
+        tabIndex={-1}
+        accept=".csv,text/csv"
+        onChange={onChange}
+      />
+      <div className="action-panel__file-picker">
+        <button
+          type="button"
+          className="action-panel__file-button"
+          aria-describedby="data-csv-file-status"
+          disabled={loading}
+          onClick={() => inputRef.current?.click()}
+        >
+          <span>{loading ? "Loading CSV…" : fileName || "Choose data CSV"}</span>
+          <span className="action-panel__file-type" aria-hidden="true">CSV</span>
+        </button>
+        {fileName && (
+          <button
+            type="button"
+            className="action-panel__file-clear"
+            aria-label={`Clear selected data file ${fileName}`}
+            onClick={onClear}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      <span
+        id="data-csv-file-status"
+        className={`action-panel__file-status ${fileName ? "has-file" : ""}`}
+        role="status"
+        aria-live="polite"
+      >
+        {fileName || `Default: ${defaultPath}`}
       </span>
     </div>
   );

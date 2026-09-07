@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from ibapi.client import EClient
 from ibapi.contract import Contract
 from ibapi.wrapper import EWrapper
+from quant.run.account_evidence import SettledCashEvidence
 
 
 _BAR_HOURS = {1, 2, 3, 4, 8, 24}
@@ -118,7 +119,7 @@ class _Probe(EWrapper, EClient):
         self.monitor.set_account_value(account, tag, value, currency)
 
     def updateAccountValue(self, key, value, currency, accountName) -> None:  # noqa: N802
-        self.monitor.set_account_value(accountName, key, value, currency)
+        self.monitor.set_account_value(accountName, key, value, currency, source="accountUpdates")
 
     def error(self, reqId, *args) -> None:
         # ibapi uses the legacy (reqId, code, message, json) callback for
@@ -135,6 +136,8 @@ class _Probe(EWrapper, EClient):
         # Informational IB messages are not connection loss.
         if errorCode not in {2104, 2106, 2107, 2158}:
             self.monitor.set_error(f"IBKR {errorCode}: {errorString}")
+        if errorCode in {1100, 1101, 1102, 1300}:
+            self.monitor._settled_cash.clear()
         # A reachable socket can still reject the API handshake. Wake the
         # connection attempt immediately so auto-discovery can try the next
         # configured Gateway/TWS port instead of waiting for the timeout.
@@ -173,6 +176,7 @@ class BrokerMonitor:
         self._bar_requests: dict[int, str] = {}
         self._accounts: list[str] = []
         self._account_values: dict[str, dict[str, dict[str, str]]] = {}
+        self._settled_cash = SettledCashEvidence()
         explicit_port = os.environ.get("IBKR_PORT", os.environ.get("TWS_PORT"))
         self._auto_discover = explicit_port is None
         self._auto_ports = [7497, 4002, 7496, 4001]
@@ -224,8 +228,11 @@ class BrokerMonitor:
         with self._lock:
             self._accounts = accounts
 
-    def set_account_value(self, account: str, tag: str, value: str, currency: str) -> None:
+    def set_account_value(self, account: str, tag: str, value: str, currency: str,
+                          *, source: str = "accountSummary") -> None:
         with self._lock:
+            if tag == "SettledCash" and source == "accountSummary":
+                self._settled_cash.observe(account, value, currency)
             self._account_values.setdefault(account, {})[tag] = {
                 "value": value,
                 "currency": currency,
@@ -250,6 +257,7 @@ class BrokerMonitor:
             return True
 
     def set_disconnected(self, message: str) -> None:
+        self._settled_cash.clear()
         if not self._stop.is_set():
             self._set_state("disconnected", message)
 
@@ -259,6 +267,7 @@ class BrokerMonitor:
             self._state["message"] = message
 
     def _disconnect(self) -> None:
+        self._settled_cash.clear()
         probe = self._probe
         self._probe = None
         with self._lock:
@@ -570,7 +579,11 @@ class BrokerMonitor:
             with self._lock:
                 self._state["last_error"] = None
             probe = _Probe(self)
+            self._settled_cash.clear()
+            with self._lock:
+                self._account_values.clear()
             self._probe = probe
+            account = ""
             try:
                 probe.connect(config["host"], candidate_port, self._config["client_id"])
                 reader = threading.Thread(target=probe.run, name="ibkr-monitor-reader", daemon=True)
@@ -584,9 +597,9 @@ class BrokerMonitor:
                 probe.reqAccountSummary(
                     7001,
                     "All",
-                    "AccountType,TotalCashValue,AvailableFunds,NetLiquidation,BuyingPower",
+                    "AccountType,TotalCashValue,SettledCash,AvailableFunds,NetLiquidation,BuyingPower",
                 )
-                account = self._accounts[0] if self._accounts else ""
+                account = config.get("account_id") or (self._accounts[0] if self._accounts else "")
                 if account:
                     probe.reqAccountUpdates(True, account)
                 with self._lock:
@@ -619,9 +632,9 @@ class BrokerMonitor:
                     probe.cancelAccountSummary(7001)
                 except Exception:  # noqa: BLE001 - cleanup must continue
                     pass
-                if self._accounts:
+                if account:
                     try:
-                        probe.reqAccountUpdates(False, self._accounts[0])
+                        probe.reqAccountUpdates(False, account)
                     except Exception:  # noqa: BLE001 - cleanup must continue
                         pass
                 self._disconnect()
@@ -630,15 +643,20 @@ class BrokerMonitor:
 
     def status(self) -> dict:
         with self._lock:
-            account_id = self._accounts[0] if self._accounts else None
+            account_id = self._config.get("account_id") or (self._accounts[0] if self._accounts else None)
             values = self._account_values.get(account_id or "", {})
+            connected = bool(self._state["status"] == "connected" and self._probe
+                             and self._probe.isConnected())
+            if not connected:
+                self._settled_cash.clear()
 
             def value_for(tag: str):
                 item = values.get(tag)
                 if not item or item["value"] in {"", "N/A"}:
                     return None
                 try:
-                    return float(item["value"])
+                    value = float(item["value"])
+                    return value if connected and math.isfinite(value) else None
                 except (TypeError, ValueError):
                     return None
 
@@ -652,6 +670,9 @@ class BrokerMonitor:
                     "available_funds": value_for("AvailableFunds"),
                     "net_liquidation": value_for("NetLiquidation"),
                     "buying_power": value_for("BuyingPower"),
+                    "settled_cash": self._settled_cash.snapshot(
+                        account_id or "", "USD", connected=connected,
+                    ),
                     "currency": values.get("TotalCashValue", {}).get("currency", "USD"),
                 },
                 "read_only": True,

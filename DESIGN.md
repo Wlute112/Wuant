@@ -1,4 +1,8 @@
 ---
+
+Priorities and remaining work are tracked in the single
+[product readiness backlog](PRODUCTION_READINESS.md). This document retains
+its specifications, evidence and operating procedures.
 name: Strip Recorder
 description: An analog seismograph/strip-chart instrument world for the trading system's reporting dashboard.
 colors:
@@ -155,20 +159,20 @@ theme colors.
 
 ## Layout
 
-Desktop is a single-viewport, TWS-style operating deck. Its compact workspace
-toolbar combines workflow navigation, the active workflow description, profile
-controls, and authoritative IBKR status without a separate application banner.
-A twelve-column by twelve-row dock surface holds the live
-chart, model score, risk rails, broker telemetry, news impact, positions, and
-model/execution action tape at once. Panels drag from their stamped title bar,
-resize from the lower corner, snap to grid cells, and compact when one panel
-overtakes another. The default layout uses 4px gutters and deliberately fills
-the usable viewport; Balanced and Comfortable density settings increase the
-gutter without changing information priority. Every panel owns its scrolling,
-so the document itself does not scroll on a desktop workstation. Layout,
-visibility, size, and density persist per workflow and asset profile in local
-storage. Below 700px the dock becomes a readable single-column stack and the
-document may scroll; touch-capable controls retain a 44px minimum target.
+Desktop has two related workspace forms. Paper and Live use the single-viewport,
+TWS-style operating deck. Backtest and Optuna use a scrolling research hub with
+a fixed run library, evidence verdict, section navigation, and report panels in
+a stable reading order. The shared compact toolbar combines workflow navigation,
+profile controls, theme, and authoritative IBKR status without a separate
+application banner.
+
+The Paper/Live twelve-column by twelve-row dock holds the live chart, model
+score, risk rails, broker telemetry, news impact, positions, and action tape.
+Those operational panels drag, resize, snap, and persist per workflow/profile.
+Research panels never drag: benchmark comparison, performance, drawdown, trades,
+model quality, search sensitivity, and validation evidence must remain in a
+repeatable review sequence. Below 700px both forms become readable single-column
+stacks and touch controls retain a 44px minimum target.
 
 ## Elevation & Depth
 
@@ -198,6 +202,12 @@ physical indicator lamps.
 - **Panel controls:** the full title bar is the drag handle, the lower-right corner resizes, × hides a panel, and the Panels menu restores hidden panels or resets the canonical TWS layout.
 - **Motion:** the grabbed panel follows the pointer directly. Displaced panels slide to their snapped cells with a 240ms exponential ease-out. Reduced-motion users get the same reflow without animation.
 - **Persistence:** each workflow/asset-profile pair stores layout coordinates, dimensions, hidden panels, and density locally after changes. Closing the application never resets the deck.
+
+### Research Hub
+- **Scope:** Backtest and Optuna only. The left rail selects or compares saved runs; the report body follows Evidence → Performance → Risk & trades → Model → Optimization → Run & logs.
+- **Benchmark contract:** every eligible run is rebased against the S&P 500 price index over the same observed period. The source, coverage, and price-return basis are always visible; missing overlap appears as an explicit unavailable state.
+- **Validation contract:** optimization exposes every trial, the incumbent path, parameter sensitivity, walk-forward folds, doubled-cost stress, and the in-sample/out-of-sample gap. Multi-seed campaigns advance through consensus and robustness before the one-shot outer holdout action becomes available.
+- **Interaction:** panels have a stable document order and never drag or resize. Run configuration opens from the primary action or appears in Run & logs; campaign stages launch beside their evidence.
 
 ### Buttons
 - **Shape:** 4px radius, 1px Hairline border, mono Label typography, uppercase, tracked.

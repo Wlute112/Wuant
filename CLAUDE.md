@@ -205,7 +205,8 @@ instrument's signal and hands the free slots to the highest-`|yhat|` entries
 (see `MLStrategy._resolve_batch`). Reversing/adjusting an already-held
 instrument never consumes a new slot. (Slots free up when a risk event flattens
 the book; there is no conviction-based *eviction* of an existing holding for a
-later stronger signal — add that if you want slots to rebalance continuously.)
+later stronger signal. The optional replacement experiment is tracked as P3-01
+in [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).)
 
 **Book-level leverage=1 guard.** `enforce_portfolio_leverage` (fixed, default on)
 caps *aggregate* gross notional across all instruments at `max_leverage * equity`,
@@ -446,79 +447,19 @@ them to `PredictionEngine`; all feature construction lives in
 `prediction_engine.py`. See `tests/test_cross_asset_features.py` for the
 alignment/no-lookahead verification.
 
-## Known simplifications / TODO before real money
+## Remaining implementation and validation work
 
-- **Fee model:** crypto now models IBKR's real Zero Hash/Paxos schedule exactly
-  (`ZeroHashCryptoFeeModel` in `backtest_common.py`, wired into
-  `asset_class_fee_model` so both `run_backtest.py` and every `optimize.py`
-  Optuna trial pick it up automatically via the shared `build_engine()`):
-  tiered by trailing 30-day account-wide crypto trade value — 0.18% up to
-  $100k, 0.15% $100k-$1M, 0.12% above $1M — with a $1.75 minimum per order
-  that is itself capped at 1% of that order's trade value. Equities
-  (`--asset-class equity`) remain a flat ~$0.005/share commission
-  (`PerContractFeeModel`), with IBKR's real per-order minimum/tiered schedule
-  not modelled for that asset class.
-- **Bars:** daily OHLC only. Intraday/tick needs a different `BarSpecification`
-  and IBKR market-data subscriptions.
-- **Protective stops:** ATR stop distance currently controls position sizing,
-  but the strategy does not submit a broker-side stop order. Daily-loss and
-  drawdown controls remain active, but this must be implemented and exercised
-  in paper before promoting the system to live capital.
-- **Instrument:** `make_crypto` defines **spot** crypto (`CurrencyPair`, BASE/USD,
-  fractional size). For crypto **perps/futures** add `CryptoPerpetual` /
-  `CryptoFuture` definitions with the correct multiplier + funding.
-- **Regime thresholds:** the 20-day Bull/Bear band (±2%), HMM refit cadence,
-  and the regime-feature smoothing/hysteresis defaults in `models/regime.py`
-  are all fixed, tuned implicitly for crypto's higher volatility — they are
-  **not** auto-adjusted per `--asset-class`. Running `--asset-class equity`
-  with these defaults will likely read mostly Sideways (index ETFs rarely
-  move ±2% over 20 days outside a real crisis); override
-  `regime_bull_threshold`/`regime_bear_threshold` in `PredictionConfig`
-  directly if you want equity-scaled regime labels.
-- **Equity trading calendar:** `generate_sample_bars.py --asset-class equity`
-  skips weekends (`_business_days`) but does not model a real exchange holiday
-  calendar — a documented simplification, same spirit as the crypto generator
-  being "a pipeline exerciser, not market reality."
-- **Equity live/paper scope:** `run_live.py` now supports SMART-routed US
-  stocks/ETFs with whole-share sizing, RTH-only data, and LAST daily bars.
-  Shorting is an explicit `--allow-shorts` opt-in and remains subject to IBKR
-  permissions, borrow availability, and margin rules. Options, futures,
-  extended-hours equity trading, and mixed crypto/equity runs are not covered.
-- **Real API status:** `run_live.py` has been exercised end-to-end against
-  paper TWS on port 7497: managed-account discovery, Zero Hash BTC/ETH/SOL
-  contract qualification, account-state loading, execution reconciliation,
-  one-year MIDPOINT history, continuing daily subscriptions, Redis save, and
-  Redis restore all succeeded. The equity path was also verified with a
-  SMART-routed SPY contract (qualified to ARCA), whole-share instrument
-  precision, RTH LAST history (251 bars), continuing subscription,
-  reconciliation, Redis save, and Redis restore. `ibkr_fetch.py`'s standalone
-  CLI remains unverified against TWS.
-- **Adapter shutdown noise:** a graceful paper stop saves state and exits zero,
-  but Nautilus 1.229 may log IBKR error 162 for the intentionally cancelled
-  historical subscription and a pending `_stop_async` task warning while its
-  event loop closes. This is adapter cleanup noise, but should be rechecked
-  after adapter upgrades.
-- **State persistence:** paper/live now uses a Redis-backed Nautilus cache and
-  persists strategy warmup/risk state. A clean restart recovers the permanent
-  kill-switch and reconciles open positions/orders against IBKR. Redis is an
-  operational dependency; monitor and back up its append-only volume before
-  live deployment.
-- **Dashboard live/paper data is mocked:** `api/live_mock.py` serves
-  realistic sample positions/risk state, not real ones — nothing in
-  `run_live.py` reports live position/risk state anywhere the dashboard (or
-  anything else) can read yet. `/api/jobs/paper` and `/api/jobs/live` DO
-  actually spawn the verified `run_live.py` paper/live path, but the resulting
-  positions won't show up in the Live Positions panel until that reporting
-  path is built.
-```
+All priorities, implementation tasks, validation requirements and optional
+extensions are maintained in [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
+Update that single backlog; do not maintain a separate todo list here.
 
 # IBKR paper-trading setup
 
-The paper runner trades spot crypto or equities through the same `MLStrategy`
-used by the backtest. It persists orders, positions, account events, model
-warmup history, daily halts, and the permanent kill-switch in Redis. Crypto
-and equity use separate Nautilus trader/cache namespaces. Shorting is disabled
-by default; equity runs may opt in with `--allow-shorts`.
+The paper runner trades US equities/ETFs through the same `MLStrategy` used by
+the backtest. IBKR does not support spot-crypto paper execution. It persists
+orders, positions, account events, model warmup history, daily halts and the
+permanent kill-switch in Redis. Shorting is an explicit opt-in behind broker
+controls. See [OPERATIONS.md](OPERATIONS.md) for current setup and session policy.
 
 ## 1. Start persistence
 
@@ -613,7 +554,8 @@ Logs should show all of the following before the session is considered ready:
 - daily-bar subscriptions started;
 - Redis cache backing is enabled.
 
-This runner remains crypto-only. Equity paper/live routing is not implemented.
+SMART equity routing is implemented. Paper is equity-only; live capital remains
+disabled by the canonical production-readiness gate.
 
 Paper/live spot crypto is long-only: bearish signals flatten an existing long
 and never open a naked short. Backtests retain their configured long/short

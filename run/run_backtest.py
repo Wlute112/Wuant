@@ -11,18 +11,25 @@ The strategy, sizing, and risk rules are identical either way.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import time
 
-from quant.run.artifacts import save_backtest_artifact
+from nautilus_trader.model.data import Bar
+
+from quant.run.artifacts import equity_curve_with_timestamps, save_backtest_artifact
 from quant.run.asset_profiles import strategy_defaults_for_asset
 from quant.run.backtest_common import (
     ASSET_CLASSES,
     VENUE,
     build_and_run,
+    build_engine,
     infer_bars_per_session,
+    replay_batches,
 )
 from quant.run.metrics import print_metrics
+from quant.run.metrics import compute_metrics
+from quant.run.progress import ProgressWriter
 
 DEFAULT_TICKERS = ["BTC", "ETH", "SOL", "XRP", "DOGE"]  # crypto (24/7)
 EQUITY_DEFAULT_TICKERS = ["SPY", "QQQ", "DIA", "IWM"]  # liquid index ETFs
@@ -56,6 +63,7 @@ TUNABLE_KEYS = {
 # default warmup_bars=150/min_train_bars=120 alone can exceed the whole
 # in-sample window and produce zero trades.
 STRUCTURAL_KEYS = {
+    "equity_simulation",
     "refit_every_n_bars",
     "warmup_bars",
     "min_train_bars",
@@ -129,6 +137,86 @@ def load_best_params(path: str) -> dict:
     return overrides
 
 
+def _run_with_progress(
+    *,
+    csv_path: str,
+    tickers: list[str],
+    overrides: dict,
+    starting_cash: float,
+    log_level: str,
+    asset_class: str,
+    progress: ProgressWriter,
+):
+    progress.update(
+        phase="loading",
+        phase_label="Loading market history",
+        percent=1,
+        tickers=tickers,
+        starting_cash=starting_cash,
+        timeline=[],
+    )
+    engine, bars = build_engine(
+        csv_path=csv_path,
+        tickers=tickers,
+        strategy_overrides=overrides,
+        starting_cash=starting_cash,
+        log_level=log_level,
+        asset_class=asset_class,
+    )
+    if not bars:
+        engine.dispose()
+        raise ValueError("No bars matched the requested ticker universe.")
+
+    total = len(bars)
+    total_bars = sum(isinstance(item, Bar) for item in bars)
+    processed_bars = 0
+    target_batch_size = max(1, total // 80)
+    timeline = []
+    peak_equity = starting_cash
+    index = 0
+    try:
+        for batch in replay_batches(bars, target_batch_size):
+            end = index + len(batch)
+            processed_bars += sum(isinstance(item, Bar) for item in batch)
+            engine.add_data(batch)
+            engine.run(streaming=True)
+            engine.clear_data()
+
+            metrics = compute_metrics(engine, VENUE, starting_cash, asset_class)
+            curve = equity_curve_with_timestamps(engine, VENUE)
+            equity = curve[-1]["equity"] if curve else starting_cash + metrics.net_profit_usd
+            peak_equity = max(peak_equity, equity)
+            drawdown = 100 * (equity / peak_equity - 1) if peak_equity else 0.0
+            as_of = datetime.fromtimestamp(batch[-1].ts_init / 1_000_000_000, timezone.utc).isoformat()
+            timeline.append({
+                "ts": as_of,
+                "equity": round(float(equity), 2),
+                "net_pnl": round(float(equity - starting_cash), 2),
+                "drawdown_pct": round(float(drawdown), 2),
+                "trades": metrics.total_trades,
+            })
+            progress.update(
+                phase="replay",
+                phase_label="Replaying historical bars",
+                percent=round(100 * end / total, 1),
+                bars_processed=processed_bars,
+                bars_total=total_bars,
+                as_of=as_of,
+                equity=round(float(equity), 2),
+                net_pnl=round(float(equity - starting_cash), 2),
+                max_drawdown_pct=metrics.max_drawdown_pct,
+                trades=metrics.total_trades,
+                timeline=timeline[-180:],
+            )
+            index = end
+        engine.end()
+        progress.update(phase="reporting", phase_label="Computing final evidence", percent=100)
+    except BaseException:
+        engine.dispose()
+        raise
+    return engine
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--csv", default="quant/data/sample_bars.csv")
@@ -173,6 +261,12 @@ def main() -> None:
         "job runner). Defaults to an auto-generated bt_<timestamp>_<hex> id.",
     )
     p.add_argument(
+        "--run-name",
+        default=None,
+        help="Optional human-readable label stored with the run artifact.",
+    )
+    p.add_argument("--progress-path", default=None, help=argparse.SUPPRESS)
+    p.add_argument(
         "--fetch-missing",
         action="store_true",
         help="Before running, fetch any --tickers missing from --csv via a live "
@@ -208,6 +302,12 @@ def main() -> None:
     tickers = args.tickers or (
         EQUITY_DEFAULT_TICKERS if args.asset_class == "equity" else DEFAULT_TICKERS
     )
+    progress = ProgressWriter(
+        args.progress_path,
+        kind="backtest",
+        phases=["loading", "replay", "reporting", "saving"],
+    )
+    progress.update(phase="loading", phase_label="Preparing run", percent=0)
 
     if args.fetch_missing or args.replace_bars:
         from quant.data.ibkr_fetch import ensure_tickers
@@ -258,14 +358,25 @@ def main() -> None:
         print(f"Using {args.asset_class} profile defaults (no --params).")
 
     started_at = time.time()
-    engine = build_and_run(
-        csv_path=args.csv,
-        tickers=tickers,
-        strategy_overrides=overrides,
-        starting_cash=args.cash,
-        log_level=args.log_level,
-        asset_class=args.asset_class,
-    )
+    if args.progress_path:
+        engine = _run_with_progress(
+            csv_path=args.csv,
+            tickers=tickers,
+            overrides=overrides,
+            starting_cash=args.cash,
+            log_level=args.log_level,
+            asset_class=args.asset_class,
+            progress=progress,
+        )
+    else:
+        engine = build_and_run(
+            csv_path=args.csv,
+            tickers=tickers,
+            strategy_overrides=overrides,
+            starting_cash=args.cash,
+            log_level=args.log_level,
+            asset_class=args.asset_class,
+        )
 
     print("\n================ BACKTEST RESULT ================")
     try:
@@ -294,6 +405,7 @@ def main() -> None:
     # for the reporting dashboard. Best-effort: a failure here must never mask
     # the backtest result the rest of this command already printed above.
     try:
+        progress.update(phase="saving", phase_label="Saving research artifact", percent=100)
         artifact = save_backtest_artifact(
             engine=engine,
             venue=VENUE,
@@ -304,9 +416,11 @@ def main() -> None:
             overrides=overrides,
             started_at=started_at,
             run_id=args.run_id,
+            run_name=args.run_name,
             include_extended_hours=args.include_extended_hours,
         )
         print(f"\nSaved run artifact -> quant/runs/{artifact['run_id']}.json")
+        progress.update(phase="complete", phase_label="Research artifact ready", percent=100)
     except Exception as e:  # noqa: BLE001
         print(f"(run artifact unavailable: {e})")
 

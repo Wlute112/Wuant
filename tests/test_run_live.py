@@ -152,6 +152,7 @@ def test_load_params_ignores_metadata_and_runtime_owned_fields(tmp_path):
                 "risk_check_interval_secs": 0,
                 "require_session_schedule": False,
                 "session_policy": "CUSTOM",
+                "session_custom_windows": [["00:00", "23:59"]],
             }
         )
     )
@@ -219,6 +220,56 @@ def test_build_node_rejects_invalid_short_configuration_before_adapter_registrat
 def test_crypto_live_instrument_ids_and_bar_type():
     assert instrument_ids_for_asset(["btc"], "crypto") == ["BTC/USD.ZEROHASH"]
     assert bar_type_suffix_for_asset("crypto") == "-1-DAY-MID-EXTERNAL"
+
+
+def test_node_session_policy_reaches_real_strategy_config_without_connecting(monkeypatch):
+    from types import SimpleNamespace
+    import nautilus_trader.live.node
+
+    captured = {}
+
+    class OfflineNode:
+        def __init__(self, config):
+            captured["node_config"] = config
+            self.trader = SimpleNamespace(add_strategy=lambda strategy: captured.update(strategy=strategy))
+
+        def add_data_client_factory(self, *args):
+            pass
+
+        def add_exec_client_factory(self, *args):
+            pass
+
+        def build(self):
+            pass
+
+    monkeypatch.setattr(nautilus_trader.live.node, "TradingNode", OfflineNode)
+    monkeypatch.setattr(run_live, "register_ibkr_execution_fixes", lambda: None)
+    run_live.build_node(
+        tickers=["QQQ"], host="127.0.0.1", port=7497, client_id=1,
+        is_live=False, params={}, account_id="DU123", persistence=False,
+        asset_class="equity", bar_hours=24, include_extended_hours=True,
+        session_policy={"mode": "CUSTOM", "custom_windows": [["10:00", "15:00"]],
+                        "overnight_pnl_assignment": "PRIOR_SESSION", "opening_buffer_minutes": 7},
+    )
+    config = captured["strategy"].config
+    assert config.session_policy == "CUSTOM"
+    assert config.session_custom_windows == (("10:00", "15:00"),)
+    assert config.overnight_pnl_assignment == "PRIOR_SESSION"
+    assert config.opening_buffer_minutes == 7
+    assert config.cancel_entries_at_session_end is True
+    assert config.enable_broker_protection is True
+    assert config.require_session_schedule is True
+    assert captured["node_config"].data_clients["IB"].use_regular_trading_hours is False
+
+
+def test_node_rejects_invalid_session_before_adapter_startup(monkeypatch):
+    monkeypatch.setattr(run_live, "register_ibkr_execution_fixes", lambda: pytest.fail("adapter started"))
+    with pytest.raises(ValueError, match="include_extended_hours"):
+        run_live.build_node(
+            tickers=["QQQ"], host="127.0.0.1", port=7497, client_id=1,
+            is_live=False, params={}, account_id="DU123", asset_class="equity",
+            session_policy={"mode": "EXTENDED_HOURS"},
+        )
 
 
 def test_equity_live_instrument_ids_and_bar_type():

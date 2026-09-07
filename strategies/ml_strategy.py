@@ -28,6 +28,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 import json
+import math
 from typing import NamedTuple
 
 import numpy as np
@@ -54,6 +55,8 @@ from nautilus_trader.model.objects import Quantity
 from nautilus_trader.trading.strategy import Strategy
 
 from quant.data.quality import BarQualityGate
+from quant.data.instrument_identity import EquityIdentity
+from quant.ops.corporate_actions import CorporateActionRegistry
 from quant.models.cross_asset import PriceHistory
 from quant.models.industry import (
     industry_peers_for_symbol,
@@ -63,6 +66,7 @@ from quant.models.prediction_engine import PredictionConfig, PredictionEngine
 from quant.news.core import NewsFeatureReader, NewsFeatureSnapshot
 from quant.ops.state import OperationsStore
 from quant.run.nautilus_reconciliation import snapshot_from_nautilus_cache
+from quant.run.account_evidence import settled_cash_from_cache
 from quant.run.reconciliation import ReconciliationConfig, reconcile, recover_ledger
 from quant.run.telemetry import LiveTelemetryRecorder
 from quant.strategies.execution_state import (
@@ -78,6 +82,8 @@ from quant.strategies.sessions import (
     SessionPhase,
     SessionPolicy,
     SessionPolicyMode,
+    OvernightPnlAssignment,
+    session_policy_payload,
 )
 
 
@@ -267,6 +273,8 @@ class MLStrategyConfig(StrategyConfig, frozen=True):
     cancel_ack_timeout_secs: int = 30
     require_session_schedule: bool = False
     session_policy: str = "RTH_ONLY"
+    session_custom_windows: tuple[tuple[str, str], ...] = ()
+    overnight_pnl_assignment: str = "NEXT_SESSION"
     opening_buffer_minutes: int = 5
     closing_buffer_minutes: int = 5
     no_new_entry_minutes_before_close: int = 15
@@ -353,6 +361,12 @@ class MLStrategy(Strategy):
         self._pending: dict[InstrumentId, _PendingSignal] = {}
         self._pending_ts = None  # timestamp the current buffer belongs to
         self._n_instruments = 0  # set in on_start; == len(instrument_ids)
+        self._equity_identities = {}
+        self._identity_generation = ""
+        self._identity_rebuild_required = False
+        self._corporate_registry = None
+        self._corporate_ready = set()
+        self._corporate_pending_ids = set()
         # raw instrument-id string (as used in config.instrument_ids / a
         # PredictionEngine's cfg.peer_symbols) -> InstrumentId, so per-bar peer
         # lookups for cross-asset features don't re-parse strings every bar.
@@ -444,6 +458,7 @@ class MLStrategy(Strategy):
                         ts_ns=self.clock.timestamp_ns(),
                     )
                 self.log.error(f"Operational control database unavailable: {exc}")
+        self._initialize_equity_identities()
         self._n_instruments = len(self.config.instrument_ids)
         if self.config.use_news_features and self.config.news_data_path:
             try:
@@ -540,6 +555,7 @@ class MLStrategy(Strategy):
                 self._initialize_session_calendar(iid)
             self.log.info(f"Subscribed {bt}")
         self._restore_loaded_state()
+        self._restore_operator_controls()
         if self.config.require_session_schedule:
             missing_schedules = [
                 str(iid) for iid in self._bar_types if iid not in self._session_calendars
@@ -585,8 +601,76 @@ class MLStrategy(Strategy):
             )
 
     # ---- helpers --------------------------------------------------------
+    def _initialize_equity_identities(self) -> None:
+        if self.config.execution_mode not in {"paper", "live"} or self.config.telemetry_asset_class != "equity":
+            return
+        identities = {}
+        for raw in self.config.instrument_ids:
+            instrument = self.cache.instrument(InstrumentId.from_str(raw))
+            identities[raw] = EquityIdentity.from_info(getattr(instrument, "info", None) or {})
+        self._equity_identities = identities
+        if self._operations is None or self._operations_failed:
+            raise ValueError("Equity identity persistence requires an available operations database")
+        self._corporate_registry = CorporateActionRegistry(self._operations)
+        # The execution engine completes its broker reconciliation before on_start.
+        # Check the whole account cache; foreign/manual exposure is not hidden.
+        snapshot = snapshot_from_nautilus_cache(self.cache, self._execution, strategy_id=self.id,
+                    expected_account_id=self.config.account_id, captured_at_ns=self.clock.timestamp_ns())
+        broker_flat = bool(snapshot.complete and snapshot.account.account_id == self.config.account_id
+                           and snapshot.account.base_currency == "USD" and snapshot.account.equity > 0
+                           and not (self.cache.positions_open() or self.cache.orders_open() or self.cache.orders_inflight()))
+        state = self._corporate_registry.reconcile(self.config.account_id, list(identities.values()),
+                                                   broker_flat=broker_flat, now=self.clock.utc_now())
+        self._identity_generation = state["generation"]
+        self._identity_rebuild_required = state["rebuild_required"]
+        self._operations.set_state(f"equity-identities:{self._operations_target()}",
+                                   {"account_id": self.config.account_id, "strategy_id": str(self.id), **state})
+        if any(event["status"] == "REBUILDING" for event in state["events"]):
+            self._operations.set_state(self._control_key("operator-freeze"), True)
+            self._operations_entries_frozen = True
+
+    def _check_corporate_actions(self) -> None:
+        if self._corporate_registry is None:
+            return
+        events = self._corporate_registry.events(self.config.account_id)
+        pending = {event["event_id"] for event in events if event["status"] == "PENDING"}
+        if pending and pending != self._corporate_pending_ids:
+            self._operations.set_state(self._control_key("operator-freeze"), True)
+            self._operations_entries_frozen = True
+            self._execution_safety.freeze("Corporate action recorded: flatten, stop and restart for broker-confirmed recovery",
+                                          ts_ns=self.clock.timestamp_ns())
+            self._pending.clear()
+            self._cancel_working_entry_orders(reason="corporate-action review requires restart")
+        self._corporate_pending_ids = pending
+
     def _operations_target(self) -> str:
         return self.config.operations_component_id or f"strategy:{self.id}"
+
+    def _control_key(self, kind: str) -> str:
+        return f"{kind}:{self.config.account_id}:{self.id}"
+
+    def _restore_operator_controls(self) -> None:
+        if self._operations is None or self._operations_failed:
+            return
+        try:
+            frozen = self._operations.get_state(self._control_key("operator-freeze"))
+            if frozen is not None:
+                if type(frozen) is not bool:
+                    raise ValueError("invalid persisted operator-freeze state")
+                self._operations_entries_frozen = frozen
+            killed = self._operations.get_state(self._control_key("permanent-kill"), False)
+            if type(killed) is not bool:
+                raise ValueError("invalid persisted permanent-kill state")
+            if killed:
+                self._risk.engage_kill_switch()
+                self._operations_entries_frozen = True
+                if self._execution_safety.state not in {ExecutionSafetyState.EMERGENCY, ExecutionSafetyState.UNCERTAIN}:
+                    self._execution_safety.begin_emergency("Persisted operator kill-switch", ts_ns=self.clock.timestamp_ns())
+            elif self._operations_entries_frozen and self._execution_safety.state == ExecutionSafetyState.ACTIVE:
+                self._execution_safety.freeze("Persisted operator freeze", ts_ns=self.clock.timestamp_ns())
+        except Exception as exc:
+            self._operations_failed = True
+            self._execution_safety.mark_uncertain(f"Operator state recovery failed: {exc}", ts_ns=self.clock.timestamp_ns())
 
     def _audit_event(
         self,
@@ -636,6 +720,7 @@ class MLStrategy(Strategy):
                     "open_orders": len(self.cache.orders_open(strategy_id=self.id)),
                     "inflight_orders": len(self.cache.orders_inflight(strategy_id=self.id)),
                     "open_positions": len(self.cache.positions_open(strategy_id=self.id)),
+                    "resume_blockers": self._resume_blockers(),
                 },
                 observed_at=self.clock.utc_now(),
             )
@@ -662,12 +747,67 @@ class MLStrategy(Strategy):
                 observed = observed.replace(tzinfo=timezone.utc)
         except (TypeError, ValueError):
             return False
-        return self.clock.utc_now() - observed.astimezone(timezone.utc) <= timedelta(
-            seconds=max(1, self.config.external_supervisor_max_age_secs)
-        )
+        age = (self.clock.utc_now() - observed.astimezone(timezone.utc)).total_seconds()
+        return 0 <= age <= max(1, self.config.external_supervisor_max_age_secs)
+
+    def _resume_blockers(self) -> list[str]:
+        """Re-evaluated by the node when a resume command is consumed."""
+        blockers = []
+        if self._corporate_registry is not None and any(event["status"] in {"PENDING", "REBUILDING"}
+                for event in self._corporate_registry.events(self.config.account_id)):
+            blockers.append("Corporate-action recovery is pending; restart and complete fresh model warmup.")
+        if self._execution_safety.state != ExecutionSafetyState.FROZEN:
+            blockers.append("Execution must be FROZEN; uncertain, suspended and emergency states require recovery.")
+        if self._risk is None or self._risk.state != TradingState.ACTIVE:
+            blockers.append("Risk is not active; a daily halt or permanent kill cannot be overridden.")
+        if self._reconciliation_state != "BROKER_RECONCILED":
+            blockers.append("Broker reconciliation is not confirmed.")
+        if self._operations_failed or self._telemetry_failed:
+            blockers.append("Audit or telemetry is unavailable.")
+        if not self._external_supervisor_is_fresh() or self._external_supervisor_unhealthy:
+            blockers.append("Risk supervisor is unavailable or stale.")
+        if self._data_quality_blocked_instruments:
+            blockers.append("Market data quality has unresolved failures.")
+        if self._staged_exit_active or self.is_exiting() or self._pending_exits or self._startup_protection_pending:
+            blockers.append("Exit or protective-order recovery is in progress.")
+        if self.cache.orders_inflight(strategy_id=self.id):
+            blockers.append("Broker order acknowledgements are outstanding.")
+        if any(self._position_references.get(position.instrument_id, {}).get("protection_guaranteed") is not True
+               for position in self.cache.positions_open(strategy_id=self.id)):
+            blockers.append("Open positions lack confirmed broker protection.")
+        if self.config.require_session_schedule and len(self._session_calendars) != len(self._bar_types):
+            blockers.append("Exchange session schedules are incomplete.")
+        now = self.clock.utc_now()
+        if any(calendar.phase_at(now).value in {"UNKNOWN", "HALTED", "STALE"}
+               for calendar in self._session_calendars.values()):
+            blockers.append("Exchange session or market-data health is unknown, halted or stale.")
+        account = self._account()
+        try:
+            from nautilus_trader.model.currencies import USD
+            balance = account.balance_total(currency=USD) if account is not None else None
+            event = account.last_event() if account is not None else None
+            age = (self.clock.timestamp_ns() - event.ts_event) / 1e9 if event else float("inf")
+            if balance is None or not math.isfinite(balance.as_double()) or balance.as_double() <= 0 or not 0 <= age <= 240:
+                blockers.append("Broker USD account equity is unavailable or stale.")
+        except Exception:
+            blockers.append("Broker account freshness cannot be verified.")
+        if self.config.allow_short_positions and self._short_control is not None:
+            if self._short_control.snapshot().get("healthy") is not True:
+                blockers.append("Short controls are unhealthy.")
+        elif self.config.allow_short_positions and self.config.execution_mode in {"paper", "live"}:
+            blockers.append("Required short controls are unavailable.")
+        return blockers
 
     def _process_operations_control(self) -> None:
+        self._restore_operator_controls()
         if self._operations is None or self._operations_failed or self._risk is None:
+            return
+        try:
+            self._check_corporate_actions()
+        except Exception as exc:
+            self._operations_failed = True
+            self._execution_safety.mark_uncertain(f"Corporate-action journal unavailable: {exc}", ts_ns=self.clock.timestamp_ns())
+            self._cancel_working_entry_orders(reason="corporate-action journal unavailable")
             return
         target = self._operations_target()
         supervisor_fresh = self._external_supervisor_is_fresh()
@@ -711,7 +851,10 @@ class MLStrategy(Strategy):
         for command in commands:
             try:
                 if command.action == "FREEZE_ENTRIES":
-                    self._operations_entries_frozen = True
+                    if not command.payload.get("supervisor"):
+                        self._operations.set_state(self._control_key("operator-freeze"), True)
+                        self._operations_entries_frozen = True
+                    self._pending.clear()
                     self._execution_safety.freeze(
                         command.reason,
                         ts_ns=self.clock.timestamp_ns(),
@@ -724,12 +867,18 @@ class MLStrategy(Strategy):
                         result={"entries_allowed": False},
                     )
                 elif command.action == "RESUME_ENTRIES":
-                    allowed = bool(
-                        supervisor_fresh
-                        and self._risk.state == TradingState.ACTIVE
-                        and not self._external_supervisor_unhealthy
-                    )
+                    self._reconcile_broker_cache_source_of_truth()
+                    blockers = self._resume_blockers()
+                    if self._operations_entries_frozen and command.payload.get("supervisor"):
+                        blockers.append("Supervisor recovery cannot release an operator freeze.")
+                    requested_at = datetime.fromisoformat(command.requested_at)
+                    command_age = (self.clock.utc_now() - requested_at).total_seconds()
+                    if not 0 <= command_age <= 30:
+                        blockers.append("Resume request expired; submit a new request after reviewing current state.")
+                    allowed = not blockers
                     if allowed:
+                        self._operations.set_state(self._control_key("operator-freeze"), False)
+                        self._pending.clear()
                         self._operations_entries_frozen = False
                         self._execution_safety.resume(
                             command.reason,
@@ -739,11 +888,34 @@ class MLStrategy(Strategy):
                         command.command_id,
                         target,
                         success=allowed,
-                        result={"entries_allowed": self._execution_safety.entries_allowed},
+                        result={"entries_allowed": self._execution_safety.entries_allowed,
+                                "blockers": blockers},
                     )
-                elif command.action in {"CANCEL_ALL", "FLATTEN", "KILL"}:
+                elif command.action == "CANCEL_ALL":
+                    self._operations.set_state(self._control_key("operator-freeze"), True)
+                    self._operations_entries_frozen = True
+                    self._pending.clear()
+                    self._execution_safety.freeze(command.reason, ts_ns=self.clock.timestamp_ns())
+                    if self.cache.positions_open(strategy_id=self.id):
+                        self._operations.complete_command(command.command_id, target, success=False,
+                            result={"error": "Cancel-all requires a flat book; use flatten to exit protected positions."})
+                        continue
+                    # Capture IDs once: a racing fill may create new protective
+                    # orders, which must not be swept up by a later cancel-all.
+                    orders = {str(order.client_order_id): order for order in [
+                        *self.cache.orders_open(strategy_id=self.id),
+                        *self.cache.orders_inflight(strategy_id=self.id),
+                    ]}
+                    for order in orders.values():
+                        self.cancel_order(order)
+                    self._operations.acknowledge_command(command.command_id, target,
+                        result={"broker_confirmation_pending": True, "order_ids": list(orders)})
+                elif command.action in {"FLATTEN", "KILL"}:
+                    self._operations.set_state(self._control_key("operator-freeze"), True)
+                    self._operations_entries_frozen = True
                     permanent = command.action == "KILL"
                     if permanent:
+                        self._operations.set_state(self._control_key("permanent-kill"), True)
                         self._risk.engage_kill_switch()
                     self._begin_risk_exit(command.reason, permanent=permanent)
                     self._operations.acknowledge_command(
@@ -759,21 +931,24 @@ class MLStrategy(Strategy):
                         result={"error": f"unsupported action {command.action}"},
                     )
             except Exception as exc:  # noqa: BLE001
-                self._operations.complete_command(
-                    command.command_id,
-                    target,
-                    success=False,
-                    result={"error": f"{type(exc).__name__}: {exc}"},
-                )
                 self._execution_safety.mark_uncertain(
                     f"Operational command {command.action} failed: {exc}",
                     ts_ns=self.clock.timestamp_ns(),
                 )
+                try:
+                    self._operations.complete_command(command.command_id, target, success=False,
+                        result={"error": f"{type(exc).__name__}: {exc}"})
+                except Exception:
+                    self._operations_failed = True
+                    return
 
         for command in self._operations.acknowledged_commands(target, target):
             if command.action not in {"CANCEL_ALL", "FLATTEN", "KILL"}:
                 continue
-            if not self._has_broker_exposure() and not self.is_exiting():
+            if command.action == "CANCEL_ALL" and self.cache.positions_open(strategy_id=self.id):
+                self._operations.complete_command(command.command_id, target, success=False,
+                    result={"error": "A fill raced cancellation; entries remain frozen and position protection is retained. Review or flatten."})
+            elif not self._has_broker_exposure() and not self.is_exiting():
                 self._operations.complete_command(
                     command.command_id,
                     target,
@@ -803,6 +978,9 @@ class MLStrategy(Strategy):
         )
 
     def _equity(self) -> float:
+        simulation = getattr(self, "_equity_simulation", None)
+        if simulation is not None and simulation.exchange is not None:
+            return simulation.equity()
         try:
             acct = self._account()
             if acct is not None:
@@ -822,6 +1000,30 @@ class MLStrategy(Strategy):
         except Exception:  # noqa: BLE001 - fall back gracefully in backtest
             pass
         return self.config.starting_equity
+
+    def _apply_research_split(self, iid, ratio):
+        """Rebase only history already observed; future bars remain raw."""
+        for mapping in (self._closes, self._highs, self._lows):
+            values = mapping[iid]
+            rebased = [value / ratio for value in values]
+            values.clear()
+            values.extend(rebased)
+        for mapping in (self._prev_close, self._last_mark):
+            if iid in mapping:
+                mapping[iid] /= ratio
+        self._trained[iid] = False
+        # Peer models also condition on the changed price scale.
+        for peer in self._trained:
+            self._trained[peer] = False
+            self._engines[peer] = PredictionEngine(self._engines[peer].cfg)
+        self._pending.clear()
+        reference = self._position_references.get(iid)
+        if reference:
+            for key in ("atr", "entry_price", "stop_loss", "take_profit"):
+                if reference.get(key) is not None:
+                    reference[key] /= ratio
+        self._protection_ids.pop(iid, None)
+        self._reconcile_committed_notional()
 
     def _venue_for_any(self):
         first = next(iter(self._bar_types.values()))
@@ -860,6 +1062,8 @@ class MLStrategy(Strategy):
                 participate_opening_auction=self.config.participate_opening_auction,
                 participate_closing_auction=self.config.participate_closing_auction,
                 cancel_entries_at_session_end=self.config.cancel_entries_at_session_end,
+                custom_windows=self.config.session_custom_windows,
+                overnight_pnl_assignment=OvernightPnlAssignment(self.config.overnight_pnl_assignment),
             )
             calendar = ExchangeSessionCalendar.from_instrument_info(
                 info,
@@ -985,6 +1189,7 @@ class MLStrategy(Strategy):
                     "initial": initial.as_dict(),
                     "final": final.as_dict(),
                     "deterministic_recoveries": len(initial.actions),
+                    "settled_cash_evidence": snapshot.account.settled_cash_evidence,
                 },
                 severity="INFO" if final.passed else "CRITICAL",
             )
@@ -1108,16 +1313,7 @@ class MLStrategy(Strategy):
         equity = self._equity()
         if self._session_calendars:
             first_calendar = next(iter(self._session_calendars.values()))
-            previous_risk_state = self._risk.state
             self._risk.on_new_session(first_calendar.session_key(when), when, equity)
-            if (
-                previous_risk_state == TradingState.HALTED_DAILY
-                and self._risk.state == TradingState.ACTIVE
-            ):
-                self._execution_safety.resume(
-                    "The next exchange session opened after the daily halt.",
-                    ts_ns=self.clock.timestamp_ns(),
-                )
         else:
             self._risk.on_new_day(when, equity)
 
@@ -1160,14 +1356,12 @@ class MLStrategy(Strategy):
         )
         for iid, calendar in self._session_calendars.items():
             phase = calendar.phase_at(when)
-            previous = self._last_session_phase.get(iid)
             self._last_session_phase[iid] = phase
             if (
                 self.config.cancel_entries_at_session_end
-                and previous not in {None, SessionPhase.CLOSED}
-                and phase == SessionPhase.CLOSED
+                and not calendar.within_policy_window(when)
             ):
-                self._cancel_working_entry_orders(iid, reason="exchange session ended")
+                self._cancel_working_entry_orders(iid, reason="configured session window ended")
             scheduled_phase = calendar.phase_at(when, enforce_data_health=False)
             if phase in {SessionPhase.HALTED, SessionPhase.STALE}:
                 unhealthy.append(f"{iid}:{phase.value}")
@@ -1189,6 +1383,7 @@ class MLStrategy(Strategy):
             and self._risk.state == TradingState.ACTIVE
             and not self._operations_entries_frozen
             and not self._external_supervisor_unhealthy
+            and (not broker_mode or not self._resume_blockers())
         ):
             self._execution_safety.resume(
                 "Market-data/session health recovered.",
@@ -1601,6 +1796,10 @@ class MLStrategy(Strategy):
                     "price_collar_pct": self.config.price_collar_pct * 100.0,
                 },
                 "execution_state": self._execution_safety.state.value,
+                "settled_cash": settled_cash_from_cache(
+                    self.cache, self.config.account_id,
+                    now=self.clock.timestamp_ns() / 1_000_000_000,
+                ),
                 "reconciliation_state": (
                     "UNCERTAIN"
                     if self._execution_safety.state == ExecutionSafetyState.UNCERTAIN
@@ -1669,6 +1868,9 @@ class MLStrategy(Strategy):
             next_open, next_close = calendar.next_open_close(now)
             last_data = calendar.last_market_data_at
             readings["session"] = {
+                "policy": session_policy_payload(calendar.policy),
+                "entry_allowed": calendar.allows_new_entry(now)[0],
+                "entry_reason": calendar.allows_new_entry(now)[1],
                 "phase": calendar.phase_at(now).value,
                 "session_key": calendar.session_key(now),
                 "timezone": calendar.timezone_id,
@@ -2042,6 +2244,11 @@ class MLStrategy(Strategy):
             return
 
         self._record_telemetry(bar, ts, yhat=float(yhat), atr=atr)
+        if self._corporate_registry is not None and str(iid) in self._equity_identities:
+            self._corporate_ready.add(self._equity_identities[str(iid)].con_id)
+            expected = {identity.con_id for identity in self._equity_identities.values()}
+            if self._corporate_ready == expected:
+                self._corporate_registry.finish_rebuild(self.config.account_id, expected)
         self._audit_event(
             "SIGNAL_EVALUATED",
             {
@@ -2657,6 +2864,8 @@ class MLStrategy(Strategy):
             reference["status"] = f"broker_protection_canceling:{reason}"
 
     def _ensure_broker_protection(self, iid: InstrumentId) -> None:
+        if getattr(self, "_research_adjusting", False):
+            return
         if not self.config.enable_broker_protection:
             return
         net, actual_average = self._broker_position_state(iid)
@@ -3136,7 +3345,10 @@ class MLStrategy(Strategy):
         if self._risk is None:
             return {}
         payload = {
-            "version": 8,
+            "version": 9,
+            "instrument_identities": {str(identity.con_id): {**identity.as_dict(), "instrument_id": raw}
+                                      for raw, identity in self._equity_identities.items()},
+            "identity_generation": self._identity_generation,
             "instrument_ids": sorted(self.config.instrument_ids),
             "risk": self._risk.snapshot(),
             "account_equity_baseline": self._account_equity_baseline,
@@ -3164,7 +3376,7 @@ class MLStrategy(Strategy):
                 if iid in self._raw_by_iid
             },
             "instruments": {
-                str(iid): {
+                (str(self._equity_identities[str(iid)].con_id) if str(iid) in self._equity_identities else str(iid)): {
                     "closes": list(self._closes[iid]),
                     "bar_times": list(self._bar_times[iid]),
                     "news_scores": list(self._news_scores[iid]),
@@ -3196,7 +3408,7 @@ class MLStrategy(Strategy):
         if raw is None:
             return
         payload = json.loads(raw.decode("utf-8"))
-        if payload.get("version") not in {1, 2, 3, 4, 5, 6, 7, 8}:
+        if payload.get("version") not in {1, 2, 3, 4, 5, 6, 7, 8, 9}:
             raise ValueError(f"Unsupported MLStrategy state version: {payload.get('version')}")
         self._loaded_state = payload
 
@@ -3205,7 +3417,17 @@ class MLStrategy(Strategy):
         if payload is None:
             return
         saved_ids = payload.get("instrument_ids")
-        if saved_ids is not None and sorted(saved_ids) != sorted(self.config.instrument_ids):
+        identity_rebuild = self._identity_rebuild_required
+        if self._equity_identities:
+            expected_ids = {str(identity.con_id) for identity in self._equity_identities.values()}
+            identity_rebuild = identity_rebuild or (
+                set(payload.get("instrument_identities", {})) != expected_ids
+                or payload.get("identity_generation") != self._identity_generation
+                or sorted(saved_ids or []) != sorted(self.config.instrument_ids)
+            )
+            if identity_rebuild and (self.cache.positions_open() or self.cache.orders_open() or self.cache.orders_inflight()):
+                raise ValueError("Identity/state migration requires a broker-confirmed flat account; no unverified state was restored")
+        elif saved_ids is not None and sorted(saved_ids) != sorted(self.config.instrument_ids):
             self.log.warning(
                 "Ignoring persisted strategy state for a different instrument universe"
             )
@@ -3222,6 +3444,12 @@ class MLStrategy(Strategy):
             self._risk.restore(payload["risk"])
         if raw_baseline is not None:
             self._account_equity_baseline = float(raw_baseline)
+        if identity_rebuild:
+            # Retain allocation, risk peak and kill state. Rebuild every model
+            # and cross-asset context from fresh broker history; never apply a
+            # split factor twice to IBKR's already split-adjusted history.
+            self.log.warning("ConId/corporate-action generation changed: rebuilding model, order and protection state from the broker")
+            return
         if payload.get("execution"):
             self._execution = ExecutionLedger.from_snapshot(payload["execution"])
         if payload.get("execution_safety"):
@@ -3255,6 +3483,8 @@ class MLStrategy(Strategy):
             }
         )
         for raw, values in payload.get("instruments", {}).items():
+            if self._equity_identities and payload.get("version") == 9:
+                raw = next((key for key, identity in self._equity_identities.items() if str(identity.con_id) == raw), "")
             iid = self._iid_by_raw.get(raw)
             if iid is None:
                 continue

@@ -9,14 +9,19 @@ independent defense-in-depth controls for a future reviewed activation.
 from __future__ import annotations
 
 import json
+from pathlib import Path
+import re
 from urllib.parse import urlparse
+import uuid
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from quant.api.jobs import JOBS_DIR, JobManager
 from quant.api.schemas import (
     LIVE_CONFIRM_PHRASE,
     BacktestJobRequest,
+    CampaignSeedJobRequest,
+    CampaignStageJobRequest,
     LiveJobRequest,
     OptimizeJobRequest,
     PaperJobRequest,
@@ -26,6 +31,50 @@ from quant.run.readiness import live_readiness_status
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 manager: JobManager | None = None  # set by quant.api.main at startup
+CAMPAIGNS_DIR = JOBS_DIR.parent / "optimize" / "campaigns"
+PROMOTION_CONFIRM_PHRASE = "CONSUME OUTER HOLDOUT"
+MAX_CSV_UPLOAD_BYTES = 100 * 1024 * 1024
+
+
+def _safe_csv_upload_name(filename: str) -> str:
+    basename = Path(filename).name
+    if Path(basename).suffix.lower() != ".csv":
+        raise HTTPException(400, "Select a CSV file.")
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", Path(basename).stem).strip(".-") or "data"
+    return f"{stem[:80]}-{uuid.uuid4().hex[:10]}.csv"
+
+
+@router.post("/upload-csv", status_code=201)
+async def upload_csv(
+    request: Request,
+    filename: str = Query(..., min_length=1, max_length=255),
+):
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_CSV_UPLOAD_BYTES:
+                raise HTTPException(413, "CSV files are limited to 100 MB.")
+        except ValueError as exc:
+            raise HTTPException(400, "Invalid upload size header.") from exc
+    upload_dir = JOBS_DIR / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    target = upload_dir / _safe_csv_upload_name(filename)
+    partial = target.with_suffix(".uploading")
+    total = 0
+    try:
+        with partial.open("wb") as stream:
+            async for chunk in request.stream():
+                total += len(chunk)
+                if total > MAX_CSV_UPLOAD_BYTES:
+                    raise HTTPException(413, "CSV files are limited to 100 MB.")
+                stream.write(chunk)
+        if total == 0:
+            raise HTTPException(400, "The selected CSV is empty.")
+        partial.replace(target)
+    except Exception:
+        partial.unlink(missing_ok=True)
+        raise
+    return {"path": str(target), "filename": Path(filename).name, "size_bytes": total}
 
 
 def _args_from(flag_value_pairs) -> list[str]:
@@ -181,7 +230,12 @@ def _submit_execution_with_supervisor(
 @router.post("/backtest", status_code=202)
 def start_backtest(req: BacktestJobRequest):
     job_id = manager.new_job_id("backtest")
+    progress_path = JOBS_DIR / f"{job_id}_progress.json"
     overrides = {**req.features.as_overrides(), **req.risk.as_overrides()}
+    if req.equity_simulation is not None:
+        if req.asset_class != "equity":
+            raise HTTPException(422, "Equity simulation requires the equity profile")
+        overrides["equity_simulation"] = req.equity_simulation.model_dump(mode="json")
     params_path = _write_params_file(job_id, req.params_path, req.params, overrides)
     args = _args_from(
         [
@@ -190,6 +244,8 @@ def start_backtest(req: BacktestJobRequest):
             ("--tickers", req.tickers),
             ("--cash", req.cash),
             ("--params", params_path),
+            ("--run-name", req.name),
+            ("--progress-path", progress_path),
         ]
     )
     if req.ibkr.fetch_missing and req.ibkr.replace_bars:
@@ -218,7 +274,12 @@ def start_backtest(req: BacktestJobRequest):
 @router.post("/optimize", status_code=202)
 def start_optimize(req: OptimizeJobRequest):
     job_id = manager.new_job_id("optimize")
+    progress_path = JOBS_DIR / f"{job_id}_progress.json"
     overrides = {**req.features.as_overrides(), **req.risk.as_overrides()}
+    if req.equity_simulation is not None:
+        if req.asset_class != "equity":
+            raise HTTPException(422, "Equity simulation requires the equity profile")
+        overrides["equity_simulation"] = req.equity_simulation.model_dump(mode="json")
     structural_path = None
     if overrides:
         structural_path = JOBS_DIR / f"{job_id}_structural.json"
@@ -249,6 +310,8 @@ def start_optimize(req: OptimizeJobRequest):
             ("--min-train-bars", req.min_train_bars),
             ("--structural-json", str(structural_path) if structural_path else None),
             ("--resume-run-id", req.resume_run_id),
+            ("--run-name", req.name),
+            ("--progress-path", progress_path),
         ]
     )
     if req.ibkr.fetch_missing and req.ibkr.replace_bars:
@@ -271,6 +334,97 @@ def start_optimize(req: OptimizeJobRequest):
             args += ["--include-extended-hours"]
     return manager.submit(
         "optimize", "quant.optimize.optimize", args, config=req.model_dump(), job_id=job_id
+    )
+
+
+def _campaign_paths(campaign_id: str) -> tuple[str, str, str, str]:
+    base = CAMPAIGNS_DIR / f"{campaign_id}.json"
+    comparison = CAMPAIGNS_DIR / f"{campaign_id}_comparison.json"
+    robustness = CAMPAIGNS_DIR / f"{campaign_id}_robustness.json"
+    promoted = CAMPAIGNS_DIR / f"{campaign_id}_promoted_params.json"
+    return tuple(str(path) for path in (base, comparison, robustness, promoted))
+
+
+@router.post("/campaign/seeds", status_code=202)
+def start_campaign_seeds(req: CampaignSeedJobRequest):
+    if len(set(req.seeds)) != len(req.seeds):
+        raise HTTPException(400, "Campaign seeds must be distinct.")
+    manifest, _comparison, _robustness, _promoted = _campaign_paths(req.campaign_id)
+    args = _args_from([
+        ("--campaign-id", req.campaign_id),
+        ("--manifest", manifest),
+        ("--seeds", req.seeds),
+        ("--trials", req.trials),
+        ("--workers", req.workers),
+        ("--memory-budget-gb", req.memory_budget_gb),
+        ("--worker-memory-gb", req.worker_memory_gb),
+        ("--csv", req.csv),
+        ("--asset-class", req.asset_class),
+        ("--tickers", req.tickers),
+        ("--cash", req.cash),
+        ("--final-test-frac", req.final_test_frac),
+        ("--walk-forward-folds", req.walk_forward_folds),
+        ("--embargo-bars", req.embargo_bars),
+    ])
+    return manager.submit(
+        "campaign_seeds", "quant.optimize.multi_seed", args, config=req.model_dump()
+    )
+
+
+@router.post("/campaign/compare", status_code=202)
+def start_campaign_compare(req: CampaignStageJobRequest):
+    manifest, comparison, _robustness, _promoted = _campaign_paths(req.campaign_id)
+    if not Path(manifest).is_file():
+        raise HTTPException(404, f"Campaign {req.campaign_id!r} was not found.")
+    args = _args_from([
+        ("--campaign", manifest),
+        ("--top-n", req.top_n),
+        ("--finalists", req.finalists),
+        ("--max-cluster-distance", req.max_cluster_distance),
+        ("--out", comparison),
+    ])
+    return manager.submit(
+        "campaign_compare", "quant.optimize.compare", args, config=req.model_dump()
+    )
+
+
+@router.post("/campaign/robustness", status_code=202)
+def start_campaign_robustness(req: CampaignStageJobRequest):
+    manifest, comparison, robustness, _promoted = _campaign_paths(req.campaign_id)
+    if not Path(comparison).is_file():
+        raise HTTPException(409, "Run campaign comparison before robustness testing.")
+    args = _args_from([
+        ("--campaign", manifest),
+        ("--comparison", comparison),
+        ("--finalists", req.finalists),
+        ("--top-n", req.top_n),
+        ("--workers", req.workers),
+        ("--memory-budget-gb", req.memory_budget_gb),
+        ("--worker-memory-gb", req.worker_memory_gb),
+        ("--out", robustness),
+    ])
+    return manager.submit(
+        "campaign_robustness", "quant.optimize.robustness", args, config=req.model_dump()
+    )
+
+
+@router.post("/campaign/promote", status_code=202)
+def start_campaign_promote(req: CampaignStageJobRequest):
+    if req.confirm != PROMOTION_CONFIRM_PHRASE:
+        raise HTTPException(400, f"Expected exact confirmation phrase: {PROMOTION_CONFIRM_PHRASE!r}")
+    manifest, _comparison, robustness, promoted = _campaign_paths(req.campaign_id)
+    if not Path(robustness).is_file():
+        raise HTTPException(409, "Run the robustness suite before consuming the outer holdout.")
+    args = _args_from([
+        ("--campaign", manifest),
+        ("--robustness", robustness),
+        ("--top-n", req.top_n),
+        ("--max-cluster-distance", req.max_cluster_distance),
+        ("--out-params", promoted),
+    ])
+    safe_config = {**req.model_dump(), "confirm": "<redacted>"}
+    return manager.submit(
+        "campaign_promote", "quant.optimize.promote", args, config=safe_config
     )
 
 
@@ -303,6 +457,7 @@ def start_paper(req: PaperJobRequest):
             ("--cash", req.cash),
             ("--params", params_path),
             ("--bar-hours", req.bar_hours),
+            ("--session-policy-json", json.dumps(req.session_policy) if req.session_policy is not None else None),
             ("--redis-host", req.redis_host),
             ("--redis-port", req.redis_port),
             ("--short-control-client-id", req.short_controls.client_id),
@@ -367,6 +522,7 @@ def start_live(req: LiveJobRequest):
             ("--cash", req.cash),
             ("--params", params_path),
             ("--bar-hours", req.bar_hours),
+            ("--session-policy-json", json.dumps(req.session_policy) if req.session_policy is not None else None),
             ("--redis-host", req.redis_host),
             ("--redis-port", req.redis_port),
             ("--short-control-client-id", req.short_controls.client_id),
@@ -413,6 +569,29 @@ def get_job_logs(job_id: str, tail_lines: int = Query(default=200, le=5000)):
     if result is None:
         raise HTTPException(404, f"job {job_id!r} not found")
     return result
+
+
+@router.get("/{job_id}/progress")
+def get_job_progress(job_id: str):
+    job = manager.get(job_id)
+    if job is None:
+        raise HTTPException(404, f"job {job_id!r} not found")
+    progress_path = JOBS_DIR / f"{job_id}_progress.json"
+    if progress_path.is_file():
+        try:
+            progress = json.loads(progress_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            progress = {}
+    else:
+        progress = {}
+    return {
+        "job_id": job_id,
+        "kind": job["kind"],
+        "status": job["status"],
+        "started_at": job["started_at"],
+        "finished_at": job.get("finished_at"),
+        **progress,
+    }
 
 
 @router.post("/{job_id}/cancel")

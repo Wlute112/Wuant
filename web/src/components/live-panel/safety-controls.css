@@ -1,0 +1,21 @@
+.safety-controls { border-block-start: 1px solid var(--color-hairline); padding: var(--space-sm); }
+.safety-controls summary { cursor: pointer; font-weight: 600; padding-block: 8px; }
+.safety-controls p { margin-block: 8px; }
+.safety-controls form, .safety-controls label { display: grid; gap: 8px; }
+.safety-controls form { gap: 12px; margin-block: 12px; }
+.safety-controls input, .safety-controls select, .safety-controls textarea { width: 100%; min-width: 0; min-height: 44px; }
+.safety-controls button { min-height: 44px; white-space: normal; background: var(--color-panel-raised); color: var(--color-text-primary); border: 1px solid var(--color-hairline); border-radius: var(--radius-sm); padding: var(--space-xs) var(--space-sm); }
+.safety-controls button:disabled { color: var(--color-text-dim); }
+.safety-controls button:not(:disabled):hover { border-color: var(--color-text-primary); }
+.safety-controls textarea { color: var(--color-text-primary); background: var(--color-void); border: 1px solid var(--color-hairline); border-radius: var(--radius-sm); padding: var(--space-sm); font: inherit; resize: vertical; }
+.safety-controls textarea:focus-visible, .safety-controls summary:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 2px; }
+.safety-controls code, .safety-controls p { overflow-wrap: anywhere; }
+.safety-controls__status { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; justify-content: space-between; }
+.safety-controls__history { padding-inline-start: 20px; }
+.safety-controls__history li { display: grid; gap: 6px; padding-block: 12px; border-block-start: 1px solid var(--color-hairline); }
+.safety-controls__history pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: inherit; }
+.corporate-actions { border-block: 1px solid var(--color-hairline); margin-block: var(--space-md); padding-block: var(--space-sm); }
+.corporate-actions__table { overflow-x: auto; }
+.corporate-actions table { border-collapse: collapse; width: 100%; text-align: start; font-variant-numeric: tabular-nums; }
+.corporate-actions th, .corporate-actions td { padding: var(--space-xs); border-bottom: 1px solid var(--color-hairline); }
+.corporate-actions caption { text-align: start; padding-block: var(--space-xs); color: var(--color-text-dim); }

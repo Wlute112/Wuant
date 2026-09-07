@@ -210,13 +210,16 @@ class OperationsStore:
         timestamp = _utc_iso(occurred_at)
         payload_json = _canonical_json(payload or {})
         connection = self._connection()
+        owns_transaction = not connection.in_transaction
         try:
-            connection.execute("BEGIN IMMEDIATE")
+            if owns_transaction:
+                connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute(
                 "SELECT * FROM audit_events WHERE event_id = ?", (identifier,)
             ).fetchone()
             if existing is not None:
-                connection.commit()
+                if owns_transaction:
+                    connection.commit()
                 return self._event_from_row(existing)
             prior = connection.execute(
                 "SELECT event_hash FROM audit_events ORDER BY sequence DESC LIMIT 1"
@@ -257,9 +260,11 @@ class OperationsStore:
             row = connection.execute(
                 "SELECT * FROM audit_events WHERE sequence = ?", (cursor.lastrowid,)
             ).fetchone()
-            connection.commit()
+            if owns_transaction:
+                connection.commit()
         except BaseException:
-            connection.rollback()
+            if owns_transaction:
+                connection.rollback()
             raise
         return self._event_from_row(row)
 
@@ -366,9 +371,18 @@ class OperationsStore:
         payload: dict | None = None,
         correlation_id: str = "",
         dedupe_key: str = "",
+        command_id: str | None = None,
     ) -> ControlCommand:
         connection = self._connection()
         normalized_action = str(action).upper()
+        if command_id:
+            existing = self.get_command(command_id)
+            if existing is not None:
+                if (existing.target, existing.action, existing.reason, existing.payload) != (
+                    target, normalized_action, reason, payload or {},
+                ):
+                    raise ValueError("command request ID was already used for different content")
+                return existing
         if dedupe_key:
             existing = connection.execute(
                 """
@@ -381,9 +395,18 @@ class OperationsStore:
             ).fetchone()
             if existing is not None:
                 return self._command_from_row(existing)
-        command_id = uuid.uuid4().hex
+        command_id = command_id or uuid.uuid4().hex
         requested_at = _utc_iso()
-        with connection:
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = self.get_command(command_id)
+            if existing is not None:
+                if (existing.target, existing.action, existing.reason, existing.payload) != (
+                    target, normalized_action, reason, payload or {},
+                ):
+                    raise ValueError("command request ID was already used for different content")
+                connection.commit()
+                return existing
             connection.execute(
                 """
                 INSERT INTO control_commands
@@ -402,20 +425,47 @@ class OperationsStore:
                     _canonical_json(payload or {}),
                 ),
             )
-        self.append_event(
-            "operations",
-            "CONTROL_COMMAND_REQUESTED",
-            {
-                "command_id": command_id,
-                "target": target,
-                "action": normalized_action,
-                "reason": reason,
-                "payload": payload or {},
-            },
-            severity="CRITICAL" if normalized_action in {"FLATTEN", "KILL"} else "WARNING",
-            correlation_id=correlation_id or command_id,
-            event_id=f"command-requested:{command_id}",
+            self.append_event(
+                "operations", "CONTROL_COMMAND_REQUESTED",
+                {"command_id": command_id, "target": target, "action": normalized_action,
+                 "reason": reason, "payload": payload or {}},
+                severity="CRITICAL" if normalized_action in {"FLATTEN", "KILL"} else "WARNING",
+                correlation_id=correlation_id or command_id,
+                event_id=f"command-requested:{command_id}",
+            )
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+        return self.get_command(command_id)
+
+    def commands_for_target(self, target: str, *, limit: int = 50) -> list[ControlCommand]:
+        rows = self._connection().execute(
+            "SELECT * FROM control_commands WHERE target = ? "
+            "ORDER BY CASE WHEN status IN ('PENDING', 'CLAIMED', 'ACKNOWLEDGED') THEN 0 ELSE 1 END, "
+            "requested_at DESC LIMIT ?",
+            (target, min(max(int(limit), 1), 100)),
         )
+        return [self._command_from_row(row) for row in rows]
+
+    def cancel_pending_command(self, command_id: str, target: str, operator: str) -> ControlCommand:
+        connection = self._connection()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            updated = connection.execute(
+                "UPDATE control_commands SET status = 'CANCELLED', completed_at = ? "
+                "WHERE command_id = ? AND target = ? AND status = 'PENDING'",
+                (_utc_iso(), command_id, target),
+            ).rowcount
+            if not updated:
+                raise ValueError("Only a pending, unclaimed command can be cancelled")
+            self.append_event("operations", "CONTROL_COMMAND_CANCELLED",
+                              {"command_id": command_id, "operator": operator},
+                              event_id=f"command-cancelled:{command_id}")
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
         return self.get_command(command_id)
 
     def get_command(self, command_id: str) -> ControlCommand | None:
@@ -496,17 +546,17 @@ class OperationsStore:
                     str(claimant),
                 ),
             ).rowcount
-        if not updated:
-            raise RuntimeError("control command is not leased by this claimant")
-        command = self.get_command(command_id)
-        self.append_event(
-            "operations",
-            "CONTROL_COMMAND_COMPLETED" if success else "CONTROL_COMMAND_FAILED",
-            {"command_id": command_id, "result": result or {}},
-            severity="INFO" if success else "CRITICAL",
-            correlation_id=command.correlation_id or command_id,
-            event_id=f"command-terminal:{command_id}",
-        )
+            if not updated:
+                raise RuntimeError("control command is not leased by this claimant")
+            command = self.get_command(command_id)
+            self.append_event(
+                "operations",
+                "CONTROL_COMMAND_COMPLETED" if success else "CONTROL_COMMAND_FAILED",
+                {"command_id": command_id, "result": result or {}},
+                severity="INFO" if success else "CRITICAL",
+                correlation_id=command.correlation_id or command_id,
+                event_id=f"command-terminal:{command_id}",
+            )
         return command
 
     def acknowledge_command(
@@ -525,17 +575,17 @@ class OperationsStore:
                 """,
                 (_canonical_json(result or {}), str(command_id), str(claimant)),
             ).rowcount
-        if not updated:
-            raise RuntimeError("control command is not leased by this claimant")
-        command = self.get_command(command_id)
-        self.append_event(
-            "operations",
-            "CONTROL_COMMAND_ACKNOWLEDGED",
-            {"command_id": command_id, "result": result or {}},
-            severity="WARNING",
-            correlation_id=command.correlation_id or command_id,
-            event_id=f"command-acknowledged:{command_id}",
-        )
+            if not updated:
+                raise RuntimeError("control command is not leased by this claimant")
+            command = self.get_command(command_id)
+            self.append_event(
+                "operations",
+                "CONTROL_COMMAND_ACKNOWLEDGED",
+                {"command_id": command_id, "result": result or {}},
+                severity="WARNING",
+                correlation_id=command.correlation_id or command_id,
+                event_id=f"command-acknowledged:{command_id}",
+            )
         return command
 
     def acknowledged_commands(self, target: str, claimant: str) -> list[ControlCommand]:

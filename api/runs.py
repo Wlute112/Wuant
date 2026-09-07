@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from quant.api import jobs_routes
 from quant.run.artifacts import delete_run, list_run_summaries, load_run
+from quant.run.research import analyze_run
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
@@ -23,6 +24,14 @@ def get_run(run_id: str):
     if run is None:
         raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
     return run
+
+
+@router.get("/{run_id}/research")
+def get_run_research(run_id: str):
+    run = load_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
+    return analyze_run(run)
 
 
 @router.delete("/{run_id}")

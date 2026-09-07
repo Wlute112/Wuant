@@ -4,6 +4,7 @@ import { buildPathD, computeDomain, padDomain, TRACE_VIEW_WIDTH, yToPixel } from
 import "./channel-strip.css";
 
 const GRID_ROWS = 4;
+const GRID_COLUMNS = 4;
 const ZOOM_STEP = 1.2;
 const MAX_ZOOM = 6;
 
@@ -113,6 +114,20 @@ function ChannelStrip({
     return `#${value}`;
   }
 
+  function formatAxisX(value) {
+    if (!Number.isFinite(value)) return "—";
+    if (value <= 1e11) return `#${Math.round(value)}`;
+    const span = domain.xMax - domain.xMin;
+    const options = span >= 2 * 365 * 24 * 60 * 60 * 1000
+      ? { year: "numeric", timeZone: "UTC" }
+      : span >= 120 * 24 * 60 * 60 * 1000
+        ? { month: "short", year: "2-digit", timeZone: "UTC" }
+        : span >= 2 * 24 * 60 * 60 * 1000
+          ? { month: "short", day: "numeric", timeZone: "UTC" }
+          : { hour: "numeric", minute: "2-digit", timeZone: "UTC" };
+    return new Intl.DateTimeFormat(undefined, options).format(value);
+  }
+
   function updateHover(event, seriesKey = null) {
     if (!series.length) return;
     const rect = traceRef.current?.getBoundingClientRect();
@@ -191,6 +206,11 @@ function ChannelStrip({
   const hoverReadout = hover?.points.filter((item) => item.point) || [];
   const activeHover = hoverReadout.find((item) => item.key === hover.seriesKey) || hoverReadout[0];
   const activeHoverY = activeHover?.point ? yToPixel(activeHover.point.y, domain, height) : height / 2;
+  const xTicks = series.length
+    ? Array.from({ length: GRID_COLUMNS + 1 }, (_, index) => (
+        domain.xMin + ((domain.xMax - domain.xMin) * index) / GRID_COLUMNS
+      ))
+    : [];
 
   function drawOnce(el, d, animationRef) {
     if (!el || !d || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -294,6 +314,17 @@ function ChannelStrip({
                 x2={TRACE_VIEW_WIDTH}
                 y1={(height / GRID_ROWS) * i}
                 y2={(height / GRID_ROWS) * i}
+                stroke="var(--color-hairline)"
+                strokeWidth={1}
+              />
+            ))}
+            {Array.from({ length: GRID_COLUMNS + 1 }).map((_, i) => (
+              <line
+                key={`x-${i}`}
+                x1={(TRACE_VIEW_WIDTH / GRID_COLUMNS) * i}
+                x2={(TRACE_VIEW_WIDTH / GRID_COLUMNS) * i}
+                y1={0}
+                y2={height}
                 stroke="var(--color-hairline)"
                 strokeWidth={1}
               />
@@ -412,7 +443,7 @@ function ChannelStrip({
           <span
             className="channel-strip__crosshair"
             aria-hidden="true"
-            style={{ left: `${hover.ratio * 100}%`, top: `${activeHoverY}px` }}
+            style={{ left: `${hover.ratio * 100}%`, "--hover-y": `${activeHoverY}px` }}
           />
         )}
 
@@ -444,6 +475,11 @@ function ChannelStrip({
               {tickFormat(value)}
             </span>
           ))}
+        {xTicks.length > 0 && (
+          <div className="channel-strip__x-axis" aria-hidden="true">
+            {xTicks.map((value, index) => <span key={index}>{formatAxisX(value)}</span>)}
+          </div>
+        )}
       </div>
     </section>
   );

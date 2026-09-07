@@ -4,6 +4,8 @@ from __future__ import annotations
 from decimal import Decimal
 
 from nautilus_trader.model.events import OrderFilled
+from nautilus_trader.model.currencies import USD
+from quant.run.account_evidence import settled_cash_from_cache
 
 from quant.run.reconciliation import (
     BrokerAccount,
@@ -41,8 +43,17 @@ def snapshot_from_nautilus_cache(
     if selected is None and len(accounts) == 1:
         selected = accounts[0]
     base_currency = str(getattr(selected, "base_currency", "") or "")
-    total = selected.balance_total() if selected is not None else None
-    free = selected.balance_free() if selected is not None else None
+    if selected is not None and not base_currency:
+        # IBKR's Nautilus account is multi-currency (base_currency=None).
+        # Reconcile the supported USD book explicitly; never sum FX balances.
+        base_currency = "USD"
+        total = selected.balance_total(currency=USD)
+        free = selected.balance_free(currency=USD)
+    else:
+        total = selected.balance_total() if selected is not None else None
+        free = selected.balance_free() if selected is not None else None
+    settled = settled_cash_from_cache(cache, expected_account_id, base_currency,
+                                      now=captured_at_ns / 1_000_000_000)
     broker_account = BrokerAccount.normalized(
         account_id=str(selected.id) if selected is not None else "",
         base_currency=base_currency,
@@ -50,9 +61,10 @@ def snapshot_from_nautilus_cache(
         available_funds=_money_value(free),
         # Nautilus 1.229 exposes IBKR FullAvailableFunds as the free balance but
         # does not retain a separate BuyingPower field in Account. Use the same
-        # conservative immediately available amount; settled cash remains absent.
+        # conservative immediately available amount; settled cash is separate.
         buying_power=_money_value(free),
-        settled_cash=None,
+        settled_cash=settled["value"] if settled["status"] == "CURRENT" else None,
+        settled_cash_evidence=settled,
         snapshot_complete=selected is not None,
     )
     positions = tuple(

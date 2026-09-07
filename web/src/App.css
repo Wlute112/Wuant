@@ -384,8 +384,28 @@
   }
 }
 
+/* Research reports switch to document scrolling sooner than the fixed
+   paper/live deck. Without this intermediate breakpoint, the stacked tablet
+   layout is clipped by the operating deck's 100dvh overflow boundary. */
+@media (max-width: 820px) {
+  .app.is-research {
+    height: auto;
+    min-height: 100dvh;
+    display: block;
+    overflow: visible;
+  }
+
+  .app.is-research .app__main {
+    overflow: visible;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .app__control-drawer {
     transition: none;
   }
 }
+.simulation-editor { min-width: 0; }
+.simulation-editor > p { max-width: 70ch; }
+.simulation-editor summary { cursor: pointer; padding-block: var(--space-sm, 8px); }
+.simulation-evidence { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto; font-size: var(--text-body-size); }

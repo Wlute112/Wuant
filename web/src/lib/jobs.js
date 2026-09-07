@@ -12,6 +12,10 @@ const STATUS_LABELS = {
 const KIND_LABELS = {
   backtest: "Backtest",
   optimize: "Optuna sweep",
+  campaign_seeds: "Seed campaign",
+  campaign_compare: "Campaign consensus",
+  campaign_robustness: "Robustness suite",
+  campaign_promote: "Outer holdout",
   paper: "Paper session",
   live: "Live session",
   risk_supervisor: "Risk supervisor",
@@ -29,6 +33,11 @@ export function jobStatusLabel(status) {
 export function jobKindLabel(kind) {
   const normalized = String(kind || "job").toLowerCase();
   return KIND_LABELS[normalized] || normalized.replaceAll("_", " ");
+}
+
+export function jobDisplayName(job) {
+  const customName = String(job?.name || job?.config?.name || "").trim();
+  return customName || jobKindLabel(job?.kind);
 }
 
 export function orderedJobRows(jobs = []) {

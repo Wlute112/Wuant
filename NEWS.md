@@ -1,5 +1,9 @@
 # Live news factor
 
+Priorities and remaining work are tracked in the single
+[product readiness backlog](PRODUCTION_READINESS.md). This document retains
+its specifications, evidence and operating procedures.
+
 `quant.news` converts IBKR headlines and a controlled RSS/Atom catalog into one
 bounded, causal feature consumed by the existing `PredictionEngine`. It does
 not place orders and does not bypass the strategy or risk layers.

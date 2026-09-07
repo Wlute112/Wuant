@@ -66,6 +66,7 @@ from quant.run.scoring import (
 )
 from quant.run.metrics import compute_metrics
 from quant.run.compute import ComputePool, add_compute_arguments, resolve_compute_plan
+from quant.run.progress import ProgressWriter
 
 DEFAULT_TICKERS = ["BTC", "ETH", "SOL", "XRP", "DOGE"]  # crypto (24/7)
 EQUITY_DEFAULT_TICKERS = ["SPY", "QQQ", "DIA", "IWM"]  # liquid index ETFs
@@ -145,6 +146,7 @@ def _prepare_nested_walk_forward(
     n_folds: int,
     min_initial_train_bars: int,
     max_embargo_bars: int,
+    equity_simulation: dict | None = None,
 ) -> NestedWalkForwardData:
     """Create reusable chronological fold CSVs and an untouched outer holdout."""
     if not 0.0 < final_test_frac < 0.5:
@@ -160,6 +162,9 @@ def _prepare_nested_walk_forward(
     if missing:
         raise ValueError(f"CSV missing required columns: {sorted(missing)}")
     df["timestamp"] = pd.to_datetime(df["timestamp"], format="mixed", utc=True)
+    if equity_simulation is not None:
+        from quant.run.equity_simulation import canonical_equity_frame
+        df = canonical_equity_frame(df, equity_simulation)
     df = df[df["ticker"].isin(tickers)].sort_values(["timestamp", "ticker"])
     if df.empty:
         raise ValueError("CSV has no rows for the selected tickers")
@@ -235,6 +240,10 @@ def _equity_series(engine):
     be annualized from REAL elapsed time instead of a hard-coded bar grid.
     Returns (np.array([]), np.array([])) when unavailable.
     """
+    from quant.run.equity_simulation import simulation_for
+    if simulation_for(engine) is not None:
+        from quant.run.metrics import _equity_series as shared_equity_series
+        return shared_equity_series(engine, VENUE)
     try:
         report = engine.trader.generate_account_report(VENUE)
     except Exception:  # noqa: BLE001
@@ -288,7 +297,8 @@ def score_engine(
         n_trades = 0
     if len(curve) < 3:
         return -1e6 if n_trades == 0 else 0.0
-    _metric, ratio = primary_ratio_from_curve(curve, ts, asset_class)
+    from quant.run.equity_simulation import risk_free_returns
+    _metric, ratio = primary_ratio_from_curve(curve, ts, asset_class, risk_free_returns(engine, ts))
     penalty = float(get_asset_profile(asset_class)["scoring"]["trade_penalty"])
     return float(ratio - penalty * n_trades)
 
@@ -311,7 +321,8 @@ def _engine_performance(
     if len(curve) < 3:
         ratio = NO_QUALIFYING_FOLDS_SCORE if metrics.total_trades == 0 else 0.0
     else:
-        _metric, ratio = primary_ratio_from_curve(curve, ts, asset_class)
+        from quant.run.equity_simulation import risk_free_returns
+        _metric, ratio = primary_ratio_from_curve(curve, ts, asset_class, risk_free_returns(engine, ts))
     return FoldPerformance(
         ratio=float(ratio),
         turnover=float(metrics.turnover_rate),
@@ -445,6 +456,7 @@ def make_objective(
     evaluation_seed: int = 1729,
     seed: int | None = None,
     pool: ComputePool | None = None,
+    progress_callback=None,
 ):
     if seed is not None:
         # Backward-compatible alias for callers predating --evaluation-seed.
@@ -455,6 +467,13 @@ def make_objective(
     )
 
     def objective(trial: optuna.Trial) -> float:
+        if progress_callback:
+            progress_callback(
+                trial_current=trial.number + 1,
+                fold_current=0,
+                fold_total=len(folds),
+                candidate_score=None,
+            )
         overrides = dict(
             n_lags=trial.suggest_int("n_lags", 3, 15),
             horizon=trial.suggest_int("horizon", 1, 5),
@@ -581,6 +600,13 @@ def make_objective(
                     require_positive_folds=False,
                 )
                 trial.report(interim, step)
+                if progress_callback:
+                    progress_callback(
+                        trial_current=trial.number + 1,
+                        fold_current=step + 1,
+                        fold_total=len(folds),
+                        candidate_score=round(float(interim), 6),
+                    )
                 if trial.should_prune():
                     trial.set_user_attr("walk_forward_folds", fold_records)
                     raise optuna.TrialPruned()
@@ -618,6 +644,13 @@ def make_objective(
             max(0.0, normal.ratio - stressed.ratio)
             for normal, stressed in zip(normal_results, stressed_results)
         ])))
+        if progress_callback:
+            progress_callback(
+                trial_current=trial.number + 1,
+                fold_current=len(folds),
+                fold_total=len(folds),
+                candidate_score=round(float(final_score), 6),
+            )
         return final_score
 
     return objective
@@ -777,6 +810,12 @@ def main(refit_every_n_bars: int | None = 1) -> None:
         "job runner). Defaults to an auto-generated opt_<timestamp>_<hex> id.",
     )
     p.add_argument(
+        "--run-name",
+        default=None,
+        help="Optional human-readable label stored with the run artifact.",
+    )
+    p.add_argument("--progress-path", default=None, help=argparse.SUPPRESS)
+    p.add_argument(
         "--warmup-bars",
         type=int,
         default=None,
@@ -893,6 +932,21 @@ def main(refit_every_n_bars: int | None = 1) -> None:
     tickers = args.tickers or (
         EQUITY_DEFAULT_TICKERS if args.asset_class == "equity" else DEFAULT_TICKERS
     )
+    progress = ProgressWriter(
+        args.progress_path,
+        kind="optimize",
+        phases=["preparing", "search", "holdout", "saving"],
+    )
+    progress.update(
+        phase="preparing",
+        phase_label="Preparing validation folds",
+        percent=1,
+        tickers=tickers,
+        trials_target=args.trials,
+        fold_total=args.walk_forward_folds,
+        starting_cash=args.cash,
+        history=[],
+    )
     warmup_bars = args.warmup_bars if args.warmup_bars is not None else 150
     min_train_bars = args.min_train_bars if args.min_train_bars is not None else 120
 
@@ -964,6 +1018,12 @@ def main(refit_every_n_bars: int | None = 1) -> None:
         )
         structural_overrides["use_news_features"] = True
         structural_overrides["news_data_path"] = news_snapshot
+    if args.asset_class == "equity":
+        from quant.run.equity_simulation import EquitySimulationConfig
+        structural_overrides["equity_simulation"] = EquitySimulationConfig.model_validate(
+            structural_overrides.get("equity_simulation") or {}).model_dump(mode="json")
+    elif "equity_simulation" in structural_overrides:
+        p.error("equity_simulation requires the equity profile")
     nested_data = _prepare_nested_walk_forward(
         args.csv,
         tickers,
@@ -972,6 +1032,7 @@ def main(refit_every_n_bars: int | None = 1) -> None:
         n_folds=args.walk_forward_folds,
         min_initial_train_bars=max(warmup_bars, min_train_bars),
         max_embargo_bars=max(5, args.embargo_bars),
+        equity_simulation=structural_overrides.get("equity_simulation"),
     )
     print(
         f"Nested validation: {len(nested_data.folds)} purged walk-forward folds; "
@@ -1067,6 +1128,52 @@ def main(refit_every_n_bars: int | None = 1) -> None:
         n_trials = args.trials if args.trials is not None else 40
         print(f"Running {n_trials} trials.")
 
+    progress_history = []
+
+    def update_objective_progress(**values):
+        current = values.get("trial_current", 0)
+        fold_fraction = values.get("fold_current", 0) / max(1, values.get("fold_total", 1))
+        percent = (
+            round(100 * (max(0, current - 1) + fold_fraction) / n_trials, 1)
+            if n_trials else None
+        )
+        progress.update(
+            phase="search",
+            phase_label="Evaluating walk-forward candidates",
+            percent=percent,
+            trials_target=n_trials,
+            **values,
+        )
+
+    def record_trial_progress(study, trial):
+        complete = len(study.get_trials(states=(optuna.trial.TrialState.COMPLETE,)))
+        pruned = len(study.get_trials(states=(optuna.trial.TrialState.PRUNED,)))
+        try:
+            best = float(study.best_value)
+        except ValueError:
+            best = None
+        score = float(trial.value) if trial.value is not None and math.isfinite(trial.value) else None
+        progress_history.append({
+            "trial": trial.number + 1,
+            "score": score,
+            "best": best,
+            "state": trial.state.name.lower(),
+        })
+        progress.update(
+            phase="search",
+            phase_label="Evaluating walk-forward candidates",
+            percent=round(100 * (trial.number + 1) / n_trials, 1) if n_trials else None,
+            trial_current=trial.number + 1,
+            trials_target=n_trials,
+            trials_complete=complete,
+            trials_pruned=pruned,
+            best_score=best,
+            candidate_score=score,
+            history=progress_history[-160:],
+        )
+
+    callbacks.append(record_trial_progress)
+
     print(f"Research compute: {json.dumps(compute_plan.as_dict(), sort_keys=True)}")
     study.set_user_attr("compute_plan", compute_plan.as_dict())
     with ComputePool(compute_plan) as pool:
@@ -1083,6 +1190,7 @@ def main(refit_every_n_bars: int | None = 1) -> None:
                 normal_slippage_probability=args.normal_slippage_probability,
                 evaluation_seed=args.evaluation_seed,
                 pool=pool,
+                progress_callback=update_objective_progress,
             ),
             n_trials=n_trials,
             callbacks=callbacks,
@@ -1170,6 +1278,7 @@ def main(refit_every_n_bars: int | None = 1) -> None:
         study.set_user_attr("optimization_complete", True)
         study.set_user_attr("locked_candidate", payload)
         print("Outer holdout: UNTOUCHED (--defer-final-test)")
+        progress.update(phase="complete", phase_label="Development search complete", percent=100)
         split_workspace.cleanup()
         return
 
@@ -1177,6 +1286,7 @@ def main(refit_every_n_bars: int | None = 1) -> None:
     # not loaded by any Optuna trial. Normal and stressed assumptions each run
     # once; neither result can change study.best_params.
     print("\n=========== FINAL TEST (untouched outer holdout) ===========")
+    progress.update(phase="holdout", phase_label="Evaluating untouched holdout", percent=100)
     final_embargo = max(args.embargo_bars, int(study.best_params["horizon"]))
     final_overrides = {
         **study.best_params,
@@ -1259,6 +1369,7 @@ def main(refit_every_n_bars: int | None = 1) -> None:
     # for the reporting dashboard. Best-effort: a failure here must never mask
     # the search result already printed and saved to --out-params above.
     try:
+        progress.update(phase="saving", phase_label="Saving research artifact", percent=100)
         artifact = save_optimize_artifact(
             study=study,
             oos_engine=engine,
@@ -1274,6 +1385,7 @@ def main(refit_every_n_bars: int | None = 1) -> None:
             target_score=args.score,
             started_at=started_at,
             run_id=args.run_id,
+            run_name=args.run_name,
             structural_overrides=structural_overrides,
             resumed_from=args.resume_run_id,
             ibkr_bar_hours=args.ibkr_bar_hours if args.replace_bars else None,
@@ -1299,6 +1411,7 @@ def main(refit_every_n_bars: int | None = 1) -> None:
             },
         )
         print(f"Saved run artifact -> quant/runs/{artifact['run_id']}.json")
+        progress.update(phase="complete", phase_label="Research artifact ready", percent=100)
     except Exception as e:  # noqa: BLE001
         print(f"(run artifact unavailable: {e})")
 

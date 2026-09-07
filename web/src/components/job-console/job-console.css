@@ -170,6 +170,19 @@
   font-family: var(--font-mono);
 }
 
+.job-console__output-name {
+  min-width: 0;
+  max-width: 30ch;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-console__output-kind {
+  flex-shrink: 0;
+}
+
 .job-console__job-id {
   min-width: 0;
   overflow: hidden;

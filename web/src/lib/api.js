@@ -32,7 +32,31 @@ async function request(path, options) {
   return res.json();
 }
 
+async function controlRequest(path, token, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    return await request(path, {
+      ...options,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+  } finally { clearTimeout(timeout); }
+}
+
 export const api = {
+  getOperations: (jobId, token) => controlRequest(`/api/operations/${encodeURIComponent(jobId)}`, token),
+  recordCorporateAction: (jobId, token, body) => controlRequest(`/api/operations/${encodeURIComponent(jobId)}/corporate-actions`, token, {
+    method: "POST", body: JSON.stringify(body),
+  }),
+  cancelCorporateAction: (jobId, token, eventId) => controlRequest(`/api/operations/${encodeURIComponent(jobId)}/corporate-actions/${encodeURIComponent(eventId)}/cancel`, token, { method: "POST" }),
+  submitOperation: (jobId, token, body) => controlRequest(`/api/operations/${encodeURIComponent(jobId)}/commands`, token, {
+    method: "POST",
+    body: JSON.stringify(body),
+  }),
+  cancelOperation: (jobId, token, commandId) => controlRequest(`/api/operations/${encodeURIComponent(jobId)}/commands/${encodeURIComponent(commandId)}/cancel`, token, {
+    method: "POST",
+  }),
   health: () => request("/api/health"),
   getBrokerStatus: () => request("/api/broker/status"),
   configureBroker: (body) =>
@@ -61,19 +85,39 @@ export const api = {
 
   listRuns: (kind) => request(`/api/runs${kind ? `?kind=${kind}` : ""}`),
   getRun: (runId) => request(`/api/runs/${encodeURIComponent(runId)}`),
+  getRunResearch: (runId) => request(`/api/runs/${encodeURIComponent(runId)}/research`),
   deleteRun: (runId) => request(`/api/runs/${encodeURIComponent(runId)}`, { method: "DELETE" }),
+
+  listCampaigns: () => request("/api/campaigns"),
+  getCampaign: (campaignId) => request(`/api/campaigns/${encodeURIComponent(campaignId)}`),
 
   listJobs: () => request("/api/jobs"),
   getJob: (jobId) => request(`/api/jobs/${encodeURIComponent(jobId)}`),
   getJobLogs: (jobId, tailLines = 200) =>
     request(`/api/jobs/${encodeURIComponent(jobId)}/logs?tail_lines=${tailLines}`),
+  getJobProgress: (jobId) =>
+    request(`/api/jobs/${encodeURIComponent(jobId)}/progress`),
   cancelJob: (jobId) =>
     request(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" }),
+  uploadCsv: (file) =>
+    request(`/api/jobs/upload-csv?filename=${encodeURIComponent(file.name)}`, {
+      method: "POST",
+      headers: { "Content-Type": file.type || "text/csv" },
+      body: file,
+    }),
 
   startBacktest: (body) =>
     request("/api/jobs/backtest", { method: "POST", body: JSON.stringify(body) }),
   startOptimize: (body) =>
     request("/api/jobs/optimize", { method: "POST", body: JSON.stringify(body) }),
+  startCampaignSeeds: (body) =>
+    request("/api/jobs/campaign/seeds", { method: "POST", body: JSON.stringify(body) }),
+  startCampaignCompare: (body) =>
+    request("/api/jobs/campaign/compare", { method: "POST", body: JSON.stringify(body) }),
+  startCampaignRobustness: (body) =>
+    request("/api/jobs/campaign/robustness", { method: "POST", body: JSON.stringify(body) }),
+  startCampaignPromote: (body) =>
+    request("/api/jobs/campaign/promote", { method: "POST", body: JSON.stringify(body) }),
   startPaper: (body) =>
     request("/api/jobs/paper", { method: "POST", body: JSON.stringify(body) }),
   startLive: (body) =>

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useInterval } from "../../hooks/useInterval.js";
 import { api } from "../../lib/api.js";
+import { settledCashLabel } from "../../lib/accountEvidence.js";
+import { killSwitchStatus } from "../../lib/riskStatus.js";
 import { formatNum, formatPct, formatTime, formatUsd } from "../../lib/format.js";
 import {
   executionJobFor,
@@ -11,6 +13,7 @@ import {
 } from "../../lib/jobs.js";
 import ModelDecisionTape from "../model-tape/ModelDecisionTape.jsx";
 import NewsTape from "../news-tape/NewsTape.jsx";
+import SafetyControls from "./SafetyControls.jsx";
 import DockWorkspace from "../workspace/DockWorkspace.jsx";
 import "./live-panel.css";
 
@@ -60,30 +63,6 @@ function mergeMarketAndModelBars(marketBars, modelPoints, barHours) {
     }
     return modelPoint ? { ...modelPoint, ...bar, model_ts: modelPoint.ts } : bar;
   });
-}
-
-function marketStatusCopy(feed, brokerStatus) {
-  if (feed?.status === "streaming") {
-    return feed.bars?.at(-1)?.complete === false
-      ? "IB GATEWAY · CURRENT BAR UPDATING"
-      : "IB GATEWAY · STREAMING";
-  }
-  if (["qualifying", "backfilling", "reconnecting"].includes(feed?.status)) {
-    return `${String(feed.status).toUpperCase()} · IB GATEWAY`;
-  }
-  if (feed?.status === "error") return "IB MARKET DATA ERROR";
-  if (feed?.status === "disconnected" || brokerStatus?.status !== "connected") {
-    return "IB GATEWAY DISCONNECTED";
-  }
-  return "MARKET FEED READY";
-}
-
-function marketBasisCopy(feed, assetClass) {
-  if (assetClass === "crypto") return "24/7 · MIDPOINT";
-  if (feed?.price_adjustment === "split_adjusted_dividend_unadjusted") {
-    return `${feed.session_scope === "all_hours" ? "ALL HOURS" : "RTH"} · SPLIT ADJ / DIVIDEND RAW`;
-  }
-  return feed?.session_scope === "all_hours" ? "ALL HOURS" : "RTH";
 }
 
 function formatAge(seconds) {
@@ -384,7 +363,9 @@ export default function LivePanel({
     && (!executionJobStatus || executionJobStatus === "running");
   const isLastKnown = !isDemo
     && ["completed", "failed", "cancelled"].includes(executionJobStatus);
-  const statusUnknown = feedStatus === "error"
+  const statusUnknown = feedStatus !== "ready"
+    || !sessionRunning
+    || telemetry?.available === false
     || isDemo
     || isLastKnown
     || sessionStarting
@@ -496,23 +477,6 @@ export default function LivePanel({
                 </button>
               ))}
             </div>
-            <div className="live-panel__chart-status" role="status" aria-live="polite">
-              <span className={`label ${marketFeed?.status === "error" || marketFeed?.status === "disconnected" ? "is-error" : ""}`}>
-                {marketStatusCopy(marketFeed, brokerStatus)}
-              </span>
-              <span className="label">{marketBasisCopy(marketFeed, assetClass)}</span>
-              <span className={`label ${marketOnly ? "is-market-only" : ""}`}>
-                {marketOnly
-                  ? "MARKET ONLY"
-                  : realModelPoints.length && !timeframeMatches
-                    ? `MODEL ${strategyBarHours === 24 ? "1D" : `${strategyBarHours}H`} · REFERENCES ONLY`
-                    : realModelPoints.length
-                      ? "MODEL OVERLAY ACTIVE"
-                      : chartMock
-                        ? "DEMO OVERLAY"
-                        : "MODEL WARMING"}
-              </span>
-            </div>
           </div>
           {marketError && <div className="live-panel__market-error" role="alert">{marketError}</div>}
           <ModelDecisionTape
@@ -561,6 +525,7 @@ export default function LivePanel({
       minH: 4,
       content: (
         <TelemetryReadout
+          statusUnknown={statusUnknown}
           brokerStatus={brokerStatus}
           apiHealth={apiHealth}
           executionJob={executionJob}
@@ -686,6 +651,7 @@ function ModelScore({ point, model, ticker }) {
 
 function RiskReadout({ risk, statusUnknown, isDemo }) {
   const rails = risk.rails || {};
+  const killStatus = killSwitchStatus(risk, { statusUnknown, isDemo });
   return (
     <div className="live-panel__risk-readout">
       <dl>
@@ -697,14 +663,15 @@ function RiskReadout({ risk, statusUnknown, isDemo }) {
         <div><dt>Trade risk</dt><dd>{rails.risk_budget_pct ?? "—"}% / {rails.hard_cap_pct ?? "—"}% cap</dd></div>
         <div><dt>Daily halt</dt><dd>{rails.daily_loss_limit_pct ?? "—"}%</dd></div>
       </dl>
-      <div className={`live-panel__kill-switch ${statusUnknown ? "is-unknown" : risk.kill_switch_engaged ? "is-engaged" : ""}`}>
-        KILL {isDemo ? "DEMO" : statusUnknown ? "UNKNOWN" : risk.kill_switch_engaged ? "ENGAGED" : "CLEAR"}
+      <div role="status" className={`live-panel__kill-switch ${killStatus === "ENGAGED" ? "is-engaged" : killStatus !== "CLEAR" ? "is-unknown" : ""}`}>
+        KILL {killStatus}
       </div>
     </div>
   );
 }
 
 function TelemetryReadout({
+  statusUnknown,
   brokerStatus,
   apiHealth,
   executionJob,
@@ -752,6 +719,7 @@ function TelemetryReadout({
 
   return (
     <div className="live-panel__telemetry-readout">
+      <SafetyControls key={executionJob?.id || "no-job"} job={executionJob} isDemo={isDemo} />
       {feedError && <div className="live-panel__feed-error" role="alert">{feedError}</div>}
       <div className="live-panel__authority" aria-label="Authoritative broker and execution state">
         <AuthorityItem label="Job registry" value={registryValue} unsafe={!registryReady} />
@@ -759,6 +727,7 @@ function TelemetryReadout({
         <AuthorityItem label="Risk supervisor" value={supervisorValue} unsafe={supervisorUnsafe} />
         <AuthorityItem label="Broker" value={isDemo ? "NO ACTIVE BROKER" : String(brokerStatus.status || "UNKNOWN").toUpperCase()} unsafe={!isDemo && brokerStatus.status !== "connected"} />
         <AuthorityItem label="Reconcile" value={isDemo ? "DEMO" : risk.reconciliation_state || "UNKNOWN"} unsafe={!isDemo && !reconciliationHealthy} />
+        <AuthorityItem label="Settled cash (execution IBKR)" value={isDemo ? "UNAVAILABLE · DEMO" : settledCashLabel(risk.settled_cash, { connected: !statusUnknown && !feedError && executionJob?.status === "running" })} />
         <AuthorityItem label="Execution" value={isDemo ? "OFF" : risk.execution_state || "UNKNOWN"} unsafe={!isDemo && risk.execution_state !== "ACTIVE"} />
         <AuthorityItem label="Entries" value={isDemo ? "OFF" : risk.entries_allowed === true ? "ENABLED" : "FROZEN"} unsafe={!isDemo && risk.entries_allowed !== true} />
         <AuthorityItem label="Data quality" value={dataQualityValue} unsafe={!isDemo && dataQuality.healthy !== true} />
@@ -769,6 +738,10 @@ function TelemetryReadout({
         />
         <AuthorityItem label="Session" value={session.phase || (isDemo ? "DEMO" : "UNKNOWN")} unsafe={!isDemo && ["UNKNOWN", "HALTED", "STALE"].includes(session.phase)} />
         <AuthorityItem label="Data age" value={formatAge(session.data_age_seconds)} unsafe={!isDemo && !Number.isFinite(session.data_age_seconds)} />
+        <AuthorityItem label="Entry policy" value={session.policy?.mode || "UNKNOWN"} />
+        <AuthorityItem label="Session entries" value={session.entry_reason || "UNKNOWN"} />
+        <AuthorityItem label="Risk session" value={session.session_key || "UNKNOWN"} />
+        <AuthorityItem label="Overnight PnL" value={session.policy?.overnight_pnl_assignment || "UNKNOWN"} />
         <AuthorityItem label="Next open" value={formatTime(session.next_open)} unsafe={!isDemo && !session.next_open} />
         <AuthorityItem label="Next close" value={formatTime(session.next_close)} unsafe={!isDemo && !session.next_close} />
       </div>

@@ -11,6 +11,10 @@ const REGIME_TOP = 392;
 const REGIME_BOTTOM = 492;
 const MAX_VISIBLE_POINTS = 150;
 const MIN_CHART_WIDTH = 760;
+// The compact live header overlays the canvas. Keep the SVG viewBox in the
+// same aspect ratio as the visible plot beneath it so the chart uses the full
+// dock width rather than being letterboxed at either side.
+const LIVE_PLOT_HEADER_HEIGHT = 24;
 
 function finite(value) {
   return typeof value === "number" && Number.isFinite(value);
@@ -161,7 +165,11 @@ export default function ModelDecisionTape({
   const entryPrice = position?.avg_price ?? null;
   const showModelPane = !marketOnly;
   const chartHeight = showModelPane ? HEIGHT : PRICE_BOTTOM + 64;
-  const measuredAspect = canvasSize.height > 0 ? canvasSize.width / canvasSize.height : 0;
+  const visiblePlotHeight = Math.max(
+    0,
+    canvasSize.height - (live ? LIVE_PLOT_HEADER_HEIGHT : 0),
+  );
+  const measuredAspect = visiblePlotHeight > 0 ? canvasSize.width / visiblePlotHeight : 0;
   const chartWidth = measuredAspect > 0
     ? Math.max(MIN_CHART_WIDTH, chartHeight * measuredAspect)
     : WIDTH;
@@ -221,7 +229,7 @@ export default function ModelDecisionTape({
 
   return (
     <section className="model-tape" aria-labelledby={`model-tape-${ticker}`}>
-      <div className="model-tape__header">
+      {!live && <div className="model-tape__header">
         <div>
           <h3 id={`model-tape-${ticker}`} className="label">
             {live
@@ -259,9 +267,20 @@ export default function ModelDecisionTape({
           {modelOverlayActive && <span className="is-hmm">HMM window / state</span>}
           <button type="button" className="model-tape__jump label" onClick={jumpToLatest}>Jump to latest</button>
         </div>
-      </div>
+      </div>}
 
       <div className="model-tape__canvas" ref={canvasRef}>
+        {live && (
+          <div className="model-tape__plot-header" aria-live="polite">
+            <span className="model-tape__plot-title label">
+              {marketOnly ? "Live market tape" : modelOverlayActive ? "Live model decision tape" : "Live position reference tape"} · {ticker}
+            </span>
+            <span className={`model-tape__plot-signal is-${String(active.signal || "hold").toLowerCase()}`}>
+              {marketOnly ? "MARKET DATA ONLY" : !modelOverlayActive ? "MODEL TIMEFRAME REFERENCES ONLY" : `${active.signal || "HOLD"} · ŷ ${finite(yhat) ? formatPct(yhat * 100, 2) : "warming"} · HMM ${active.hmm_label || active.state_label || "warming"} · ATR ${finite(active.atr) ? formatUsd(active.atr) : "—"}`}
+            </span>
+            <button type="button" className="model-tape__jump label" onClick={jumpToLatest}>Latest</button>
+          </div>
+        )}
         <svg
           viewBox={`0 0 ${chartWidth} ${chartHeight}`}
           role="img"
@@ -442,28 +461,30 @@ export default function ModelDecisionTape({
         )}
       </div>
 
-      <div className="model-tape__footer">
-        <span>Market source: {marketSource}</span>
-        {modelOverlayActive && <span>HMM context: {hmmWindow ? `${hmmLoaded}/${hmmWindow} bars${boundaryIndex == null ? " · start before price view" : ""}` : `${hmmLoaded} bars`}</span>}
-        {modelOverlayActive && <span>Threshold: {finite(threshold) ? formatPct(threshold * 100, 2) : "—"}</span>}
-        <span>Bar: {pointTimestampLabel(active, assetClass)}</span>
-        {position && <span>Position: {position.side} · {formatNum(position.qty, assetClass === "equity" ? 0 : 6)} units</span>}
-        {!position && referencePoint && <span>Last signal reference: {referencePoint.signal} · {new Date(referencePoint.ts).toLocaleString()}</span>}
-        {modelOverlayActive && <span>Forecast bars: predicted close · half-ATR display envelope</span>}
-        {!marketOnly && !modelOverlayActive && (
-          <strong className="is-reference-only">
-            Bar overlays use the strategy period ({modelBarHours === 24 ? "1 day" : `${modelBarHours || "—"} hours`})
-          </strong>
-        )}
-        {(finite(stop) || finite(target)) && (
-          <strong className={protectiveOrders ? "is-protected" : "is-reference-only"}>
-            {protectiveOrders ? "Broker OCA stop / target acknowledged for this position" : "Stop / target are model references — protection is not broker-guaranteed"}
-          </strong>
-        )}
-        {marketOnly && <strong className="is-reference-only">Model is not subscribed to this ticker</strong>}
-        {mock && <strong className="is-demo">Demonstration data</strong>}
-        {!live && <strong className="is-reference-only">Offline walk-forward reconstruction · not the execution ledger</strong>}
-      </div>
+      {!live && (
+        <div className="model-tape__footer">
+          <span>Market source: {marketSource}</span>
+          {modelOverlayActive && <span>HMM context: {hmmWindow ? `${hmmLoaded}/${hmmWindow} bars${boundaryIndex == null ? " · start before price view" : ""}` : `${hmmLoaded} bars`}</span>}
+          {modelOverlayActive && <span>Threshold: {finite(threshold) ? formatPct(threshold * 100, 2) : "—"}</span>}
+          <span>Bar: {pointTimestampLabel(active, assetClass)}</span>
+          {position && <span>Position: {position.side} · {formatNum(position.qty, assetClass === "equity" ? 0 : 6)} units</span>}
+          {!position && referencePoint && <span>Last signal reference: {referencePoint.signal} · {new Date(referencePoint.ts).toLocaleString()}</span>}
+          {modelOverlayActive && <span>Forecast bars: predicted close · half-ATR display envelope</span>}
+          {!marketOnly && !modelOverlayActive && (
+            <strong className="is-reference-only">
+              Bar overlays use the strategy period ({modelBarHours === 24 ? "1 day" : `${modelBarHours || "—"} hours`})
+            </strong>
+          )}
+          {(finite(stop) || finite(target)) && (
+            <strong className={protectiveOrders ? "is-protected" : "is-reference-only"}>
+              {protectiveOrders ? "Broker OCA stop / target acknowledged for this position" : "Stop / target are model references — protection is not broker-guaranteed"}
+            </strong>
+          )}
+          {marketOnly && <strong className="is-reference-only">Model is not subscribed to this ticker</strong>}
+          {mock && <strong className="is-demo">Demonstration data</strong>}
+          <strong className="is-reference-only">Offline walk-forward reconstruction · not the execution ledger</strong>
+        </div>
+      )}
       {modelOverlayActive && hmmContext.length > 0 && (
         <div
           className="model-tape__window-overview"

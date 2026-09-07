@@ -298,6 +298,7 @@ class JobManager:
             "finished_at": None,
             "return_code": None,
             "run_id": job_id if kind in _ARTIFACT_KINDS else None,
+            "name": (config or {}).get("name"),
             "config": _redact_config(config or {}),
             "log_path": str(log_path),
             "cancel_requested_at": None,

@@ -13,7 +13,7 @@ import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from quant.api import broker_routes, jobs_routes, live_mock, news_routes, profiles, runs
+from quant.api import broker_routes, campaigns, jobs_routes, live_mock, news_routes, operations, profiles, runs
 from quant.api.jobs import JobManager, WORKDIR
 from quant.run.readiness import live_readiness_status
 
@@ -36,11 +36,13 @@ app.add_middleware(
 jobs_routes.manager = JobManager()
 
 app.include_router(runs.router)
+app.include_router(campaigns.router)
 app.include_router(jobs_routes.router)
 app.include_router(live_mock.router)
 app.include_router(news_routes.router)
 app.include_router(broker_routes.router)
 app.include_router(profiles.router)
+app.include_router(operations.router)
 
 
 @app.on_event("startup")

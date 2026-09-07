@@ -5,6 +5,7 @@ import {
   activeRootJobCount,
   executionJobFor,
   isJobActive,
+  jobDisplayName,
   orderedJobRows,
   supervisorFor,
 } from "./jobs.js";
@@ -52,4 +53,13 @@ test("active execution and linked supervisor resolve from durable job records", 
   const execution = executionJobFor(jobs, "paper", "equity");
   assert.equal(execution.id, "paper_new");
   assert.equal(supervisorFor(jobs, execution).id, "risk_new");
+});
+
+test("custom research job names fall back to the workflow label", () => {
+  assert.equal(jobDisplayName({ kind: "backtest", name: "QQQ baseline" }), "QQQ baseline");
+  assert.equal(
+    jobDisplayName({ kind: "optimize", config: { name: "Stability sweep" } }),
+    "Stability sweep",
+  );
+  assert.equal(jobDisplayName({ kind: "backtest" }), "Backtest");
 });

@@ -51,8 +51,13 @@ def returns_from_curve(curve: np.ndarray) -> np.ndarray:
     return (values[1:][valid] - prior[valid]) / prior[valid]
 
 
-def sharpe_from_curve(curve: np.ndarray, ts: np.ndarray, asset_class: str) -> float:
+def sharpe_from_curve(curve: np.ndarray, ts: np.ndarray, asset_class: str, risk_free_returns=None) -> float:
     rets = returns_from_curve(curve)
+    if risk_free_returns is not None and rets.size:
+        rates = np.asarray(risk_free_returns, dtype=float)
+        if rates.shape != rets.shape or not np.isfinite(rates).all():
+            raise ValueError("Risk-free returns must align with every equity interval")
+        rets = rets - rates
     if rets.size < 2:
         return 0.0
     sigma = float(np.std(rets))
@@ -84,8 +89,9 @@ def primary_ratio_from_curve(
     curve: np.ndarray,
     ts: np.ndarray,
     asset_class: str,
+    risk_free_returns=None,
 ) -> tuple[str, float]:
     metric = get_asset_profile(asset_class)["scoring"]["metric"]
     if metric == "sharpe":
-        return metric, sharpe_from_curve(curve, ts, asset_class)
+        return metric, sharpe_from_curve(curve, ts, asset_class, risk_free_returns)
     return metric, sortino_from_curve(curve, ts, asset_class)

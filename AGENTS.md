@@ -3,6 +3,12 @@
 - Omit conversational filler (e.g., "Let me check that").
 - Output only code changes, errors, and direct answers.
 
+## Frontend orchestration contract
+- Every user-facing backend capability must have a complete frontend path: configuration, launch, progress/status, cancellation when applicable, and result review.
+- Treat a backend feature as incomplete until it is operable from the frontend. The CLI may remain available for automation and diagnostics, but it must not be the only way to use a supported workflow.
+- Backtest and optimization are research hubs, not draggable monitoring dashboards. Organize them around evidence: benchmark-relative performance, risk and drawdown, trades, model diagnostics, parameter sensitivity, walk-forward/stress results, and a clear in-sample versus out-of-sample boundary.
+- Benchmark strategy results against the S&P 500 over the same observed period when data is available, label the exact benchmark and return basis, and show unavailable or partial coverage explicitly.
+
 # Two-Layer Quant System — Nautilus Trader + Interactive Brokers
 
 A production-shaped rebuild of the research notebook into two cleanly decoupled
@@ -274,7 +280,8 @@ instrument's signal and hands the free slots to the highest-`|yhat|` entries
 (see `MLStrategy._resolve_batch`). Reversing/adjusting an already-held
 instrument never consumes a new slot. (Slots free up when a risk event flattens
 the book; there is no conviction-based *eviction* of an existing holding for a
-later stronger signal — add that if you want slots to rebalance continuously.)
+later stronger signal. The optional replacement experiment is tracked as P3-01
+in [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).)
 
 **Book-level leverage=1 guard.** `enforce_portfolio_leverage` (fixed, default on)
 caps *aggregate* gross notional across all instruments at `max_leverage * equity`,
@@ -646,72 +653,8 @@ them to `PredictionEngine`; all feature construction lives in
 `prediction_engine.py`. See `tests/test_cross_asset_features.py` for the
 alignment/no-lookahead verification.
 
-## Known simplifications / TODO before real money
+## Remaining implementation and validation work
 
-- **Fee model:** crypto now models IBKR's real Zero Hash/Paxos schedule exactly
-  (`ZeroHashCryptoFeeModel` in `backtest_common.py`, wired into
-  `asset_class_fee_model` so both `run_backtest.py` and every `optimize.py`
-  Optuna trial pick it up automatically via the shared `build_engine()`):
-  tiered by trailing 30-day account-wide crypto trade value — 0.18% up to
-  $100k, 0.15% $100k-$1M, 0.12% above $1M — with a $1.75 minimum per order
-  that is itself capped at 1% of that order's trade value. Equities
-  (`--asset-class equity`) remain a flat ~$0.005/share commission
-  (`PerContractFeeModel`), with IBKR's real per-order minimum/tiered schedule
-  not modelled for that asset class.
-- **Bars:** completed OHLC bars support daily and configured hourly cadences.
-  Tick/event-driven execution still needs a different data contract.
-- **Protective stops:** the shared broker path now creates an actual-fill-based
-  stop-market/take-profit OCA pair and resizes it after partial fills. This is
-  an unapproved implementation candidate until OCA transmit, modification,
-  restart, gap, session, and rejection behavior pass supported TWS/Gateway
-  paper tests. The dashboard labels protection active only after both orders
-  are acknowledged for the selected position.
-- **Instrument:** `make_crypto` defines **spot** crypto (`CurrencyPair`, BASE/USD,
-  fractional size). For crypto **perps/futures** add `CryptoPerpetual` /
-  `CryptoFuture` definitions with the correct multiplier + funding.
-- **Regime defaults:** crypto uses a ±2% Bull/Bear band; equity uses ±1%.
-  The canonical 20-session lookback is rescaled for intraday bars. HMM refit
-  cadence and smoothing/hysteresis remain structural rather than Optuna-tuned.
-- **Equity trading calendar:** `generate_sample_bars.py --asset-class equity`
-  skips weekends (`_business_days`) but does not model a real exchange holiday
-  calendar — a documented simplification, same spirit as the crypto generator
-  being "a pipeline exerciser, not market reality."
-- **Equity live/paper scope:** `run_live.py` now supports SMART-routed US
-  stocks/ETFs with whole-share sizing, RTH-by-default data, and LAST bars at
-  the configured cadence. Opt-in shorting is fail-closed behind current IBKR
-  shortability and fee data, a locate buffer, halt/Rule-201 checks, PDT and
-  margin account state, an order-specific what-if preview, protected exits,
-  and supervised cover on a persistent control breach. Options, futures,
-  extended-hours equity trading, and mixed crypto/equity runs are not covered.
-- **Real API status:** `run_live.py` has been exercised end-to-end against
-  paper TWS on port 7497: managed-account discovery, Zero Hash BTC/ETH/SOL
-  contract qualification, account-state loading, execution reconciliation,
-  one-year MIDPOINT history, continuing daily subscriptions, Redis save, and
-  Redis restore all succeeded. The equity path was also verified with a
-  SMART-routed SPY contract (qualified to ARCA), whole-share instrument
-  precision, RTH LAST history (251 bars), continuing subscription,
-  reconciliation, Redis save, and Redis restore. The short-control path has
-  deterministic tests but still requires a supported paper TWS/Gateway
-  validation campaign before approval. `ibkr_fetch.py`'s standalone CLI remains
-  unverified against TWS.
-- **Adapter shutdown noise:** a graceful paper stop saves state and exits zero,
-  but Nautilus 1.229 may log IBKR error 162 for the intentionally cancelled
-  historical subscription and a pending `_stop_async` task warning while its
-  event loop closes. This is adapter cleanup noise, but should be rechecked
-  after adapter upgrades.
-- **State persistence:** paper/live now uses a Redis-backed Nautilus cache and
-  persists strategy warmup/risk state. A clean restart recovers the permanent
-  kill-switch and reconciles open positions/orders against IBKR. Redis is an
-  operational dependency; monitor and back up its append-only volume before
-  live deployment.
-- **Dashboard live/paper telemetry:** a running `run_live.py` publishes a
-  job-scoped atomic snapshot after every completed bar. Position quantity,
-  mark/notional, available unrealized PnL, strategy signal/model diagnostics,
-  and risk state are real. A separate read-only IB client supplies searched
-  chart bars and forming-bar updates; it caches at most eight live subscriptions
-  and still requires the relevant IBKR market-data permissions. If no node is
-  running, the endpoint deliberately serves labeled demonstration data. ATR
-  stop/target lines remain model references unless telemetry confirms an
-  acknowledged broker OCA pair for that position. Forecast candles encode predicted close with a half-ATR visual
-  envelope; they are not independent model forecasts of high and low.
-```
+All priorities, implementation tasks, validation requirements and optional
+extensions are maintained in [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md).
+Update that single backlog; do not maintain a separate todo list here.

@@ -149,6 +149,7 @@ class BrokerAccount:
     buying_power: Decimal
     settled_cash: Decimal | None = None
     snapshot_complete: bool = False
+    settled_cash_evidence: dict = field(default_factory=dict)
 
     @classmethod
     def normalized(cls, **values) -> "BrokerAccount":
@@ -161,6 +162,7 @@ class BrokerAccount:
             buying_power=_decimal(values.get("buying_power", 0)),
             settled_cash=_decimal(settled) if settled is not None else None,
             snapshot_complete=bool(values.get("snapshot_complete", False)),
+            settled_cash_evidence=dict(values.get("settled_cash_evidence") or {}),
         )
 
 

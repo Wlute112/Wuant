@@ -19,6 +19,7 @@ We use a MARGIN account with ``default_leverage=1.0``. This is deliberate:
 from __future__ import annotations
 
 import warnings
+import math
 from collections import deque
 from decimal import Decimal
 
@@ -39,11 +40,11 @@ warnings.filterwarnings(
 )
 
 from nautilus_trader.backtest.engine import BacktestEngine, BacktestEngineConfig
-from nautilus_trader.backtest.models import FeeModel, FillModel, PerContractFeeModel
+from nautilus_trader.backtest.models import FeeModel, FillModel, PerContractFeeModel, LatencyModel
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.data import Bar, BarType
-from nautilus_trader.model.enums import AccountType, OmsType
+from nautilus_trader.model.enums import AccountType, OmsType, BookType
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 from nautilus_trader.model.instruments import CurrencyPair, Equity, Instrument
 from nautilus_trader.model.objects import Currency, Money, Price, Quantity
@@ -338,7 +339,28 @@ def build_engine(
     df["timestamp"] = pd.to_datetime(
         df["timestamp"], format="mixed", utc=True
     )
-    df = df[df["ticker"].isin(tickers)].sort_values("timestamp")
+    overrides = dict(strategy_overrides or {})
+    simulation_config = overrides.pop("equity_simulation", None)
+    simulation = None
+    if asset_class == "equity":
+        from quant.run.equity_simulation import EquitySimulation, EquityFeeModel, canonical_equity_frame
+        simulation = EquitySimulation(simulation_config, cost_multiplier)
+        df = canonical_equity_frame(df, simulation.settings)
+        df = df[df["ticker"].isin(tickers)].sort_values("timestamp")
+        if df.empty or set(tickers) - set(df.ticker):
+            raise ValueError("Equity simulation requires data for every selected ticker")
+        if df.duplicated(["ticker", "timestamp"]).any():
+            raise ValueError("Duplicate equity bar ticker/timestamp")
+        for column in ("open", "high", "low", "close", "volume"):
+            values = pd.to_numeric(df[column], errors="coerce")
+            if not values.map(math.isfinite).all() or (values < (0 if column == "volume" else 0.01)).any():
+                raise ValueError(f"Invalid equity {column} data")
+        if (df.high < df[["open", "close", "low"]].max(axis=1)).any() or (df.low > df[["open", "close", "high"]].min(axis=1)).any():
+            raise ValueError("Invalid equity OHLC envelope")
+    elif simulation_config is not None:
+        raise ValueError("equity_simulation is only supported for equity research")
+    else:
+        df = df[df["ticker"].isin(tickers)].sort_values("timestamp")
     bar_type_suffix = infer_bar_type_suffix(df)
 
     engine = BacktestEngine(
@@ -361,10 +383,15 @@ def build_engine(
         starting_balances=[Money(starting_cash, USD)],
         default_leverage=DEFAULT_LEVERAGE,
         fill_model=FillModel(
-            prob_slippage=slippage_probability,
+            prob_slippage=0 if simulation else slippage_probability,
             random_seed=fill_model_seed,
         ),
-        fee_model=asset_class_fee_model(asset_class, cost_multiplier),
+        fee_model=EquityFeeModel(simulation) if simulation else asset_class_fee_model(asset_class, cost_multiplier),
+        modules=[simulation] if simulation else [],
+        book_type=BookType.L2_MBP if simulation else BookType.L1_MBP,
+        bar_execution=simulation is None,
+        liquidity_consumption=simulation is not None,
+        latency_model=LatencyModel(base_latency_nanos=0, insert_latency_nanos=1) if simulation else None,
     )
 
     instrument_ids = []
@@ -388,14 +415,39 @@ def build_engine(
         asset_class=asset_class,
         expected_bar_interval_secs=infer_bar_interval_minutes(df) * 60,
     )
-    if strategy_overrides:
-        cfg_kwargs.update(strategy_overrides)
+    cfg_kwargs.update(overrides)
     # These values describe the loaded dataset/venue and are not model knobs.
     cfg_kwargs["asset_class"] = asset_class
     cfg_kwargs["expected_bar_interval_secs"] = infer_bar_interval_minutes(df) * 60
+    if simulation:
+        cfg_kwargs["enable_broker_protection"] = True
 
-    engine.add_strategy(MLStrategy(MLStrategyConfig(**cfg_kwargs)))
+    strategy = MLStrategy(MLStrategyConfig(**cfg_kwargs))
+    strategy._equity_simulation = simulation
+    if simulation:
+        simulation.strategy = strategy
+        all_bars = simulation.replay(all_bars)
+    engine.add_strategy(strategy)
     return engine, all_bars
+
+
+def replay_batches(events, target_size):
+    """Keep each synthetic auction and its completed bars in one batch.
+
+    Nautilus validates depth availability per loaded batch. Cutting between
+    the final book update and its bar creates a bar-only batch and fails that
+    validation. Equal-time bars also stay together for portfolio signal ranking.
+    """
+    index = 0
+    while index < len(events):
+        end = min(len(events), index + max(1, target_size))
+        while end < len(events) and (
+            not isinstance(events[end - 1], Bar)
+            or events[end - 1].ts_init == events[end].ts_init
+        ):
+            end += 1
+        yield events[index:end]
+        index = end
 
 
 def build_and_run(

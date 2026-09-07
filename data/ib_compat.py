@@ -80,6 +80,9 @@ def register_ibkr_execution_fixes() -> None:
         _orig_connect = exec_cls._connect
 
         async def _connect_after_managed_accounts(self):
+            from quant.run.account_evidence import register_account_source
+
+            register_account_source(self)
             loop = asyncio.get_running_loop()
             deadline = loop.time() + min(float(self._connection_timeout), 15.0)
             while not self._client.accounts() and loop.time() < deadline:
@@ -88,6 +91,52 @@ def register_ibkr_execution_fixes() -> None:
 
         exec_cls._connect = _connect_after_managed_accounts
         exec_cls._quant_waits_for_managed_accounts = True
+
+    if not getattr(exec_cls, "_quant_captures_settled_cash", False):
+        _orig_summary = exec_cls._on_account_summary
+        _orig_disconnect = exec_cls._disconnect
+
+        def _summary_with_settled_cash(self, tag, value, currency):
+            if tag == "SettledCash" and hasattr(self, "_quant_settled_cash"):
+                self._quant_settled_cash.observe(str(self.account_id), value, currency)
+            return _orig_summary(self, tag, value, currency)
+
+        async def _disconnect_without_cash_evidence(self):
+            if hasattr(self, "_quant_settled_cash"):
+                self._quant_settled_cash.clear()
+            return await _orig_disconnect(self)
+
+        exec_cls._on_account_summary = _summary_with_settled_cash
+        exec_cls._disconnect = _disconnect_without_cash_evidence
+        exec_cls._quant_captures_settled_cash = True
+
+    from nautilus_trader.adapters.interactive_brokers.client.client import InteractiveBrokersClient
+
+    if not getattr(InteractiveBrokersClient, "_quant_invalidates_cash", False):
+        _orig_closed = InteractiveBrokersClient.process_connection_closed
+        _orig_subscribe = InteractiveBrokersClient.subscribe_account_summary
+        _orig_error = InteractiveBrokersClient.process_error
+
+        def _closed_without_cash(self):
+            from quant.run.account_evidence import invalidate_account_sources
+            invalidate_account_sources(self)
+            return _orig_closed(self)
+
+        def _subscribe_without_old_cash(self):
+            from quant.run.account_evidence import invalidate_account_sources
+            invalidate_account_sources(self)
+            return _orig_subscribe(self)
+
+        async def _error_without_old_cash(self, **kwargs):
+            if kwargs.get("error_code") in {1100, 1101, 1102, 1300}:
+                from quant.run.account_evidence import invalidate_account_sources
+                invalidate_account_sources(self)
+            return await _orig_error(self, **kwargs)
+
+        InteractiveBrokersClient.process_connection_closed = _closed_without_cash
+        InteractiveBrokersClient.subscribe_account_summary = _subscribe_without_old_cash
+        InteractiveBrokersClient.process_error = _error_without_old_cash
+        InteractiveBrokersClient._quant_invalidates_cash = True
 
     # The adapter marks spot crypto as ``is_inverse=True`` and consequently
     # converts every order quantity to IBKR ``cashQty``. For the strategy's

@@ -37,6 +37,7 @@ from quant.data.ib_compat import (
 )
 from quant.run.asset_profiles import get_asset_profile, strategy_defaults_for_asset
 from quant.run.readiness import LiveCapitalDisabledError, assert_live_capital_enabled
+from quant.strategies.sessions import resolve_session_policy, session_policy_payload
 
 PAPER_PORTS = frozenset({7497, 4002})
 LIVE_PORTS = frozenset({7496, 4001})
@@ -151,6 +152,7 @@ def load_params(path: str | None) -> tuple[dict, int | None]:
         "risk_check_interval_secs",
         "require_session_schedule",
         "session_policy",
+        "session_custom_windows",
         "backtest_model_fit_end_ns",
         "backtest_trade_start_ns",
     }
@@ -228,6 +230,7 @@ def build_node(
     short_recall_grace_secs: float = 60.0,
     bar_hours: int | None = None,
     include_extended_hours: bool = False,
+    session_policy: dict | None = None,
     telemetry_path: str = "",
     news_db_path: str = "",
     operations_db_path: str = "",
@@ -237,6 +240,17 @@ def build_node(
 ):
     if is_live:
         assert_live_capital_enabled()
+    legacy_policy = {
+        key: value for key, value in (params or {}).items()
+        if key in {"opening_buffer_minutes", "closing_buffer_minutes",
+                   "no_new_entry_minutes_before_close", "participate_opening_auction",
+                   "participate_closing_auction", "cancel_entries_at_session_end",
+                   "overnight_pnl_assignment"}
+    } if asset_class == "equity" else None
+    policy = resolve_session_policy(
+        session_policy if session_policy is not None else legacy_policy,
+        asset_class=asset_class, include_extended_hours=include_extended_hours,
+    )
     if allow_short_positions and asset_class != "equity":
         raise ValueError("short positions are supported only for US equities and ETFs")
     if allow_short_positions and short_control_client_id == client_id:
@@ -270,23 +284,45 @@ def build_node(
 
     from quant.strategies.ml_strategy import MLStrategy, MLStrategyConfig
 
+    resolved_equities = []
+    if asset_class == "equity":
+        from pathlib import Path
+        from quant.ops.state import OperationsStore
+        from quant.ops.corporate_actions import CorporateActionRegistry
+
+        registry_store = OperationsStore(operations_db_path) if operations_db_path and Path(operations_db_path).is_file() else None
+        try:
+            registry = CorporateActionRegistry(registry_store) if registry_store else None
+            for ticker in tickers:
+                known = registry.resolve(f"IB-{account_id}", ticker.upper()) if registry else None
+                resolved_equities.append(known or {"symbol": ticker.upper(), "con_id": 0})
+            tickers = [item["symbol"] for item in resolved_equities]
+            if len(set(tickers)) != len(tickers):
+                raise ValueError("Requested aliases resolve to duplicate broker instruments")
+        finally:
+            if registry_store:
+                registry_store.close()
     instrument_ids = instrument_ids_for_asset(tickers, asset_class, primary_exchange)
-    if asset_class == "equity" and not primary_exchange:
+    if asset_class == "equity":
         # Qualify normal SMART contracts while forcing stable TICKER.SMART
         # Nautilus IDs. Each client retains IBKR's qualified contract, including
         # its actual primary exchange, for subscriptions and order routing.
         contracts = frozenset(
             IBContract(
                 secType="STK",
-                symbol=t.upper(),
+                symbol=item["symbol"],
+                conId=item["con_id"],
                 exchange="SMART",
                 currency="USD",
+                primaryExchange=primary_exchange,
             )
-            for t in tickers
+            for item in resolved_equities
         )
         provider = InteractiveBrokersInstrumentProviderConfig(
             load_contracts=contracts,
-            symbol_to_mic_venue={t.upper(): "SMART" for t in tickers},
+            symbol_to_mic_venue={t.upper(): primary_exchange or "SMART" for t in tickers},
+            filters={"force_instrument_update": True},
+            filter_callable="quant.data.instrument_identity:validate_equity_instrument",
         )
     else:
         provider = InteractiveBrokersInstrumentProviderConfig(
@@ -376,11 +412,10 @@ def build_node(
         "enable_broker_protection": True,
         "risk_check_interval_secs": 1,
         "require_session_schedule": asset_class == "equity",
-        "session_policy": (
-            "EXTENDED_HOURS"
-            if asset_class == "equity" and include_extended_hours
-            else "RTH_ONLY"
-        ),
+        **{key: value for key, value in session_policy_payload(policy).items()
+           if key not in {"mode", "custom_windows"}},
+        "session_policy": policy.mode.value,
+        "session_custom_windows": policy.custom_windows,
         "order_tags": (
             (IBOrderTags(outsideRth=True).value,)
             if asset_class == "equity" and include_extended_hours
@@ -399,6 +434,8 @@ def build_node(
         **strategy_params,
     )
     strategy = MLStrategy(strat_cfg)
+    if asset_class == "equity":
+        print(f"Execution session policy: {json.dumps(session_policy_payload(policy), sort_keys=True)}", flush=True)
     short_control = None
     if allow_short_positions:
         from quant.run.short_controls import IBKRShortControlService, ShortControlConfig
@@ -525,11 +562,20 @@ def main() -> None:
     p.add_argument("--short-min-margin-cushion-pct", type=float, default=20.0)
     p.add_argument("--short-locate-buffer-ratio", type=float, default=1.25)
     p.add_argument("--short-recall-grace-secs", type=float, default=60.0)
+    p.add_argument(
+        "--session-policy-json", type=json.loads, default=None,
+        help="execution session policy JSON: mode, custom_windows (exchange-local times), "
+             "buffers, auction flags, cancellation and overnight_pnl_assignment",
+    )
     args = p.parse_args()
 
     try:
         validate_mode_port(args.live, args.port)
         validate_asset_mode(args.live, args.asset_class)
+        resolve_session_policy(
+            args.session_policy_json, asset_class=args.asset_class,
+            include_extended_hours=args.include_extended_hours,
+        )
         if args.live:
             assert_live_capital_enabled()
     except (ValueError, LiveCapitalDisabledError) as exc:
@@ -641,6 +687,7 @@ def main() -> None:
             bar_hours=bar_hours,
             include_extended_hours=args.include_extended_hours,
             telemetry_path=args.telemetry_path,
+            session_policy=args.session_policy_json,
             news_db_path=args.news_db if params["use_news_features"] else "",
             operations_db_path=args.operations_db,
             operations_component_id=args.operations_component_id,

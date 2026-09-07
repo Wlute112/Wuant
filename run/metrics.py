@@ -79,6 +79,11 @@ class StrategyMetrics:
 # extraction helpers
 # --------------------------------------------------------------------------- #
 def _equity_series(engine, venue) -> tuple[np.ndarray, np.ndarray]:
+    from quant.run.equity_simulation import simulation_for
+    simulation = simulation_for(engine)
+    if simulation is not None:
+        return (np.array([p["equity"] for p in simulation.curve]),
+                np.array([pd.Timestamp(p["ts"]).timestamp() for p in simulation.curve]))
     try:
         report = engine.trader.generate_account_report(venue)
     except Exception:  # noqa: BLE001
@@ -149,7 +154,8 @@ def compute_metrics(
     if len(curve):
         ending = float(curve[-1])
         m.net_profit_usd = round(ending - starting_cash, 2)
-        sharpe = sharpe_from_curve(curve, ts, asset_class)
+        from quant.run.equity_simulation import risk_free_returns
+        sharpe = sharpe_from_curve(curve, ts, asset_class, risk_free_returns(engine, ts))
         sortino = sortino_from_curve(curve, ts, asset_class)
         m.sharpe_ratio = round(sharpe, 2)
         m.sortino_ratio = round(sortino, 2)

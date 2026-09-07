@@ -55,6 +55,7 @@ P0_GATES = (
     ReadinessGate("session_risk", "Exchange-session daily risk accounting", False),
     ReadinessGate("realtime_risk", "Continuous broker/data risk supervision", False),
     ReadinessGate("broker_truth", "Deterministic broker-source reconciliation", False),
+    ReadinessGate("equity_short_controls", "Validated equity short-sale broker controls", False),
 )
 
 

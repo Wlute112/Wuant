@@ -1,7 +1,7 @@
 """IBKR exchange-session parsing, classification, and entry policies."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from enum import Enum
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -77,13 +77,62 @@ class SessionPolicy:
             "closing_buffer_minutes",
             "no_new_entry_minutes_before_close",
         ):
-            if getattr(self, field_name) < 0:
-                raise ValueError(f"{field_name} must not be negative")
+            value = getattr(self, field_name)
+            if type(value) is not int or not 0 <= value <= 1440:
+                raise ValueError(f"{field_name} must be an integer from 0 to 1440")
+        for field_name in (
+            "participate_opening_auction", "participate_closing_auction",
+            "cancel_entries_at_session_end",
+        ):
+            if type(getattr(self, field_name)) is not bool:
+                raise ValueError(f"{field_name} must be a boolean")
         if self.mode == SessionPolicyMode.CUSTOM and not self.custom_windows:
             raise ValueError("CUSTOM session policy requires at least one custom window")
         for start, end in self.custom_windows:
             _parse_clock_time(start)
             _parse_clock_time(end)
+            if _parse_clock_time(start) == _parse_clock_time(end):
+                raise ValueError("custom windows must have different start and end times")
+
+
+def resolve_session_policy(
+    payload: dict | None, *, asset_class: str, include_extended_hours: bool,
+) -> SessionPolicy:
+    """One strict execution contract shared by API, CLI and node construction."""
+    if payload is not None and not isinstance(payload, dict):
+        raise ValueError("session policy must be a JSON object")
+    values = dict(payload or {})
+    if asset_class != "equity" and (values or include_extended_hours):
+        raise ValueError("session policies and extended hours require equity")
+    unknown = set(values) - set(SessionPolicy.__dataclass_fields__)
+    if unknown:
+        raise ValueError(f"unknown session policy fields: {', '.join(sorted(unknown))}")
+    values["mode"] = SessionPolicyMode(values.get(
+        "mode", "EXTENDED_HOURS" if include_extended_hours else "RTH_ONLY"
+    ))
+    values["overnight_pnl_assignment"] = OvernightPnlAssignment(
+        values.get("overnight_pnl_assignment", "NEXT_SESSION")
+    )
+    windows = values.get("custom_windows", ())
+    if not isinstance(windows, (list, tuple)) or len(windows) > 16:
+        raise ValueError("custom_windows must be an array of at most 16 time pairs")
+    for window in windows:
+        if not isinstance(window, (list, tuple)) or len(window) != 2 or not all(
+            isinstance(value, str) for value in window
+        ):
+            raise ValueError("each custom window must contain start and end clock strings")
+    values["custom_windows"] = tuple(tuple(window) for window in windows)
+    policy = SessionPolicy(**values)
+    if policy.mode != SessionPolicyMode.CUSTOM and policy.custom_windows:
+        raise ValueError("custom windows require CUSTOM session mode")
+    if policy.mode != SessionPolicyMode.RTH_ONLY and not include_extended_hours:
+        raise ValueError("extended/custom session policies require include_extended_hours")
+    return policy
+
+
+def session_policy_payload(policy: SessionPolicy) -> dict:
+    return {**asdict(policy), "mode": policy.mode.value,
+            "overnight_pnl_assignment": policy.overnight_pnl_assignment.value}
 
 
 _TZ_ALIASES = {
@@ -385,13 +434,30 @@ class ExchangeSessionCalendar:
         day = self._day_containing(when)
         if day is not None:
             return day.session_date.isoformat()
-        ordered = sorted(self.days)
-        local_date = when.astimezone(self.timezone).date()
+        intervals = sorted(
+            (interval.start, interval.end, day.session_date)
+            for day in self.days.values()
+            for interval in (day.trading or day.liquid)
+        )
+        if not intervals:
+            return "UNAVAILABLE"
         if self.policy.overnight_pnl_assignment == OvernightPnlAssignment.NEXT_SESSION:
-            candidate = next((value for value in ordered if value >= local_date), None)
+            candidate = next((key for start, end, key in intervals if start > when), None)
+            # An expired schedule must not invent new sessions at midnight and
+            # reset the daily-loss baseline across an unobserved holiday/weekend.
+            candidate = candidate or intervals[-1][2]
         else:
-            candidate = next((value for value in reversed(ordered) if value <= local_date), None)
-        return (candidate or local_date).isoformat()
+            candidate = next((key for start, end, key in reversed(intervals) if end <= when), None)
+            candidate = candidate or intervals[0][2]
+        return candidate.isoformat()
+
+    def within_policy_window(self, when: datetime) -> bool:
+        """Whether resting entries may remain during the configured session."""
+        when = _aware_utc(when)
+        day = self._day_containing(when)
+        return day is not None and any(
+            interval.contains(when) for interval in self.policy_intervals(day.session_date)
+        )
 
     def next_open_close(self, when: datetime) -> tuple[datetime | None, datetime | None]:
         when = _aware_utc(when)

@@ -1,5 +1,9 @@
 # Product
 
+Priorities and remaining work are tracked in the single
+[product readiness backlog](PRODUCTION_READINESS.md). This document retains
+its specifications, evidence and operating procedures.
+
 <!-- impeccable:product-schema 1 -->
 
 ## Platform
@@ -47,6 +51,13 @@ truthfully claim.
 - Run locally by the owner through either the React dashboard or CLI.
 - The dashboard reviews run artifacts, compares metrics and traces, launches
   backtest/Optuna/paper/live jobs, tails job output, and exposes risk controls.
+  Backtest and Optuna are structured research hubs: they benchmark each run
+  against the S&P 500 price index over the same period and expose path risk,
+  trade quality, model diagnostics, search history, parameter sensitivity,
+  walk-forward cost stress, and the development-to-holdout gap.
+- Every user-facing backend workflow must remain operable from the frontend,
+  including multi-seed campaigns, consensus comparison, robustness testing,
+  one-shot outer-holdout promotion, status, logs, and cancellation.
 - Data sources: synthetic sample bars (pipeline exercising) and real IBKR
   historical bars fetched via TWS/Gateway (ports 7497 paper TWS / 7496
   live TWS / 4002 or 4001 Gateway).

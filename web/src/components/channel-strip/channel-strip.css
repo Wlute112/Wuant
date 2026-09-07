@@ -145,7 +145,7 @@
 .channel-strip__crosshair::after {
   content: "";
   position: absolute;
-  top: 0;
+  top: var(--hover-y, 50%);
   left: 50%;
   width: 7px;
   height: 7px;
@@ -176,6 +176,33 @@
   color: var(--color-text-dim);
   pointer-events: none;
 }
+
+.channel-strip__x-axis {
+  position: absolute;
+  right: 50px;
+  bottom: 3px;
+  left: var(--space-xs);
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: end;
+  pointer-events: none;
+}
+
+.channel-strip__x-axis span {
+  width: fit-content;
+  padding: 1px 3px;
+  color: var(--color-text-dim);
+  background: color-mix(in srgb, var(--color-paper) 88%, transparent);
+  font-family: var(--font-mono);
+  font-size: var(--text-label-size);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.channel-strip__x-axis span:first-child { transform: none; }
+.channel-strip__x-axis span:last-child { justify-self: end; transform: none; }
 
 .channel-strip__threshold-tab {
   position: absolute;

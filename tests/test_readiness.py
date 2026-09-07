@@ -36,6 +36,29 @@ def test_broker_readiness_stubs_fail_closed():
     assert verify_market_data_freshness() is False
 
 
+def test_unapproved_short_controls_block_even_with_other_gates_and_broker_checks_passed(monkeypatch):
+    monkeypatch.setattr(readiness, "LIVE_CAPITAL_ENABLED", True)
+    monkeypatch.setattr(
+        readiness,
+        "P0_GATES",
+        tuple(
+            readiness.ReadinessGate(
+                gate.key, gate.title, gate.key != "equity_short_controls"
+            )
+            for gate in readiness.P0_GATES
+        ),
+    )
+    monkeypatch.setattr(readiness, "reconcile_broker_positions", lambda broker=None: True)
+    monkeypatch.setattr(readiness, "recover_uncertain_orders", lambda broker=None: True)
+    monkeypatch.setattr(readiness, "verify_market_data_freshness", lambda broker=None: True)
+
+    status = live_readiness_status()
+    assert status["live_capital_enabled"] is False
+    assert status["incomplete"] == ["equity_short_controls"]
+    with pytest.raises(LiveCapitalDisabledError):
+        assert_live_capital_enabled()
+
+
 def test_live_readiness_requires_all_runtime_broker_checks(monkeypatch):
     monkeypatch.setattr(readiness, "LIVE_CAPITAL_ENABLED", True)
     monkeypatch.setattr(

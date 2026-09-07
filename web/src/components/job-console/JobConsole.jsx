@@ -4,6 +4,7 @@ import { api } from "../../lib/api.js";
 import { formatTime } from "../../lib/format.js";
 import {
   isJobActive,
+  jobDisplayName,
   jobKindLabel,
   jobStatusLabel,
   orderedJobRows,
@@ -133,7 +134,7 @@ export default function JobConsole({
                 type="button"
                 className="job-console__select"
                 aria-pressed={job.id === selectedJobId}
-                aria-label={`${jobKindLabel(job.kind)}, ${jobStatusLabel(job.status)}, started ${formatTime(job.started_at)}`}
+                aria-label={`${jobDisplayName(job)}, ${jobKindLabel(job.kind)}, ${jobStatusLabel(job.status)}, started ${formatTime(job.started_at)}`}
                 onClick={() => onSelectJob(job.id)}
               >
                 <span
@@ -141,9 +142,10 @@ export default function JobConsole({
                   className={`job-console__status-dot ${STATUS_CLASS[job.status] || ""}`}
                 />
                 <span className="job-console__item-copy">
-                  <span className="job-console__item-name">{jobKindLabel(job.kind)}</span>
+                  <span className="job-console__item-name" title={jobDisplayName(job)}>{jobDisplayName(job)}</span>
                   <span className="job-console__item-meta label">
                     {depth > 0 && <span>Linked</span>}
+                    {jobDisplayName(job) !== jobKindLabel(job.kind) && <span>{jobKindLabel(job.kind)}</span>}
                     <span>{jobStatusLabel(job.status)}</span>
                   </span>
                 </span>
@@ -152,7 +154,7 @@ export default function JobConsole({
                 <button
                   type="button"
                   className="job-console__cancel"
-                  aria-label={`Cancel ${jobKindLabel(job.kind)} started ${formatTime(job.started_at)}`}
+                  aria-label={`Cancel ${jobDisplayName(job)} started ${formatTime(job.started_at)}`}
                   aria-busy={stopping}
                   disabled={stopping}
                   onClick={(event) => cancel(job, event)}
@@ -168,7 +170,10 @@ export default function JobConsole({
         {selectedJob && (
           <header className="job-console__output-header">
             <div className="job-console__output-title">
-              <span className="label">{jobKindLabel(selectedJob.kind)}</span>
+              <span className="label job-console__output-name" title={jobDisplayName(selectedJob)}>{jobDisplayName(selectedJob)}</span>
+              {jobDisplayName(selectedJob) !== jobKindLabel(selectedJob.kind) && (
+                <span className="label job-console__output-kind">{jobKindLabel(selectedJob.kind)}</span>
+              )}
               <strong className="num">{jobStatusLabel(selectedJob.status)}</strong>
               <span className="job-console__job-id num">{selectedJob.id}</span>
               <span className="job-console__job-time label">{formatTime(selectedJob.started_at)}</span>
