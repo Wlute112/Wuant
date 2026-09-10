@@ -102,6 +102,8 @@ def register_ibkr_execution_fixes() -> None:
             return _orig_summary(self, tag, value, currency)
 
         async def _disconnect_without_cash_evidence(self):
+            from quant.run.broker_connectivity import invalidate
+            invalidate(self, "EXECUTION_CLIENT_DISCONNECT")
             if hasattr(self, "_quant_settled_cash"):
                 self._quant_settled_cash.clear()
             return await _orig_disconnect(self)
@@ -119,7 +121,9 @@ def register_ibkr_execution_fixes() -> None:
 
         def _closed_without_cash(self):
             from quant.run.account_evidence import invalidate_account_sources
+            from quant.run.broker_connectivity import invalidate_ib_client
             invalidate_account_sources(self)
+            invalidate_ib_client(self, "IBKR_CONNECTION_CLOSED")
             return _orig_closed(self)
 
         def _subscribe_without_old_cash(self):
@@ -130,7 +134,9 @@ def register_ibkr_execution_fixes() -> None:
         async def _error_without_old_cash(self, **kwargs):
             if kwargs.get("error_code") in {1100, 1101, 1102, 1300}:
                 from quant.run.account_evidence import invalidate_account_sources
+                from quant.run.broker_connectivity import invalidate_ib_client
                 invalidate_account_sources(self)
+                invalidate_ib_client(self, f"IBKR_ERROR_{kwargs['error_code']}")
             return await _orig_error(self, **kwargs)
 
         InteractiveBrokersClient.process_connection_closed = _closed_without_cash

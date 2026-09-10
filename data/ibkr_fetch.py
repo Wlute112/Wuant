@@ -58,6 +58,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
+import os
+import tempfile
 import datetime as dt
 from pathlib import Path
 
@@ -96,6 +99,9 @@ def _plan_bars(bar_hours: int, price_type: str) -> tuple[str, int | None]:
     """
     if bar_hours < 1:
         raise SystemExit("--bar-hours must be >= 1")
+
+    if bar_hours == 24:
+        return f"1-DAY-{price_type}", None
 
     if bar_hours in _NATIVE_HOUR_STEPS:
         return f"{bar_hours}-HOUR-{price_type}", None
@@ -136,6 +142,7 @@ async def _fetch(
     include_extended_hours=False,
 ):
     is_equity = asset_class == "equity"
+    price_type = price_type or ("LAST" if is_equity else "MID")
     if not is_equity:
         # Patch the nautilus 1.229 IB adapter to treat ZEROHASH as a crypto
         # venue. Must run before the adapter builds instruments from our
@@ -272,7 +279,13 @@ async def _fetch(
     out = out.sort_values(["timestamp", "ticker"]).reset_index(drop=True)
     fmt = "%Y-%m-%d" if bar_hours % 24 == 0 else "%Y-%m-%d %H:%M:%S"
     out["timestamp"] = out["timestamp"].dt.strftime(fmt)
-    return out[["timestamp", "ticker", "open", "high", "low", "close", "volume"]]
+    out["source"] = "IBKR_TRADES" if is_equity and price_type == "LAST" else "IBKR_" + price_type
+    out["session"] = "RTH" if is_equity and not include_extended_hours else ("extended" if is_equity else "24/7")
+    out["price_basis"] = "split_adjusted" if is_equity and price_type == "LAST" else "unknown"
+    out["volume_basis"] = "traded_shares" if is_equity and price_type == "LAST" else ("unavailable_midpoint" if price_type == "MID" else "traded_units")
+    out["retrieved_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+    out["requested_bar_hours"] = bar_hours
+    return out
 
 
 async def _fetch_and_merge(
@@ -307,10 +320,13 @@ async def _fetch_and_merge(
         primary_exchange=primary_exchange,
         include_extended_hours=include_extended_hours,
     )
+    if asset_class == "equity":
+        from quant.data.research_preflight import inspect_frame, require_execution_data
+        require_execution_data(inspect_frame(fetched, missing, asset_class))
     merged = pd.concat([existing, fetched], ignore_index=True)
     merged = merged.drop_duplicates(subset=["timestamp", "ticker"], keep="last")
     merged = merged.sort_values(["timestamp", "ticker"]).reset_index(drop=True)
-    merged.to_csv(csv_path, index=False)
+    _atomic_write_bars(csv_path, merged)
     print(
         f"[ensure_tickers] merged {len(fetched):,} new rows for {missing} -> {csv_path} "
         f"(file now has {len(merged):,} rows, {merged['ticker'].nunique()} tickers)"
@@ -327,7 +343,7 @@ def ensure_tickers(
     port: int = 7497,
     client_id: int = 1,
     exchange: str | None = None,
-    price_type: str = "MID",
+    price_type: str | None = None,
     bar_hours: int | None = None,
     market_data_type: str = "REALTIME",
     request_timeout: int = 30,
@@ -355,6 +371,15 @@ def _infer_bar_hours(df: pd.DataFrame) -> int | None:
     """Infer a whole-hour within-session width without cross-ticker deltas."""
     if df.empty or "timestamp" not in df.columns:
         return None
+    if "requested_bar_hours" in df and df.requested_bar_hours.notna().all():
+        widths = pd.to_numeric(df.requested_bar_hours, errors="coerce")
+        unique = widths.unique()
+        if widths.isna().any() or len(unique) != 1 or not 1 <= unique[0] <= 8760 or float(unique[0]) != int(unique[0]):
+            raise ValueError("Conflicting or invalid requested_bar_hours metadata; replace at one bar width.")
+        # RTH's final partial bar is shorter than the requested width. Preserve
+        # the source request when adding peers instead of inferring 2.5h from
+        # a 4h + 2.5h session and requesting the wrong cadence.
+        return int(unique[0])
     parsed = df.copy()
     parsed["timestamp"] = pd.to_datetime(
         parsed["timestamp"], format="mixed", utc=True, errors="raise"
@@ -378,6 +403,43 @@ def _infer_bar_hours(df: pd.DataFrame) -> int | None:
     return max(1, int(rounded))
 
 
+def _atomic_write_bars(csv_path, frame):
+    """Retain a content-addressed original and publish only a complete new CSV."""
+    target = Path(csv_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        original = target.read_bytes()
+        digest = hashlib.sha256(original).hexdigest()
+        backup = target.with_name(f"{target.name}.{digest}.bak")
+        if backup.exists():
+            if hashlib.sha256(backup.read_bytes()).hexdigest() != digest:
+                raise ValueError(f"Original-data backup failed its integrity check: {backup}")
+        else:
+            backup_temp = None
+            try:
+                with tempfile.NamedTemporaryFile(mode="wb", dir=target.parent, prefix=target.name + ".backup.", delete=False) as stream:
+                    backup_temp = Path(stream.name)
+                    stream.write(original)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                backup_temp.replace(backup)
+            finally:
+                if backup_temp is not None:
+                    backup_temp.unlink(missing_ok=True)
+        print(f"Original data retained: {backup}")
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", dir=target.parent, prefix=target.name + ".", suffix=".tmp", delete=False) as stream:
+            temporary = Path(stream.name)
+            frame.to_csv(stream, index=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.replace(target)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 def replace_bars(
     csv_path: str,
     tickers: list[str],
@@ -387,7 +449,7 @@ def replace_bars(
     port: int = 7497,
     client_id: int = 1,
     exchange: str | None = None,
-    price_type: str = "MID",
+    price_type: str | None = None,
     bar_hours: int = 4,
     market_data_type: str = "REALTIME",
     request_timeout: int = 30,
@@ -404,10 +466,9 @@ def replace_bars(
             include_extended_hours=include_extended_hours,
         )
     )
-    Path(csv_path).parent.mkdir(parents=True, exist_ok=True)
-    temp_path = Path(f"{csv_path}.tmp")
-    fetched.to_csv(temp_path, index=False)
-    temp_path.replace(csv_path)
+    from quant.data.research_preflight import inspect_frame, require_execution_data
+    require_execution_data(inspect_frame(fetched, tickers, asset_class))
+    _atomic_write_bars(csv_path, fetched)
     print(f"[replace_bars] replaced {csv_path} with {len(fetched):,} rows at {bar_hours}h")
     return len(fetched)
 
@@ -446,8 +507,8 @@ def main() -> None:
     p.add_argument(
         "--price-type",
         choices=("LAST", "MID"),
-        default="MID",
-        help="MID=MIDPOINT bars (default); LAST=AGGTRADES trade prints.",
+        default=None,
+        help="Default: equity LAST (TRADES with volume), crypto MID (MIDPOINT). Explicit MID is price-only diagnostics.",
     )
     p.add_argument(
         "--bar-hours",
@@ -494,7 +555,7 @@ def main() -> None:
             include_extended_hours=args.include_extended_hours,
         )
     )
-    df.to_csv(args.out, index=False)
+    _atomic_write_bars(args.out, df)
     print(f"Wrote {len(df):,} rows -> {args.out}")
 
 

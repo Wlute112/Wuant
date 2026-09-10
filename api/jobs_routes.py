@@ -16,15 +16,18 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from quant.api.jobs import JOBS_DIR, JobManager
+from quant.api.jobs import JOBS_DIR, WORKDIR, JobManager
 from quant.api.schemas import (
     LIVE_CONFIRM_PHRASE,
     BacktestJobRequest,
+    DataPreflightRequest,
+    DataRepairRequest,
     CampaignSeedJobRequest,
     CampaignStageJobRequest,
     LiveJobRequest,
     OptimizeJobRequest,
     PaperJobRequest,
+    SectorEvidenceRequest,
 )
 from quant.run.asset_profiles import get_asset_profile
 from quant.run.readiness import live_readiness_status
@@ -34,6 +37,17 @@ manager: JobManager | None = None  # set by quant.api.main at startup
 CAMPAIGNS_DIR = JOBS_DIR.parent / "optimize" / "campaigns"
 PROMOTION_CONFIRM_PHRASE = "CONSUME OUTER HOLDOUT"
 MAX_CSV_UPLOAD_BYTES = 100 * 1024 * 1024
+
+
+@router.post("/sector-evidence/validate")
+def validate_sector_upload(req: SectorEvidenceRequest):
+    from quant.run.sector_risk import validate_sector_evidence
+    try:
+        evidence = validate_sector_evidence(req.evidence, symbols=req.tickers)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"evidence": evidence, "status": "VALIDATED",
+            "note": "Source declarations validated. Qualified broker conId/symbol matching is checked by the execution node."}
 
 
 def _safe_csv_upload_name(filename: str) -> str:
@@ -88,6 +102,51 @@ def _args_from(flag_value_pairs) -> list[str]:
             continue
         args.extend([flag, str(value)])
     return args
+
+
+def _research_report(req):
+    from quant.data.research_preflight import inspect_csv
+    path = Path(req.csv)
+    if not path.is_absolute():
+        path = WORKDIR / path
+    tickers = req.tickers or get_asset_profile(req.asset_class)["defaults"]["tickers"]
+    return inspect_csv(path, tickers, req.asset_class)
+
+
+@router.post("/data/preflight")
+def research_preflight(req: DataPreflightRequest):
+    return _research_report(req)
+
+
+def _admit_equity_research(req):
+    if req.asset_class != "equity":
+        return
+    # A fetch-enabled worker must check the replacement data before any trials.
+    fetch = getattr(req, "ibkr", None)
+    if fetch and (fetch.fetch_missing or fetch.replace_bars):
+        return
+    report = _research_report(req)
+    if not report["execution_eligible"]:
+        raise HTTPException(422, {"code": "RESEARCH_DATA_UNUSABLE",
+                                  "message": "Research data preflight blocked launch. " + " ".join(report["errors"]),
+                                  "report": report})
+
+
+@router.post("/data/repair", status_code=202)
+def repair_research_data(req: DataRepairRequest):
+    job_id = manager.new_job_id("data_repair")
+    args = _args_from([
+        ("--csv", req.csv), ("--asset-class", req.asset_class),
+        ("--tickers", req.tickers or get_asset_profile(req.asset_class)["defaults"]["tickers"]),
+        ("--host", req.ibkr.ibkr_host), ("--port", req.ibkr.ibkr_port),
+        ("--client-id", req.ibkr.ibkr_client_id), ("--years", req.ibkr.ibkr_years),
+        ("--bar-hours", req.ibkr.ibkr_bar_hours or 4),
+        ("--progress-path", JOBS_DIR / f"{job_id}_progress.json"),
+    ]) + ["--repair"]
+    if req.ibkr.include_extended_hours:
+        args.append("--include-extended-hours")
+    return manager.submit("data_repair", "quant.data.research_preflight", args,
+                          config=req.model_dump(), job_id=job_id)
 
 
 def _safe_execution_config(req, *, redact_confirmation: bool = False) -> dict:
@@ -153,6 +212,29 @@ def _write_params_file(
     with open(out_path, "w") as fh:
         json.dump(merged, fh)
     return str(out_path)
+
+
+def _execution_params_file(job_id, req):
+    from quant.run.sector_risk import validate_sector_evidence
+    try:
+        payload = dict(req.params or {})
+        if not payload and req.params_path:
+            payload = json.loads(Path(req.params_path).read_text())
+        if not isinstance(payload, dict):
+            raise ValueError("Execution params must be a JSON object")
+        nested_key = next((key for key in ("params", "best_params") if payload.get(key) is not None), None)
+        if nested_key and not isinstance(payload[nested_key], dict):
+            raise ValueError("Nested execution params must be a JSON object")
+        nested = payload[nested_key] if nested_key else payload
+        evidence = req.sector_evidence if req.sector_evidence is not None else nested.get("sector_evidence", payload.get("sector_evidence"))
+        if evidence is not None:
+            evidence = validate_sector_evidence(evidence, symbols=req.tickers)
+            payload["sector_evidence"] = evidence
+            if nested_key:
+                payload[nested_key] = {**nested, "sector_evidence": evidence}
+        return _write_params_file(job_id, None, payload, {})
+    except (ValueError, TypeError, OSError) as exc:
+        raise HTTPException(400, f"Invalid execution sector evidence or params: {exc}") from exc
 
 
 def _submit_execution_with_supervisor(
@@ -229,6 +311,7 @@ def _submit_execution_with_supervisor(
 
 @router.post("/backtest", status_code=202)
 def start_backtest(req: BacktestJobRequest):
+    _admit_equity_research(req)
     job_id = manager.new_job_id("backtest")
     progress_path = JOBS_DIR / f"{job_id}_progress.json"
     overrides = {**req.features.as_overrides(), **req.risk.as_overrides()}
@@ -273,6 +356,7 @@ def start_backtest(req: BacktestJobRequest):
 
 @router.post("/optimize", status_code=202)
 def start_optimize(req: OptimizeJobRequest):
+    _admit_equity_research(req)
     job_id = manager.new_job_id("optimize")
     progress_path = JOBS_DIR / f"{job_id}_progress.json"
     overrides = {**req.features.as_overrides(), **req.risk.as_overrides()}
@@ -347,6 +431,7 @@ def _campaign_paths(campaign_id: str) -> tuple[str, str, str, str]:
 
 @router.post("/campaign/seeds", status_code=202)
 def start_campaign_seeds(req: CampaignSeedJobRequest):
+    _admit_equity_research(req)
     if len(set(req.seeds)) != len(req.seeds):
         raise HTTPException(400, "Campaign seeds must be distinct.")
     manifest, _comparison, _robustness, _promoted = _campaign_paths(req.campaign_id)
@@ -444,7 +529,7 @@ def start_paper(req: PaperJobRequest):
         )
     _validate_short_controls(req)
     job_id = manager.new_job_id("paper")
-    params_path = _write_params_file(job_id, req.params_path, req.params, {})
+    params_path = _execution_params_file(job_id, req)
     args = _args_from(
         [
             ("--tickers", req.tickers),
@@ -509,7 +594,7 @@ def start_live(req: LiveJobRequest):
             "TWS/Gateway port (e.g. 7496) explicitly.",
         )
     job_id = manager.new_job_id("live")
-    params_path = _write_params_file(job_id, req.params_path, req.params, {})
+    params_path = _execution_params_file(job_id, req)
     args = _args_from(
         [
             ("--tickers", req.tickers),

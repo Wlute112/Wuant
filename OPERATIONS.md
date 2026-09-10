@@ -318,3 +318,68 @@ The event journal is maintained by the operator. It does not discover events,
 adjust an open book or credit synthetic dividend cash. Cash and quantities remain
 broker-authoritative. Validate this workflow against supported TWS/Gateway
 before relying on it for an unattended session.
+
+
+## Reviewed sector exposure and broker disconnects
+
+Paper/Live configuration accepts a separate **Reviewed sector evidence (JSON)**
+upload, or evidence embedded in the strategy params file. The form includes the
+required format. Supply every selected equity/ETF's qualified broker conId and
+symbol, full sector weights summing to one, an HTTPS source reference, source
+date, reviewer and review timestamp, and expiry within 31 days of the source
+date. These are operator-reviewed declarations; validation does not independently
+verify the referenced source. Research sector maps cannot authorize execution.
+
+Set **Gross sector limit (%)** in the risk settings. This explicit setting takes
+precedence over imported optimizer risk settings. The node checks broker identity,
+evidence expiry and gross exposure from positions and outstanding entries, with
+ETF exposure distributed by the reviewed weights. Proposed orders use at least
+the current market mark. Missing classifications or stale marks block entries;
+a sector breach initiates the existing cancel-and-exit workflow. Protective exits
+remain available. The independent supervisor also checks reported sector amounts
+against the configured equity limit.
+
+Review **Execution adapter**, **Sector exposure**, and the expandable sector
+evidence in Live telemetry. Reports include source/reviewer dates, weights,
+gross exposure, limit breaches and an evidence hash. Telemetry older than 20
+seconds is not displayed as current authority. A broker disconnect immediately
+invalidates reconciliation, clears pending signals and blocks entries; socket
+recovery alone does not re-enable trading. Stop the session and restart for fresh
+reconciliation. To replace expired or incorrect evidence, stop the session,
+upload replacement evidence and restart. Existing status, logs, cancellation and
+safety controls cover this workflow. Live capital remains disabled by readiness.
+
+## Research data preflight and observed-volume repair
+
+Backtest, Optuna and seed-campaign configuration show a data preflight before
+launch. Each ticker lists observed dates, volume coverage and declared source
+semantics. "Unknown" means the CSV does not supply that evidence. Observed
+spacing is not necessarily the requested bar width (RTH bars can be shortened
+at session boundaries). Exact missing-bar coverage requires calendar evidence.
+
+If equity data has no positive volume, import a CSV with observed traded-share
+volume or open **Repair with observed IBKR trade bars**. Configure the socket
+host/port (paper TWS 7497 or paper Gateway 4002), a distinct client ID, years,
+bar width and session, then choose **Fetch observed replacement**. Repair
+replaces the selected file/universe only after validation, retaining the old
+bytes in `<file>.<sha256>.bak`. Status, cancellation, broker output, backup
+location and the resulting preflight are available beside the repair control
+and in the active research job view. No orders are sent by data repair.
+
+IBKR equity LAST requests TRADES (split-adjusted prices, not dividend-adjusted;
+traded-share volume). MID requests MIDPOINT, whose volume is unavailable; use
+it for price diagnostics only. Source reference:
+[IBKR historical data types](https://interactivebrokers.github.io/tws-api/historical_bars.html).
+Partial zero-volume coverage remains visible and provides no liquidity on those
+bars. The preflight does not certify fill calibration or approve live trading.
+
+Read-only CLI diagnostics from the directory containing `quant/`:
+
+```bash
+quant/.quant312/bin/python -m quant.data.research_preflight \
+  --csv quant/data/equity_bars.csv --asset-class equity --tickers QQQ
+```
+
+The same command with `--repair --port 4002 --client-id 71 --bar-hours 4`
+fetches observed replacement data. Existing in-sample/out-of-sample snapshots
+and consumed campaign/holdout contracts are intentionally not regenerated.

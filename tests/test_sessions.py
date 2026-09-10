@@ -253,7 +253,8 @@ def test_overnight_pnl_uses_real_session_boundaries_and_skips_closed_dates(assig
     (SessionPolicy(mode=SessionPolicyMode.CUSTOM, custom_windows=(("09:30", "12:00"), ("13:00", "16:00"))),
      datetime(2026, 3, 9, 16, tzinfo=UTC)),
 ])
-def test_strategy_supervision_cancels_only_entries_at_configured_boundary(policy, when, cancel_at_end):
+def test_strategy_supervision_cancels_only_entries_at_configured_boundary(policy, when, cancel_at_end, monkeypatch):
+    monkeypatch.setattr("quant.strategies.ml_strategy.broker_connectivity.snapshot", lambda *args: {"healthy": True})
     from types import SimpleNamespace
     from quant.strategies.ml_strategy import MLStrategy
     from quant.strategies.execution_state import (
@@ -277,7 +278,7 @@ def test_strategy_supervision_cancels_only_entries_at_configured_boundary(policy
         return True
 
     strategy = SimpleNamespace(
-        config=SimpleNamespace(execution_mode="paper", startup_health_grace_secs=30,
+        config=SimpleNamespace(execution_mode="paper", account_id="IB-DU1", asset_class="equity", startup_health_grace_secs=30,
                                cancel_entries_at_session_end=cancel_at_end, max_gross_exposure_pct=1),
         _risk=RiskManager(5000), _account=lambda: SimpleNamespace(balance_total=lambda: 5000, base_currency="USD"),
         _equity=lambda: 5000, _session_calendars={"QQQ.SMART": _calendar(policy)},
@@ -288,6 +289,7 @@ def test_strategy_supervision_cancels_only_entries_at_configured_boundary(policy
         _cancel_order_safely=cancel, log=SimpleNamespace(warning=lambda message: None),
         _supervise_short_positions=lambda when: None, _reconcile_committed_notional=lambda: None,
         _committed_notional={}, _audit_safety_state_if_changed=lambda: None,
+        _sector_risk_snapshot=lambda: {"healthy": True, "status": "CURRENT"},
     )
     strategy._cancel_working_entry_orders = lambda *args, **kwargs: MLStrategy._cancel_working_entry_orders(strategy, *args, **kwargs)
     MLStrategy._supervise_risk(strategy, when)

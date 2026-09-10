@@ -483,8 +483,42 @@ def reconcile(
                 )
             )
 
+    # Execution IDs are idempotency keys, not proof that the payload agrees.
+    # Inspect all duplicates before proposing recovery: a dict's last-write-wins
+    # behavior must never choose between conflicting broker executions.
+    execution_fields = (
+        "client_order_id", "instrument_id", "side", "quantity", "price", "correction_of",
+    )
+    executions_by_id: dict[str, BrokerExecution] = {}
+    conflicting_ids: set[str] = set()
     for execution in snapshot.executions:
-        if execution.execution_id in ledger.fills:
+        previous = executions_by_id.setdefault(execution.execution_id, execution)
+        local = ledger.fills.get(execution.execution_id)
+        if any(
+            any(getattr(reference, name) != getattr(execution, name) for name in execution_fields)
+            for reference in (previous, local)
+            if reference is not None
+        ):
+            conflicting_ids.add(execution.execution_id)
+
+    for execution_id in sorted(conflicting_ids):
+        execution = executions_by_id[execution_id]
+        issues.append(ReconciliationIssue(
+            "CONFLICTING_BROKER_EXECUTION",
+            ReconciliationSeverity.CRITICAL,
+            f"Execution {execution_id} conflicts with another broker callback or durable fill.",
+            instrument_id=execution.instrument_id,
+            client_order_id=execution.client_order_id,
+        ))
+        actions.append(RecoveryAction(
+            RecoveryActionType.FREEZE_AND_REVIEW,
+            "Conflicting execution requires broker evidence and operator review.",
+            client_order_id=execution.client_order_id,
+            execution_id=execution_id,
+        ))
+
+    for execution in executions_by_id.values():
+        if execution.execution_id in conflicting_ids or execution.execution_id in ledger.fills:
             continue
         if execution.client_order_id not in ledger.orders:
             parent = next(
@@ -540,6 +574,7 @@ def reconcile(
             "UNADOPTED_STRATEGY_ORDER",
             "UNMANAGED_BROKER_ORDER",
             "UNCLAIMED_BROKER_EXECUTION",
+            "CONFLICTING_BROKER_EXECUTION",
         }
         for issue in issues
     )

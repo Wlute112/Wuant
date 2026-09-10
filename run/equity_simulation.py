@@ -221,6 +221,7 @@ class EquitySimulation(SimulationModule):
     def report(self):
         payload = self.settings.model_dump(mode="json")
         return {"version": 1, "config": payload,
+                "data_preflight": getattr(self, "data_preflight", None),
                 "contract_sha256": hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest(),
                 "cost_multiplier": self.cost_multiplier,
                 "calibration_status": (

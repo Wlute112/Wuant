@@ -214,8 +214,17 @@ class PaperJobRequest(ExecutionSessionRequest):
     cash: float | None = None
     params_path: str | None = None
     params: dict | None = None
+    sector_evidence: dict | None = None
     redis_host: str = "127.0.0.1"
     redis_port: int = 6379
+
+    @field_validator("sector_evidence")
+    @classmethod
+    def validate_sectors(cls, value):
+        if value is not None:
+            from quant.run.sector_risk import validate_sector_evidence
+            return validate_sector_evidence(value)
+        return value
 
 
 class LiveJobRequest(ExecutionSessionRequest):
@@ -233,6 +242,22 @@ class LiveJobRequest(ExecutionSessionRequest):
     cash: float = 5000.0
     params_path: str | None = None
     params: dict | None = None
+    sector_evidence: dict | None = None
     redis_host: str = "127.0.0.1"
     redis_port: int = 6379
     confirm: str
+
+
+class SectorEvidenceRequest(BaseModel):
+    evidence: dict
+    tickers: list[str] = Field(default_factory=list, max_length=500)
+
+
+class DataPreflightRequest(BaseModel):
+    csv: str = Field(min_length=1)
+    asset_class: Literal["crypto", "equity"] = "equity"
+    tickers: list[str] | None = None
+
+
+class DataRepairRequest(DataPreflightRequest):
+    ibkr: IbkrFetchOptions = Field(default_factory=lambda: IbkrFetchOptions(ibkr_client_id=71))

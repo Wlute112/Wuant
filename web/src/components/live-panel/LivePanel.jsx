@@ -14,6 +14,8 @@ import {
 import ModelDecisionTape from "../model-tape/ModelDecisionTape.jsx";
 import NewsTape from "../news-tape/NewsTape.jsx";
 import SafetyControls from "./SafetyControls.jsx";
+import SectorRiskEvidence from "./SectorRiskEvidence.jsx";
+import { executionEvidenceCurrent, telemetryIsFresh } from "../../lib/sectorRisk.js";
 import DockWorkspace from "../workspace/DockWorkspace.jsx";
 import "./live-panel.css";
 
@@ -364,6 +366,7 @@ export default function LivePanel({
   const isLastKnown = !isDemo
     && ["completed", "failed", "cancelled"].includes(executionJobStatus);
   const statusUnknown = feedStatus !== "ready"
+    || (!isDemo && !telemetryIsFresh(telemetry?.as_of))
     || !sessionRunning
     || telemetry?.available === false
     || isDemo
@@ -683,6 +686,7 @@ function TelemetryReadout({
   isDemo,
 }) {
   const shortControls = risk.short_controls || {};
+  const executionCurrent = executionEvidenceCurrent({ isDemo, statusUnknown, feedError, executionJob, risk });
   const registryReady = apiHealth.status === "ok" && apiHealth.job_registry === "redis";
   const registryValue = registryReady
     ? "REDIS DURABLE"
@@ -727,9 +731,11 @@ function TelemetryReadout({
         <AuthorityItem label="Risk supervisor" value={supervisorValue} unsafe={supervisorUnsafe} />
         <AuthorityItem label="Broker" value={isDemo ? "NO ACTIVE BROKER" : String(brokerStatus.status || "UNKNOWN").toUpperCase()} unsafe={!isDemo && brokerStatus.status !== "connected"} />
         <AuthorityItem label="Reconcile" value={isDemo ? "DEMO" : risk.reconciliation_state || "UNKNOWN"} unsafe={!isDemo && !reconciliationHealthy} />
+        <AuthorityItem label="Execution adapter" value={isDemo ? "OFF" : statusUnknown || feedError ? "UNKNOWN" : risk.broker_connectivity?.status || "UNKNOWN"} unsafe={!executionCurrent} />
+        <AuthorityItem label="Sector exposure" value={isDemo ? "OFF" : !executionCurrent ? "UNKNOWN" : risk.sector_risk?.status || "UNKNOWN"} unsafe={!executionCurrent || risk.sector_risk?.healthy !== true} />
         <AuthorityItem label="Settled cash (execution IBKR)" value={isDemo ? "UNAVAILABLE · DEMO" : settledCashLabel(risk.settled_cash, { connected: !statusUnknown && !feedError && executionJob?.status === "running" })} />
         <AuthorityItem label="Execution" value={isDemo ? "OFF" : risk.execution_state || "UNKNOWN"} unsafe={!isDemo && risk.execution_state !== "ACTIVE"} />
-        <AuthorityItem label="Entries" value={isDemo ? "OFF" : risk.entries_allowed === true ? "ENABLED" : "FROZEN"} unsafe={!isDemo && risk.entries_allowed !== true} />
+        <AuthorityItem label="Entries" value={isDemo ? "OFF" : !executionCurrent ? "UNKNOWN · BLOCKED" : risk.entries_allowed === true && risk.sector_risk?.healthy === true ? "ENABLED" : "FROZEN"} unsafe={!executionCurrent || risk.entries_allowed !== true || risk.sector_risk?.healthy !== true} />
         <AuthorityItem label="Data quality" value={dataQualityValue} unsafe={!isDemo && dataQuality.healthy !== true} />
         <AuthorityItem
           label="Short controls"
@@ -745,6 +751,7 @@ function TelemetryReadout({
         <AuthorityItem label="Next open" value={formatTime(session.next_open)} unsafe={!isDemo && !session.next_open} />
         <AuthorityItem label="Next close" value={formatTime(session.next_close)} unsafe={!isDemo && !session.next_close} />
       </div>
+      {!isDemo && <SectorRiskEvidence evidence={risk.sector_risk} current={executionCurrent} />}
       {!isDemo && shortControls.enabled === true && (
         <div className="live-panel__short-controls">
           <div className="live-panel__short-control-summary label">

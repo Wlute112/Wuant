@@ -1,0 +1,7 @@
+.sector-evidence { padding-block: var(--space-md); border-block: 1px solid var(--color-hairline); min-width: 0; }
+.sector-evidence h3 { margin: 0 0 var(--space-sm); }
+.sector-evidence p, .sector-evidence li { max-width: 75ch; overflow-wrap: anywhere; }
+.sector-evidence input { display: block; max-width: 100%; margin-block: var(--space-sm); }
+.sector-evidence pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.875rem; }
+.sector-evidence summary { cursor: pointer; min-height: var(--control-min-height); align-content: center; }
+.sector-evidence button { min-height: var(--control-min-height); }

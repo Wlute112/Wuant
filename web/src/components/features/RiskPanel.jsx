@@ -8,6 +8,7 @@ export const DEFAULT_RISK = {
   kill_switch_pct: 10,
   kill_warn_pct: 5,
   kelly_max_fraction: 50,
+  max_sector_exposure_pct: 30,
 };
 
 const FIELDS = [
@@ -18,6 +19,7 @@ const FIELDS = [
   { key: "kill_warn_pct", label: "Drawdown warn (%)" },
   { key: "kill_switch_pct", label: "Kill-switch (%)" },
   { key: "kelly_max_fraction", label: "Kelly ceiling (%)" },
+  { key: "max_sector_exposure_pct", label: "Gross sector limit (%)" },
 ];
 
 /** Controlled risk-rail editor. Values are shown/edited as PERCENTAGES for
@@ -36,7 +38,9 @@ export default function RiskPanel({ value, onChange }) {
             <input
               type="number"
               step={f.key === "max_leverage" ? 0.1 : 0.01}
-              value={value[f.key]}
+              value={value[f.key] ?? DEFAULT_RISK[f.key]}
+              min={f.key === "max_sector_exposure_pct" ? 0.01 : undefined}
+              max={f.key === "max_sector_exposure_pct" ? 100 : undefined}
               onChange={(e) => onChange({ ...value, [f.key]: Number(e.target.value) })}
             />
           </label>
@@ -58,5 +62,6 @@ export function toRiskOverrides(risk) {
     kill_switch_pct: risk.kill_switch_pct / 100,
     kill_warn_pct: risk.kill_warn_pct / 100,
     kelly_max_fraction: risk.kelly_max_fraction / 100,
+    max_sector_exposure_pct: (risk.max_sector_exposure_pct ?? DEFAULT_RISK.max_sector_exposure_pct) / 100,
   };
 }

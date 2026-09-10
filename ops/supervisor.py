@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import signal
@@ -28,7 +29,7 @@ class SupervisorDecision:
 def evaluate_snapshot(payload: dict | None, *, age_seconds: float | None, max_age_seconds: float) -> SupervisorDecision:
     if payload is None:
         return SupervisorDecision(False, "FREEZE_ENTRIES", "TELEMETRY_MISSING", "strategy telemetry is missing", "CRITICAL")
-    if age_seconds is None or age_seconds > max_age_seconds:
+    if age_seconds is None or not math.isfinite(age_seconds) or age_seconds < 0 or age_seconds > max_age_seconds:
         return SupervisorDecision(False, "FREEZE_ENTRIES", "TELEMETRY_STALE", f"strategy telemetry age exceeds {max_age_seconds:.1f}s", "CRITICAL")
     risk = payload.get("risk") or {}
     rails = risk.get("rails") or {}
@@ -44,6 +45,33 @@ def evaluate_snapshot(payload: dict | None, *, age_seconds: float | None, max_ag
     daily_limit = float(rails.get("daily_loss_limit_pct") or 2.0)
     if daily_pnl <= -daily_limit:
         return SupervisorDecision(False, "FLATTEN", "DAILY_LOSS_BREACH", f"daily PnL {daily_pnl:.4f}% breached {-daily_limit:.4f}%", "CRITICAL")
+    # Independent admission cannot infer safety from old telemetry that lacks
+    # the execution adapter or authoritative sector evidence contract.
+    connection = risk.get("broker_connectivity") or {}
+    if connection.get("healthy") is not True or connection.get("status") != "RECONCILED":
+        return SupervisorDecision(False, "FREEZE_ENTRIES", "BROKER_DISCONNECTED",
+                                  "execution adapter disconnected or requires fresh reconciliation", "CRITICAL")
+    sectors = risk.get("sector_risk") or {}
+    if not (payload.get("asset_class") == "crypto" and sectors.get("status") == "NOT_APPLICABLE"):
+        if sectors.get("status") == "BREACHED":
+            return SupervisorDecision(False, "FLATTEN", "SECTOR_EXPOSURE_BREACH", "gross sector exposure exceeds its limit", "CRITICAL")
+        if sectors.get("healthy") is not True or sectors.get("status") != "CURRENT":
+            return SupervisorDecision(False, "FREEZE_ENTRIES", "SECTOR_EVIDENCE_UNAVAILABLE",
+                                      "sector classification or exposure evidence is missing, expired or invalid", "CRITICAL")
+        try:
+            equity = float(risk["equity"])
+            limit = float(rails["max_sector_exposure_pct"])
+            amounts = [float(row["notional"]) for row in sectors["sectors"].values()]
+            if not amounts or not math.isfinite(equity) or equity <= 0 or not math.isfinite(limit) or not 0 < limit <= 100:
+                raise ValueError("invalid sector denominator or limit")
+            if any(not math.isfinite(amount) or amount < 0 for amount in amounts):
+                raise ValueError("invalid sector notional")
+            if any(amount > equity * limit / 100 + 1e-9 for amount in amounts):
+                return SupervisorDecision(False, "FLATTEN", "SECTOR_EXPOSURE_BREACH",
+                                          "independently calculated gross sector exposure exceeds its limit", "CRITICAL")
+        except (TypeError, ValueError, KeyError, AttributeError):
+            return SupervisorDecision(False, "FREEZE_ENTRIES", "SECTOR_EVIDENCE_UNAVAILABLE",
+                                      "sector exposure cannot be independently checked", "CRITICAL")
     if str(risk.get("execution_state")) == "UNCERTAIN":
         return SupervisorDecision(False, "FLATTEN", "EXECUTION_UNCERTAIN", "strategy reports uncertain broker execution state", "CRITICAL")
     reconciliation = str(risk.get("reconciliation_state") or "UNKNOWN")
@@ -126,8 +154,8 @@ class RiskSupervisor:
         try:
             observed = datetime.fromisoformat(str(payload["as_of"]))
             if observed.tzinfo is None:
-                observed = observed.replace(tzinfo=timezone.utc)
-            return max((datetime.now(timezone.utc) - observed.astimezone(timezone.utc)).total_seconds(), 0.0)
+                return None
+            return (datetime.now(timezone.utc) - observed.astimezone(timezone.utc)).total_seconds()
         except (TypeError, ValueError):
             return None
 

@@ -44,3 +44,12 @@ def test_infer_bar_hours_rejects_non_whole_hour_csv():
         _infer_bar_hours(
             _bars(["2024-01-01 13:30:00", "2024-01-01 16:00:00"])
         )
+
+
+def test_declared_source_width_preserves_short_rth_tail():
+    frame = _bars(["2025-01-02 14:30:00", "2025-01-02 17:00:00"])
+    frame["requested_bar_hours"] = 4
+    assert _infer_bar_hours(frame) == 4
+    frame.loc[1, "requested_bar_hours"] = 2
+    with pytest.raises(ValueError, match="Conflicting"):
+        _infer_bar_hours(frame)

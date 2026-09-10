@@ -180,7 +180,11 @@ def load_params(path: str | None) -> tuple[dict, int | None]:
     structural = {key: value for key, value in payload.items() if key in allowed}
     tuned = {key: value for key, value in nested.items() if key in allowed}
     ibkr_bar_hours = payload.get("ibkr_bar_hours")
-    return {**structural, **tuned}, ibkr_bar_hours
+    result = {**structural, **tuned}
+    if result.get("sector_evidence") is not None:
+        from quant.run.sector_risk import validate_sector_evidence
+        result["sector_evidence"] = validate_sector_evidence(result["sector_evidence"])
+    return result, ibkr_bar_hours
 
 
 def load_params_metadata(path: str | None) -> dict:
@@ -240,6 +244,9 @@ def build_node(
 ):
     if is_live:
         assert_live_capital_enabled()
+    if (params or {}).get("sector_evidence") is not None:
+        from quant.run.sector_risk import validate_sector_evidence
+        validate_sector_evidence(params["sector_evidence"], symbols=tickers)
     legacy_policy = {
         key: value for key, value in (params or {}).items()
         if key in {"opening_buffer_minutes", "closing_buffer_minutes",

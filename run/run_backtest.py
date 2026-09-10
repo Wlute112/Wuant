@@ -329,6 +329,10 @@ def main() -> None:
             if fetched:
                 print(f"Fetched missing tickers via IBKR at the CSV's existing frequency: {fetched}")
 
+    if args.asset_class == "equity":
+        from quant.data.research_preflight import inspect_csv, require_execution_data
+        require_execution_data(inspect_csv(args.csv, tickers, args.asset_class))
+
     loaded_overrides = load_best_params(args.params) if args.params else {}
     overrides = strategy_defaults_for_asset(args.asset_class)
     bars_per_session = infer_bars_per_session(args.csv, tickers)

@@ -341,13 +341,14 @@ class ExecutionLedger:
             raise ValueError("fill instrument does not match its order")
 
         existing = self.fills.get(execution_id)
-        if existing is not None and not correction_of:
+        if existing is not None:
             duplicate = (
                 existing.client_order_id == str(client_order_id)
                 and existing.instrument_id == str(instrument_id)
                 and existing.side == normalized_side
                 and existing.quantity == quantity
                 and existing.price == price
+                and existing.correction_of == str(correction_of)
             )
             if duplicate:
                 if event_id:

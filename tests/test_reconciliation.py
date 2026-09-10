@@ -1,4 +1,5 @@
 from decimal import Decimal
+from dataclasses import replace
 import sqlite3
 from types import SimpleNamespace
 
@@ -102,6 +103,73 @@ def test_complete_matching_broker_snapshot_passes():
     )
     assert report.passed
     assert report.issues == ()
+
+
+@pytest.mark.parametrize("changes", [
+    {"price": Decimal("501")},
+    {"quantity": Decimal("4")},
+    {"side": "SELL"},
+    {"instrument_id": "QQQ.SMART"},
+    {"client_order_id": "O-OTHER"},
+    {"correction_of": "E-OTHER"},
+])
+def test_existing_execution_payload_conflict_freezes_reconciliation(changes):
+    ledger = _ledger(filled=True)
+    snapshot = _snapshot()
+    snapshot = replace(snapshot, executions=(replace(snapshot.executions[0], **changes),))
+    report = reconcile(ledger, snapshot)
+    assert not report.passed
+    assert not report.orders_resolved
+    assert report.recovered_execution_ids == ()
+    assert "CONFLICTING_BROKER_EXECUTION" in {issue.code for issue in report.issues}
+    assert recover_ledger(ledger, snapshot, report).snapshot() == ledger.snapshot()
+    assert report.as_dict()["actions"][0]["action"] == "FREEZE_AND_REVIEW"
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_conflicting_snapshot_duplicates_are_not_recovered(reverse):
+    ledger = _ledger(filled=False)
+    snapshot = _snapshot()
+    executions = (snapshot.executions[0], replace(snapshot.executions[0], price=Decimal("501")))
+    snapshot = replace(snapshot, executions=executions[::-1] if reverse else executions)
+    report = reconcile(ledger, snapshot)
+    assert not report.passed
+    assert not report.orders_resolved
+    assert report.recovered_execution_ids == ()
+    assert recover_ledger(ledger, snapshot, report).fills == {}
+
+
+def test_identical_snapshot_duplicates_recover_once():
+    ledger = _ledger(filled=False)
+    snapshot = _snapshot()
+    snapshot = replace(snapshot, executions=snapshot.executions * 2)
+    report = reconcile(ledger, snapshot)
+    assert report.recovered_execution_ids == ("E-1",)
+    recovered = recover_ledger(ledger, snapshot, report)
+    assert reconcile(recovered, snapshot).passed
+
+
+def test_execution_conflict_reaches_strategy_safety_and_audit(monkeypatch):
+    from quant.strategies.ml_strategy import MLStrategy
+    from quant.strategies.execution_state import ExecutionSafetyController, ExecutionSafetyState
+
+    snapshot = _snapshot()
+    snapshot = replace(snapshot, executions=(replace(snapshot.executions[0], price=Decimal("501")),))
+    monkeypatch.setattr("quant.strategies.ml_strategy.snapshot_from_nautilus_cache",
+                        lambda *args, **kwargs: snapshot)
+    events = []
+    strategy = SimpleNamespace(
+        cache=object(), id="ML", config=SimpleNamespace(account_id="DU123"),
+        clock=SimpleNamespace(timestamp_ns=lambda: 100),
+        _execution=_ledger(filled=True), _execution_safety=ExecutionSafetyController(),
+        _audit_event=lambda *args, **kwargs: events.append((args, kwargs)),
+    )
+    MLStrategy._reconcile_broker_cache_source_of_truth(strategy)
+    assert strategy._reconciliation_state == "UNCERTAIN"
+    assert strategy._execution_safety.state == ExecutionSafetyState.UNCERTAIN
+    assert strategy._execution.fills["E-1"].price == Decimal("500")
+    assert events[0][1]["severity"] == "CRITICAL"
+    assert events[0][0][1]["final"]["issues"][0]["code"] == "CONFLICTING_BROKER_EXECUTION"
 
 
 def test_missing_execution_is_recovered_then_reconciles_cleanly():

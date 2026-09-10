@@ -970,6 +970,10 @@ def main(refit_every_n_bars: int | None = 1) -> None:
             if fetched:
                 print(f"Fetched missing tickers via IBKR at the CSV's existing frequency: {fetched}")
 
+    if args.asset_class == "equity":
+        from quant.data.research_preflight import inspect_csv, require_execution_data
+        require_execution_data(inspect_csv(args.csv, tickers, args.asset_class))
+
     # Asset profile defaults are structural and therefore identical across
     # every trial. Explicit JSON values win over the profile.
     structural_overrides = strategy_defaults_for_asset(args.asset_class)

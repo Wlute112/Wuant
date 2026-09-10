@@ -11,6 +11,7 @@ const STATUS_LABELS = {
 
 const KIND_LABELS = {
   backtest: "Backtest",
+  data_repair: "Observed data repair",
   optimize: "Optuna sweep",
   campaign_seeds: "Seed campaign",
   campaign_compare: "Campaign consensus",

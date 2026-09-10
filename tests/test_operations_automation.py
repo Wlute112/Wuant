@@ -9,7 +9,7 @@ from quant.ops.alerts import Alert, AlertDispatcher
 from quant.ops.backups import RESTORE_CONFIRMATION, create_backup, restore_backup, verify_backup
 from quant.ops.model_registry import ModelRegistry, PromotionPolicy
 from quant.ops.state import OperationsStore
-from quant.ops.supervisor import evaluate_snapshot
+from quant.ops.supervisor import RiskSupervisor, evaluate_snapshot
 from quant.ops.validation import CampaignPolicy, evaluate_campaign
 
 
@@ -28,10 +28,13 @@ def _telemetry(**risk_overrides):
         "drawdown_pct": 1.0,
         "daily_pnl_pct": 0.1,
         "gross_leverage": 0.5,
+        "equity": 10000,
         "execution_state": "ACTIVE",
         "reconciliation_state": "STRATEGY_CACHE_RECONCILED",
-        "rails": {"kill_switch_pct": 10, "daily_loss_limit_pct": 2, "leverage_max": 1},
+        "rails": {"kill_switch_pct": 10, "daily_loss_limit_pct": 2, "leverage_max": 1, "max_sector_exposure_pct": 30},
         "data_quality": {"healthy": True},
+        "broker_connectivity": {"healthy": True, "status": "RECONCILED"},
+        "sector_risk": {"healthy": True, "status": "CURRENT", "sectors": {"technology": {"notional": 1000}}},
     }
     risk.update(risk_overrides)
     return {"risk": risk}
@@ -43,6 +46,32 @@ def test_supervisor_decisions_are_fail_closed_and_escalate_by_rail():
     assert evaluate_snapshot(_telemetry(gross_leverage=1.1), age_seconds=1, max_age_seconds=10).action == "FLATTEN"
     assert evaluate_snapshot(_telemetry(drawdown_pct=10), age_seconds=1, max_age_seconds=10).action == "KILL"
     assert evaluate_snapshot(_telemetry(), age_seconds=1, max_age_seconds=10).healthy
+
+
+@pytest.mark.parametrize("age", [-1, float("nan"), float("inf")])
+def test_supervisor_rejects_invalid_telemetry_age(age):
+    assert evaluate_snapshot(_telemetry(), age_seconds=age, max_age_seconds=10).code == "TELEMETRY_STALE"
+
+
+def test_supervisor_preserves_future_timestamp_fault_and_rejects_missing_timezone():
+    future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    age = RiskSupervisor._telemetry_age({"as_of": future})
+    assert evaluate_snapshot(_telemetry(), age_seconds=age, max_age_seconds=10).code == "TELEMETRY_STALE"
+    assert RiskSupervisor._telemetry_age({"as_of": "2026-09-09T00:00:00"}) is None
+
+
+@pytest.mark.parametrize("risk,code,action", [
+    ({"broker_connectivity": {}}, "BROKER_DISCONNECTED", "FREEZE_ENTRIES"),
+    ({"broker_connectivity": {"healthy": False, "status": "RECONCILIATION_REQUIRED"}}, "BROKER_DISCONNECTED", "FREEZE_ENTRIES"),
+    ({"sector_risk": {}}, "SECTOR_EVIDENCE_UNAVAILABLE", "FREEZE_ENTRIES"),
+    ({"sector_risk": {"healthy": False, "status": "UNAVAILABLE"}}, "SECTOR_EVIDENCE_UNAVAILABLE", "FREEZE_ENTRIES"),
+    ({"sector_risk": {"healthy": False, "status": "BREACHED"}}, "SECTOR_EXPOSURE_BREACH", "FLATTEN"),
+    ({"sector_risk": {"healthy": True, "status": "CURRENT", "sectors": {"technology": {"notional": 3001}}}}, "SECTOR_EXPOSURE_BREACH", "FLATTEN"),
+    ({"sector_risk": {"healthy": True, "status": "CURRENT", "sectors": {"technology": {"notional": float("nan")}}}}, "SECTOR_EVIDENCE_UNAVAILABLE", "FREEZE_ENTRIES"),
+])
+def test_supervisor_sector_and_adapter_faults(risk, code, action):
+    result = evaluate_snapshot(_telemetry(**risk), age_seconds=1, max_age_seconds=10)
+    assert not result.healthy and result.code == code and result.action == action
 
 
 def test_supervisor_freezes_new_shorts_and_flattens_existing_shorts():

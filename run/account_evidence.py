@@ -59,6 +59,8 @@ _SOURCES: dict[tuple[int, str], weakref.ReferenceType] = {}
 
 
 def register_account_source(client) -> None:
+    from quant.run.broker_connectivity import register
+    register(client)
     client._quant_settled_cash = SettledCashEvidence()
     _SOURCES[(id(client._cache), str(client.account_id))] = weakref.ref(client)
 

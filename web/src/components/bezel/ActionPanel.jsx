@@ -2,11 +2,14 @@ import { cloneElement, isValidElement, useEffect, useId, useRef, useState } from
 
 import { api } from "../../lib/api.js";
 import { settledCashLabel } from "../../lib/accountEvidence.js";
+import { executionParamsWithRisk } from "../../lib/sectorRisk.js";
 import { regimeWindowForBarHours } from "../../lib/assetProfiles.js";
 import { formatTime } from "../../lib/format.js";
 import { isJobActive } from "../../lib/jobs.js";
 import { DEFAULT_SESSION_POLICY, sessionPolicyPayload } from "../../lib/sessionPolicy.js";
+import DataPreflight, { useDataPreflight } from "../research-hub/DataPreflight.jsx";
 import SessionPolicyEditor from "./SessionPolicyEditor.jsx";
+import SectorEvidenceEditor from "./SectorEvidenceEditor.jsx";
 import FeaturePanel, { DEFAULT_FEATURES, DEFAULT_SEARCH_MODES } from "../features/FeaturePanel.jsx";
 import RiskPanel, { DEFAULT_RISK, toRiskOverrides } from "../features/RiskPanel.jsx";
 import EquitySimulationEditor, { DEFAULT_SIMULATION } from "./EquitySimulationEditor.jsx";
@@ -106,6 +109,7 @@ export default function ActionPanel({
   const [clientId, setClientId] = useState(persisted.clientId ?? 1);
   const [accountId, setAccountId] = useState(persisted.accountId ?? "");
   const [tradingParams, setTradingParams] = useState(persisted.tradingParams ?? null);
+  const [sectorEvidence, setSectorEvidence] = useState(persisted.sectorEvidence ?? null);
   const [tradingParamsName, setTradingParamsName] = useState(
     persisted.tradingParamsName ?? "",
   );
@@ -275,6 +279,7 @@ export default function ActionPanel({
           clientId,
           accountId,
           tradingParams,
+          sectorEvidence,
           tradingParamsName,
           primaryExchange,
           shortControlClientId,
@@ -322,6 +327,7 @@ export default function ActionPanel({
     clientId,
     accountId,
     tradingParams,
+    sectorEvidence,
     tradingParamsName,
     primaryExchange,
     shortControlClientId,
@@ -376,6 +382,14 @@ export default function ActionPanel({
       if (parsed.include_extended_hours != null) {
         setIncludeExtendedHours(Boolean(parsed.include_extended_hours));
       }
+      const embeddedSectorEvidence = (parsed.params || parsed.best_params || parsed).sector_evidence ?? parsed.sector_evidence;
+      if (embeddedSectorEvidence) {
+        const validated = await api.validateSectorEvidence(embeddedSectorEvidence, parseTickers(tickers) || []);
+        setSectorEvidence(validated.evidence);
+      }
+      delete parsed.sector_evidence;
+      if (parsed.params) delete parsed.params.sector_evidence;
+      if (parsed.best_params) delete parsed.best_params.sector_evidence;
       setTradingParams(parsed);
       setTradingParamsName(file.name);
     } catch (err) {
@@ -494,6 +508,15 @@ export default function ActionPanel({
     };
   }
 
+  const dataRequest = {
+    csv: csvPath.trim() || defaultCsvPath(assetClass),
+    asset_class: assetClass,
+    tickers: parseTickers(tickers),
+  };
+  const preflight = useDataPreflight(dataRequest, jobs, tab === "backtest" || tab === "optimize");
+
+  const researchDataReady = !preflight.busy && !preflight.error && (preflight.eligible || dataFetchMode !== "none");
+
   async function submit() {
     setPending(true);
     setError(null);
@@ -509,6 +532,9 @@ export default function ActionPanel({
         throw new Error(
           "IBKR paper accounts do not support spot-crypto execution. Use the crypto backtest/demo feed or switch to Equity paper trading.",
         );
+      }
+      if (["backtest", "optimize"].includes(tab) && (!researchDataReady || uploadingCsv)) {
+        throw new Error("Review and repair the data preflight before launching research.");
       }
       let job;
       const executionSession = ["paper", "live"].includes(tab) && assetClass === "equity"
@@ -560,7 +586,8 @@ export default function ActionPanel({
           session_policy: executionSession,
           client_id: Number(clientId),
           account_id: accountId || null,
-          params: { ...(tradingParams || {}), ...toRiskOverrides(risk) },
+          params: executionParamsWithRisk(tradingParams, toRiskOverrides(risk)),
+          sector_evidence: assetClass === "equity" ? sectorEvidence : null,
         });
       } else if (tab === "live") {
         await api.configureBroker({
@@ -585,7 +612,8 @@ export default function ActionPanel({
           client_id: Number(clientId),
           account_id: accountId || null,
           cash: Number(cash),
-          params: { ...(tradingParams || {}), ...toRiskOverrides(risk) },
+          params: executionParamsWithRisk(tradingParams, toRiskOverrides(risk)),
+          sector_evidence: assetClass === "equity" ? sectorEvidence : null,
           confirm: liveConfirmation,
         });
       }
@@ -743,9 +771,11 @@ export default function ActionPanel({
               )}
             </div>
 
+            <DataPreflight state={preflight} request={dataRequest} jobs={jobs} onJobStarted={onJobStarted}
+              repairOptions={assetClass === "equity" ? { ...structuralPayload().ibkr, ibkr_bar_hours: Number(ibkrBarHours), ibkr_client_id: 71 } : null} />
             <div className="action-panel__actions">
-              <button className="button-primary" disabled={pending} onClick={submit}>
-                {pending ? "Starting…" : tab === "backtest" ? "Run Backtest" : "Start Sweep"}
+              <button className="button-primary" disabled={pending || uploadingCsv || !researchDataReady} onClick={submit}>
+                {pending ? "Starting…" : dataFetchMode !== "none" ? "Fetch, validate & run" : tab === "backtest" ? "Run Backtest" : "Start Sweep"}
               </button>
 
               <button
@@ -874,6 +904,9 @@ export default function ActionPanel({
 
         {["paper", "live"].includes(tab) && assetClass === "equity" && !paperJob && (
           <SessionPolicyEditor value={sessionPolicy} onChange={setSessionPolicy} Field={Field} />
+        )}
+        {["paper", "live"].includes(tab) && assetClass === "equity" && !paperJob && (
+          <SectorEvidenceEditor value={sectorEvidence} onChange={setSectorEvidence} tickers={parseTickers(tickers) || []} />
         )}
 
         {tab === "paper" && (

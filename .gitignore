@@ -25,3 +25,6 @@ ops/launchd/*.plist
 __pycache__/
 .vscode/
 .idea/
+
+# Original observed data retained by atomic repair/replacement
+data/*.csv.*.bak

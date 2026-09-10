@@ -1,0 +1,85 @@
+{
+  "item": "P1-01",
+  "date": "2026-09-08",
+  "review": "Implementation and local tests reviewed by Codex; no live-capital approval",
+  "source_documentation": "https://interactivebrokers.github.io/tws-api/historical_bars.html",
+  "source_semantics": "IBKR TRADES: total traded volume, prices adjusted for splits but not dividends. MIDPOINT volume: unavailable. No synthetic volume substituted.",
+  "broker_fetch": {
+    "job_id": "data_repair_b1b23f6dac",
+    "host": "127.0.0.1",
+    "port": 4002,
+    "client_id": 71,
+    "server_protocol_version": 223,
+    "nautilus_trader": "1.229.0",
+    "request": "STK/SMART QQQ USD, RTH, 4-HOUR-LAST, 5 years",
+    "status": "completed"
+  },
+  "original": {
+    "path": "data/equity_bars.csv.1b5b8891a8eaccb10e2dda9cc078f516d9e41fe70f7c43dcb45da4cde95da1b8.bak",
+    "sha256": "1b5b8891a8eaccb10e2dda9cc078f516d9e41fe70f7c43dcb45da4cde95da1b8",
+    "bars": 2934,
+    "zero_volume_bars": 2934,
+    "start": "2021-07-16",
+    "end": "2026-07-21"
+  },
+  "repaired": {
+    "asset_class": "equity",
+    "execution_eligible": true,
+    "purpose": "Data diagnostics only; no orders or performance claims",
+    "tickers": [
+      {
+        "ticker": "QQQ",
+        "bars": 2934,
+        "start": "2021-09-02T13:30:00+00:00",
+        "end": "2026-09-08T16:00:00+00:00",
+        "cadence_minutes": 150.0,
+        "zero_volume_bars": 0,
+        "missing_volume_bars": 0,
+        "invalid_volume_bars": 0,
+        "possible_intraday_gaps": 418,
+        "requested_bar_hours": 4.0,
+        "errors": [],
+        "warnings": [
+          "Possible intraday gaps detected. Exact missing-bar coverage is unavailable without a source calendar."
+        ],
+        "source": "IBKR_TRADES",
+        "session": "RTH",
+        "price_basis": "split_adjusted",
+        "volume_basis": "traded_shares"
+      }
+    ],
+    "errors": [],
+    "warnings": [
+      "QQQ: Possible intraday gaps detected. Exact missing-bar coverage is unavailable without a source calendar."
+    ],
+    "coverage_note": "Cadence is observed spacing, not a certified bar width. Missing-bar coverage is unknown without source calendar metadata. Naive timestamps are interpreted as UTC.",
+    "csv": "data/equity_bars.csv",
+    "sha256": "b2711a5c73b28432ff6f661df86b25651013fc391f4dedc765e4b9ff2d852221"
+  },
+  "smoke": {
+    "job_id": "backtest_0d1500f2c7",
+    "status": "completed",
+    "scope": "Last 240 observed rows; ingestion and artifact smoke only, not strategy validation",
+    "configuration": {
+      "use_news_features": false,
+      "use_hmm_feature": false,
+      "use_regime_features": false,
+      "use_industry_features": false,
+      "warmup_bars": 50,
+      "min_train_bars": 40
+    },
+    "artifact_data_preflight_passed": true,
+    "trades": 0
+  },
+  "verification": {
+    "python": "395 passed in full suite; 29 targeted checks passed after adding RTH source-cadence regression",
+    "frontend": "15 passed; production build passed",
+    "browser": "Unavailable: no browser exposed by the computer-use runtime"
+  },
+  "limitations": [
+    "Replacement refreshes the observed date range; it is not a row-by-row historical revision. Original file retained.",
+    "Exact missing-bar/session completeness needs broker calendar evidence; observed spacing can differ from requested width.",
+    "Existing in-sample/out-of-sample CSV snapshots and immutable campaign contracts were not rewritten.",
+    "P0 and P1-02 broker fault/compatibility validation gates remain unapproved."
+  ]
+}

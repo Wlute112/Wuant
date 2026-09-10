@@ -441,7 +441,7 @@ export default function ResearchHub({
   const activeResearchJobs = useMemo(
     () => jobs.filter((job) => (
       !job.parent_job_id
-      && job.kind === workflow
+      && (job.kind === workflow || job.kind === "data_repair")
       && isJobActive(job)
       && (job.config?.asset_class || "crypto") === assetClass
     )),

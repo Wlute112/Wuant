@@ -45,6 +45,9 @@ async function controlRequest(path, token, options = {}) {
 }
 
 export const api = {
+  validateSectorEvidence: (evidence, tickers) => request("/api/jobs/sector-evidence/validate", {
+    method: "POST", body: JSON.stringify({ evidence, tickers }),
+  }),
   getOperations: (jobId, token) => controlRequest(`/api/operations/${encodeURIComponent(jobId)}`, token),
   recordCorporateAction: (jobId, token, body) => controlRequest(`/api/operations/${encodeURIComponent(jobId)}/corporate-actions`, token, {
     method: "POST", body: JSON.stringify(body),
@@ -106,6 +109,12 @@ export const api = {
       body: file,
     }),
 
+  preflightData: (body, signal) => request("/api/jobs/data/preflight", {
+    method: "POST", body: JSON.stringify(body), signal,
+  }),
+  repairData: (body) => request("/api/jobs/data/repair", {
+    method: "POST", body: JSON.stringify(body),
+  }),
   startBacktest: (body) =>
     request("/api/jobs/backtest", { method: "POST", body: JSON.stringify(body) }),
   startOptimize: (body) =>

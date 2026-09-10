@@ -336,6 +336,9 @@ def build_engine(
     if not 0.0 <= slippage_probability <= 1.0:
         raise ValueError("slippage_probability must be between 0 and 1")
     df = pd.read_csv(csv_path)
+    if asset_class == "equity":
+        from quant.data.research_preflight import inspect_frame, require_execution_data
+        data_preflight = require_execution_data(inspect_frame(df, tickers, asset_class))
     df["timestamp"] = pd.to_datetime(
         df["timestamp"], format="mixed", utc=True
     )
@@ -345,6 +348,7 @@ def build_engine(
     if asset_class == "equity":
         from quant.run.equity_simulation import EquitySimulation, EquityFeeModel, canonical_equity_frame
         simulation = EquitySimulation(simulation_config, cost_multiplier)
+        simulation.data_preflight = data_preflight
         df = canonical_equity_frame(df, simulation.settings)
         df = df[df["ticker"].isin(tickers)].sort_values("timestamp")
         if df.empty or set(tickers) - set(df.ticker):

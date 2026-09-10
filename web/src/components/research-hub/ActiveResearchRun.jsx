@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import DataReport from "./DataReport.jsx";
 import ChannelStrip from "../channel-strip/ChannelStrip.jsx";
 import { useInterval } from "../../hooks/useInterval.js";
 import { api } from "../../lib/api.js";
@@ -70,7 +71,7 @@ export default function ActiveResearchRun({ job, onJobUpdated }) {
     }
   }, [job?.id]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { refresh(); }, [refresh, job?.status]);
   useInterval(refresh, active ? 1000 : null);
   useInterval(() => setNow(Date.now()), active ? 1000 : null);
 
@@ -102,6 +103,19 @@ export default function ActiveResearchRun({ job, onJobUpdated }) {
       setCancelling(false);
     }
   }
+
+  if (job.kind === "data_repair") return (
+    <article className="active-research">
+      <header className="active-research__header">
+        <div><h2>Observed data repair</h2><p role="status">{jobStatusLabel(job.status)} · {progress.phase_label || "Waiting for broker history"}</p></div>
+        {active && <button type="button" disabled={cancelling || job.status === "cancelling"} onClick={cancel}>{cancelling ? "Stopping…" : "Cancel data fetch"}</button>}
+      </header>
+      <p>{config.csv} · {tickers.join(" · ")}</p>
+      {(error || job.failure_reason) && <p role="alert">{error || job.failure_reason}</p>}
+      {progress.report && <div className="data-preflight"><DataReport report={progress.report} /></div>}
+      <details className="active-research__logs"><summary>Broker output and backup location</summary><pre>{logs.length ? logs.join("\n") : "No process output yet."}</pre></details>
+    </article>
+  );
 
   const readings = job.kind === "optimize"
     ? [

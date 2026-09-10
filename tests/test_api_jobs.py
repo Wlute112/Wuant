@@ -55,7 +55,9 @@ def test_equity_simulation_is_validated_and_forwarded_to_research_job(monkeypatc
     manager = StubJobManager()
     monkeypatch.setattr(jobs_routes, "manager", manager)
     monkeypatch.setattr(jobs_routes, "JOBS_DIR", tmp_path)
-    request = request_model(asset_class="equity", tickers=["SPY"], equity_simulation={
+    csv = tmp_path / "bars.csv"
+    csv.write_text("timestamp,ticker,open,high,low,close,volume\n2025-01-02,SPY,100,101,99,100,1000\n")
+    request = request_model(csv=str(csv), asset_class="equity", tickers=["SPY"], equity_simulation={
         "spread_bps": 12, "participation": 0.02, "risk_free_rate": 0.04,
     })
     route(request)
@@ -179,10 +181,12 @@ def test_campaign_seed_route_maps_validation_contract(monkeypatch, tmp_path):
     monkeypatch.setattr(jobs_routes, "manager", manager)
     monkeypatch.setattr(jobs_routes, "CAMPAIGNS_DIR", tmp_path)
 
+    csv = tmp_path / "bars.csv"
+    csv.write_text("timestamp,ticker,open,high,low,close,volume\n2025-01-02,SPY,100,101,99,100,1000\n2025-01-02,QQQ,100,101,99,100,1000\n")
     job = jobs_routes.start_campaign_seeds(CampaignSeedJobRequest(
         campaign_id="equity_daily_v1",
         asset_class="equity",
-        csv="quant/data/equity_bars.csv",
+        csv=str(csv),
         tickers=["SPY", "QQQ"],
         seeds=[42, 43, 44],
         trials=100,

@@ -67,6 +67,8 @@ from quant.news.core import NewsFeatureReader, NewsFeatureSnapshot
 from quant.ops.state import OperationsStore
 from quant.run.nautilus_reconciliation import snapshot_from_nautilus_cache
 from quant.run.account_evidence import settled_cash_from_cache
+from quant.run import broker_connectivity
+from quant.run.sector_risk import sector_snapshot
 from quant.run.reconciliation import ReconciliationConfig, reconcile, recover_ledger
 from quant.run.telemetry import LiveTelemetryRecorder
 from quant.strategies.execution_state import (
@@ -189,6 +191,8 @@ class MLStrategyConfig(StrategyConfig, frozen=True):
     industry_map: dict[str, str] | None = None
     industry_benchmark_map: dict[str, str] | None = None
     sector_map: dict[str, str] | None = None
+    # Execution authority, separate from research-only industry/sector maps.
+    sector_evidence: dict | None = None
     industry_correlation_window_bars: int = 60
     industry_correlation_half_life_bars: int = 20
     industry_minimum_observations: int = 40
@@ -373,6 +377,7 @@ class MLStrategy(Strategy):
         self._iid_by_raw: dict[str, InstrumentId] = {}
         self._raw_by_iid: dict[InstrumentId, str] = {}
         self._sector_by_iid: dict[InstrumentId, str] = {}
+        self._connectivity_unsubscribe = None
         self._last_bar_ns: dict[InstrumentId, int] = defaultdict(int)
         self._data_quality = BarQualityGate(
             expected_interval_seconds=max(1, config.expected_bar_interval_secs),
@@ -428,6 +433,10 @@ class MLStrategy(Strategy):
 
     # ---- lifecycle ------------------------------------------------------
     def on_start(self) -> None:
+        if self.config.execution_mode in {"paper", "live"}:
+            self._connectivity_unsubscribe = broker_connectivity.watch(
+                self.cache, self.config.account_id, self._on_broker_disconnect,
+            )
         self._risk = RiskManager(
             self._equity(),
             RiskConfig(
@@ -753,6 +762,11 @@ class MLStrategy(Strategy):
     def _resume_blockers(self) -> list[str]:
         """Re-evaluated by the node when a resume command is consumed."""
         blockers = []
+        if self.config.execution_mode in {"paper", "live"}:
+            if not broker_connectivity.snapshot(self.cache, self.config.account_id)["healthy"]:
+                blockers.append("Execution adapter disconnected or requires fresh reconciliation; restart the session.")
+            if getattr(self.config, "asset_class", None) == "equity" and not self._sector_risk_snapshot()["healthy"]:
+                blockers.append("Sector exposure or reviewed classification evidence is unavailable or breached.")
         if self._corporate_registry is not None and any(event["status"] in {"PENDING", "REBUILDING"}
                 for event in self._corporate_registry.events(self.config.account_id)):
             blockers.append("Corporate-action recovery is pending; restart and complete fresh model warmup.")
@@ -1163,6 +1177,7 @@ class MLStrategy(Strategy):
     def _reconcile_broker_cache_source_of_truth(self) -> None:
         """Recover deterministic broker events and fail on unresolved account state."""
         try:
+            connection = broker_connectivity.snapshot(self.cache, self.config.account_id)
             snapshot = snapshot_from_nautilus_cache(
                 self.cache,
                 self._execution,
@@ -1180,25 +1195,29 @@ class MLStrategy(Strategy):
             recovered = recover_ledger(self._execution, snapshot, initial)
             final = reconcile(recovered, snapshot, config)
             self._execution = recovered
+            connected = final.passed and broker_connectivity.acknowledge_reconciliation(
+                self.cache, self.config.account_id, connection["generation"],
+            )
             self._reconciliation_state = (
-                "BROKER_RECONCILED" if final.passed else "UNCERTAIN"
+                "BROKER_RECONCILED" if connected else "UNCERTAIN"
             )
             self._audit_event(
                 "BROKER_RECONCILIATION_COMPLETED",
                 {
                     "initial": initial.as_dict(),
                     "final": final.as_dict(),
+                    "connectivity": broker_connectivity.snapshot(self.cache, self.config.account_id),
                     "deterministic_recoveries": len(initial.actions),
                     "settled_cash_evidence": snapshot.account.settled_cash_evidence,
                 },
-                severity="INFO" if final.passed else "CRITICAL",
+                severity="INFO" if connected else "CRITICAL",
             )
-            if not final.passed:
+            if not connected:
                 reasons = "; ".join(
                     issue.message
                     for issue in final.issues
                     if issue.severity.value == "CRITICAL"
-                ) or "broker reconciliation did not pass"
+                ) or "Execution adapter unavailable or disconnected during reconciliation; restart required"
                 self._execution_safety.mark_uncertain(
                     reasons,
                     ts_ns=self.clock.timestamp_ns(),
@@ -1214,6 +1233,88 @@ class MLStrategy(Strategy):
                 {"error": f"{type(exc).__name__}: {exc}"},
                 severity="CRITICAL",
             )
+
+    def _on_broker_disconnect(self, event: dict) -> None:
+        # Adapter callbacks run on the node loop. Freeze synchronously before
+        # cancellation or telemetry I/O; broker reconnection cannot undo this.
+        self._reconciliation_state = "UNCERTAIN"
+        self._pending.clear()
+        self._execution_safety.mark_uncertain(
+            f"Execution adapter connectivity lost: {event['event']}; restart for reconciliation.",
+            ts_ns=self.clock.timestamp_ns(),
+        )
+        self._audit_event("BROKER_CONNECTIVITY_LOST", event, severity="CRITICAL")
+        self._cancel_working_entry_orders(reason="execution adapter disconnected")
+        self._refresh_telemetry_state()
+
+    def _sector_risk_snapshot(self, proposed_iid=None, proposed_notional=0.0, proposed_quantity=None) -> dict:
+        """All cached broker holdings plus outstanding entry commitments, gross.
+
+        Foreign exposure is included even though reconciliation also blocks it.
+        Protective exits cannot increase exposure and are excluded. Unknown
+        orders are conservatively treated as entries, never assumed protective.
+        """
+        infos, notionals = {}, {}
+        try:
+            iids = set(self._bar_types)
+            positions = self.cache.positions_open()
+            orders = {str(order.client_order_id): order for order in [
+                *self.cache.orders_open(), *self.cache.orders_inflight(),
+            ]}
+            iids.update(position.instrument_id for position in positions)
+            iids.update(order.instrument_id for order in orders.values())
+            iids.update(iid for iid, value in self._committed_notional.items() if value > 0)
+            if proposed_iid is not None:
+                iids.add(proposed_iid)
+            marks = {}
+            now_ns = self.clock.timestamp_ns()
+            for iid in iids:
+                instrument = self.cache.instrument(iid)
+                infos[str(iid)] = instrument.info if instrument is not None else {}
+                candidates = []
+                for tick in (self.cache.quote_tick(iid), self.cache.trade_tick(iid)):
+                    if tick is None or not 0 <= (now_ns - tick.ts_event) / 1e9 <= self.config.max_market_data_age_secs:
+                        continue
+                    price = float(tick.price) if hasattr(tick, "price") else max(float(tick.bid_price), float(tick.ask_price))
+                    if math.isfinite(price) and price > 0:
+                        candidates.append(price)
+                marks[iid] = max(candidates) if candidates else float("nan")
+            for position in positions:
+                key = str(position.instrument_id)
+                notionals[key] = notionals.get(key, 0.0) + position.quantity.as_double() * marks[position.instrument_id]
+            for order in orders.values():
+                if order.is_closed:
+                    continue
+                record = self._execution.orders.get(str(order.client_order_id))
+                if record is not None and record.role in {OrderRole.STOP_LOSS, OrderRole.TAKE_PROFIT,
+                                                          OrderRole.SIGNAL_EXIT, OrderRole.EMERGENCY_EXIT}:
+                    continue
+                key = str(order.instrument_id)
+                qty = getattr(order, "leaves_qty", order.quantity).as_double()
+                price = marks[order.instrument_id]
+                limit = getattr(order, "price", None)
+                if limit is not None and math.isfinite(price):
+                    price = max(price, limit.as_double())
+                value = abs(qty) if order.is_quote_quantity else abs(qty) * price
+                notionals[key] = notionals.get(key, 0.0) + value
+            for iid, value in self._committed_notional.items():
+                key = str(iid)
+                notionals[key] = max(notionals.get(key, 0.0), value)
+            if proposed_iid is not None:
+                key = str(proposed_iid)
+                if not math.isfinite(marks[proposed_iid]) or not math.isfinite(proposed_notional) or proposed_notional <= 0:
+                    raise ValueError("Proposed entry requires a current mark and positive finite notional")
+                if proposed_quantity is not None:
+                    if not math.isfinite(proposed_quantity) or proposed_quantity <= 0:
+                        raise ValueError("Proposed entry quantity must be positive and finite")
+                    proposed_notional = max(proposed_notional, proposed_quantity * marks[proposed_iid])
+                notionals[key] = notionals.get(key, 0.0) + proposed_notional
+            return sector_snapshot(self.config.sector_evidence, infos, notionals,
+                                   equity=self._equity(), limit=self.config.max_sector_exposure_pct,
+                                   now=self.clock.utc_now())
+        except Exception as exc:
+            return {"healthy": False, "status": "UNAVAILABLE", "issues": [f"Sector exposure unavailable: {exc}"],
+                    "sectors": {}, "classifications": [], "limit_pct": self.config.max_sector_exposure_pct * 100}
 
     def _session_allows_entry(self, iid: InstrumentId, when: datetime) -> tuple[bool, str]:
         calendar = self._session_calendars.get(iid)
@@ -1282,6 +1383,21 @@ class MLStrategy(Strategy):
             return
         broker_mode = self.config.execution_mode in {"paper", "live"}
         if broker_mode:
+            connection = broker_connectivity.snapshot(self.cache, self.config.account_id)
+            if not connection["healthy"]:
+                if self._execution_safety.state != ExecutionSafetyState.UNCERTAIN:
+                    self._on_broker_disconnect(connection)
+                return
+            if self.config.asset_class == "equity":
+                sectors = self._sector_risk_snapshot()
+                if not sectors["healthy"]:
+                    if sectors["status"] == "BREACHED":
+                        self._begin_risk_exit("sector exposure limit breached", permanent=False)
+                    else:
+                        if self._execution_safety.state == ExecutionSafetyState.ACTIVE:
+                            self._execution_safety.freeze("Sector classification or exposure unavailable", ts_ns=self.clock.timestamp_ns())
+                        self._cancel_working_entry_orders(reason="sector evidence unavailable")
+                    self._audit_safety_state_if_changed()
             account = self._account()
             try:
                 total_balance = account.balance_total() if account is not None else None
@@ -1796,6 +1912,8 @@ class MLStrategy(Strategy):
                     "price_collar_pct": self.config.price_collar_pct * 100.0,
                 },
                 "execution_state": self._execution_safety.state.value,
+                "broker_connectivity": broker_connectivity.snapshot(self.cache, self.config.account_id),
+                "sector_risk": self._sector_risk_snapshot() if self.config.execution_mode != "backtest" and self.config.asset_class == "equity" else {"status": "NOT_APPLICABLE", "healthy": True},
                 "settled_cash": settled_cash_from_cache(
                     self.cache, self.config.account_id,
                     now=self.clock.timestamp_ns() / 1_000_000_000,
@@ -2493,7 +2611,22 @@ class MLStrategy(Strategy):
         role: OrderRole,
         signal_version: str = "",
         requested_quantity: float | None = None,
-    ) -> None:
+    ) -> bool:
+        if role == OrderRole.ENTRY and self.config.execution_mode in {"paper", "live"}:
+            connection = broker_connectivity.snapshot(self.cache, self.config.account_id)
+            if not connection["healthy"]:
+                self._on_broker_disconnect(connection)
+                return False
+            if not self._execution_safety.entries_allowed:
+                return False
+            if self.config.asset_class == "equity":
+                price = getattr(order, "price", None)
+                reference = price.as_double() if price is not None else self._last_mark.get(order.instrument_id, float("nan"))
+                notional = order.quantity.as_double() * reference
+                sectors = self._sector_risk_snapshot(order.instrument_id, notional, order.quantity.as_double())
+                if not sectors["healthy"]:
+                    self._audit_event("SECTOR_PREFLIGHT_REJECTED", sectors, severity="WARNING")
+                    return False
         order_id = str(order.client_order_id)
         quantity = (
             float(requested_quantity)
@@ -2691,6 +2824,14 @@ class MLStrategy(Strategy):
             for current, value in self._committed_notional.items()
             if current != iid and self._sector_by_iid.get(current) == sector
         ) + target_notional
+        if self.config.execution_mode in {"paper", "live"} and self.config.asset_class == "equity":
+            sectors = self._sector_risk_snapshot(iid, target_notional, target_qty.as_double())
+            if not sectors["healthy"]:
+                self._audit_event("SECTOR_PREFLIGHT_REJECTED", sectors, severity="WARNING")
+                return
+            # The reviewed look-through calculation above replaces the
+            # research-only single-bucket sector map in execution modes.
+            sector_exposure_after = None
         violations = self._risk.pretrade_violations(
             equity=equity,
             order_notional=target_notional,
@@ -3536,6 +3677,10 @@ class MLStrategy(Strategy):
                 )
 
     def on_stop(self) -> None:
+        unsubscribe = getattr(self, "_connectivity_unsubscribe", None)
+        if unsubscribe is not None:
+            unsubscribe()
+            self._connectivity_unsubscribe = None
         # Order resolution/submission is forbidden during on_stop. In broker
         # modes StrategyConfig.manage_stop runs Nautilus's cancel-confirm-
         # flatten-confirm market-exit sequence before this hook.

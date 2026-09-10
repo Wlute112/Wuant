@@ -11,7 +11,9 @@ from quant.strategies.sessions import SessionPhase
 
 
 @pytest.fixture
-def strategy(tmp_path):
+def strategy(tmp_path, monkeypatch):
+    monkeypatch.setattr("quant.strategies.ml_strategy.broker_connectivity.snapshot",
+                        lambda *args: {"healthy": True, "status": "RECONCILED"})
     now = datetime.now(timezone.utc)
     store = OperationsStore(str(tmp_path / "ops.sqlite3"))
     positions, orders, inflight, cancelled, exits = [], [], [], [], []

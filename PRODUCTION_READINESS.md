@@ -41,7 +41,7 @@ unavailable. Spot-crypto paper execution is unavailable at IBKR.
 | Gate | Current status | Implemented evidence | Required before approval |
 |---|---|---|---|
 | Broker source of truth | Implemented, validation pending | Broker-neutral all-account position/order/execution/account reconciliation; deterministic stale lifecycle/fill recovery; post-Nautilus reconciliation cache normalization; manual/foreign exposure detection; direct IBKR buying-power, available-funds and excess-liquidity fields; distinct account/currency-specific SettledCash with freshness, reconnect invalidation, audit provenance and dashboard review; immutable reports; unresolved state freezes execution | Prove IBKR snapshot-end ordering, permanent-ID/correction handling, all-client visibility and restart races on supported TWS/Gateway; validate SettledCash currency, settlement transitions, callback cadence and reconnect invalidation on supported cash and margin accounts |
-| Real-time risk | Implemented, validation pending | One-second in-strategy checks plus an independently launched supervisor with a required heartbeat, durable freeze/flatten/kill commands, telemetry/data-age checks, alert delivery and bounded service watchdogs; broker equity, drawdown, leverage, daily loss, account availability, gross/symbol/order/concentration limits, price collars, direct IBKR margin/PDT state and order-specific what-if checks | Wire authoritative sector classification/exposure; explicit adapter disconnect callbacks; prove behavior against supported TWS/Gateway under disconnect and rejection faults |
+| Real-time risk | Implemented, validation pending | One-second in-strategy checks plus an independently launched supervisor with a required heartbeat, durable freeze/flatten/kill commands, telemetry/data-age checks, alert delivery and bounded service watchdogs; broker equity, drawdown, leverage, daily loss, account availability, gross/symbol/order/concentration limits, price collars, direct IBKR margin/PDT state and order-specific what-if checks | Reviewed conId-bound stock/ETF sector exposure and explicit adapter disconnect callbacks are implemented; prove behavior against supported TWS/Gateway under sector breaches, disconnect and rejection faults |
 | Kill-switch | Implemented, validation pending | Immediate entry freeze; cancel-confirm before emergency exits; fill confirmation; unresolved state remains disabled; structured operator alerts | Fault-injection paper tests for cancellation rejection, exit rejection, disconnect and residual positions |
 | Broker protection | Implemented, validation pending | Actual-fill-based stop-market/take-profit OCA pair; partial-fill resize; adjustment replacement; restart reconciliation; authoritative telemetry distinguishes acknowledged OCA orders from model references | Verify IBKR OCA tags, transmit semantics, modification ordering, RTH/outside-RTH support, gap behavior and restart adoption against supported adapter/TWS versions |
 | Order lifecycle | Implemented, validation pending | Idempotent order/fill ledger; submitted, acknowledged, partial, filled, canceled, expired, rejected and denied states; execution IDs, corrections, actual average fills, DAY equity entries, stale-entry cancellation, rejection suspension and alerts | Normalize and verify IBKR correction/permanent-ID callbacks; paper-test cancel/fill races, partial fills, stale replacement and every rejection class |
@@ -64,7 +64,6 @@ again as unfinished features.
 
 | ID | Item / status | Completion evidence |
 |---|---|---|
-| P1-01 | **Repair equity volume data and add a research preflight — Open / proposed preflight.** The local `data/equity_bars.csv` had 2,934 of 2,934 zero-volume bars on 2026-09-07, making it unusable for finite-liquidity fill evaluation. | Verify source volume semantics and fetch or import usable observed data without inventing volume. Before launch, show per-ticker dates, cadence, session, price basis, missing/zero-volume coverage and actionable errors. Block unusable execution studies while preserving explicitly labeled diagnostics. Zero-volume bars must continue to provide no liquidity. |
 | P1-02 | **Validate broker data ingestion and revision semantics — Implemented, validation pending.** Consolidates the historical-fetch, cross-asset freshness and adapter-shutdown follow-ups. | Supported TWS/Gateway evidence for historical fetch, replacement/merge, cadence, RTH/extended hours, permissions, pacing, shutdown, missing peers and revised/out-of-order bars. Verify that recovered or revised data cannot create duplicate decisions or lookahead. Link evidence to the affected P0 gates. |
 | P1-03 | **Calibrate equity simulation — Implemented, calibration pending.** Finite books, partial fills, gap/session scenarios, fixed-plan costs, corporate actions and excess-return Sharpe already exist. | Dated spread/impact, participation, commission, regulatory, borrow/financing and issuer-action evidence, with sources and coverage by symbol/date. Compare predicted fills/costs with observed execution; retain both OHLC paths and stressed costs. Report uncovered periods as scenarios and record tolerances before evaluating agreement. |
 | P1-04 | **Complete supported-version paper and fault-injection campaign — Validation pending.** Includes short-control recall proxies, account evidence, corporate-action recovery and all P0 rows. | Versioned TWS/Gateway, API and Nautilus compatibility matrix; reproducible fixtures, logs and reconciliation reports for each required scenario; supervised long-only baseline, then short-enabled tests and multi-week soak. Review inventory/fee/forced-cover proxies rather than claiming an unavailable native recall feed. Every P0 gate needs its own linked evidence and reviewer decision. |
@@ -116,6 +115,71 @@ Record the completion date and evidence link here, then move the finished item
 to implementation evidence. Local tests alone never approve live capital.
 
 ## Local implementation verification
+
+**P0 Real-time risk — sector evidence and adapter disconnect implementation,
+2026-09-09.** Reviewed, expiring conId/symbol-bound sector declarations now feed
+gross stock/ETF exposure checks at pretrade, final submission and continuous
+supervision. Broker holdings and outstanding entries are included; unknown
+exposure fails closed. Execution-adapter callbacks invalidate a reconciliation
+generation and freeze entries immediately. Reconnection requires fresh
+reconciliation. Dashboard configuration, evidence validation, limit overrides,
+session cancellation/restart, status and source review are implemented.
+
+Completion review fixed nested optimizer parameters overriding the dashboard's
+risk settings, below-market proposed-order valuation, malformed persisted upload
+rendering and stale/future telemetry authority. Python regression coverage includes
+sector valuation, expiry, identity, callback loss, reconciliation and supervisor
+faults; frontend tests cover override precedence and freshness. The full suite
+passed 452 Python tests; after adding a timestamp-parser regression, all 17
+targeted supervisor/operations tests pass. All 20 frontend tests and the production
+build pass. Browser verification could not run because no browser is available.
+Supported TWS/Gateway disconnect, rejection, restart and sector-breach validation
+remains pending. These implementation results do not approve the P0 gate.
+
+**P0 Broker source of truth — execution identity hardening, 2026-09-09.**
+Reconciliation now compares execution identity, side, quantity, price and
+correction lineage with durable fills and other callbacks in the same snapshot.
+Conflicting IDs produce critical `CONFLICTING_BROKER_EXECUTION` evidence and a
+freeze/review action; ambiguous fills are never selected by callback order or
+recovered. Identical snapshot duplicates recover once. Corrected executions can
+be replayed after ledger restoration without replacing or double-counting fills.
+The existing strategy audit, uncertain reconciliation telemetry and dashboard
+safety controls carry the failure through to operator review and blocked resume.
+Regression coverage: `tests/test_reconciliation.py` and
+`tests/test_execution_state.py`, including strategy safety/audit integration.
+Supported broker callback, permanent-ID and restart-race validation remains
+pending; this change does not complete or approve the P0 gate.
+
+**P1-01 — Equity volume repair and research preflight completed, 2026-09-08.**
+[Recorded source, hashes and verification](evidence/P1-01-2026-09-08.json).
+Equity historical fetches now default to LAST/TRADES; explicit MID remains a
+price-only diagnostic source. The local QQQ CSV was refreshed through paper
+Gateway port 4002 (server protocol 223): 2,934 observed bars from 2021-09-02 to
+2026-09-08, all with positive traded-share volume. The original 2,934 zero-volume
+bars are retained in a SHA-256-named backup. This refresh changes the observed
+date range; it does not manufacture historical volume or rewrite locked research
+snapshots. Prices are source-declared split-adjusted, not dividend-adjusted.
+
+A read-only preflight reports per-ticker dates, requested width and observed
+cadence, source/session/price/volume semantics, missing/invalid/zero volume,
+duplicate timestamps, invalid OHLC and possible gaps. Unknown semantics and
+exact missing-bar coverage remain explicit. API admission, both research CLIs,
+and the shared equity engine block unusable execution data, including individual
+optimizer folds; zero-volume bars still supply no liquidity. Diagnostic reports
+remain available for rejected data. Reports are retained in simulation artifacts.
+
+Backtest, optimization and campaign configuration expose preflight review and CSV
+import. Standalone IBKR repair has configuration, durable job status, cancellation,
+logs, original-data backup and result review. Fetch-enabled research validates
+new data before simulation. Replacements with absent tickers, missing volume or
+zero-only liquidity fail before publication. Adding missing peers preserves the
+recorded source bar width across shortened RTH tails. Passing checks: 395 Python
+tests plus 29 targeted checks after the source-cadence regression, 15 frontend tests, production build, a real Gateway data repair and a 240-bar
+observed-data ingestion/artifact smoke (zero trades; not performance evidence).
+Codex reviewed the implementation and resolved the frontend finish review's
+workflow findings. Browser verification was unavailable and remains tracked in
+P1-06; this completion does not approve any P0 or broker compatibility gate.
+
 
 Corporate actions and instrument identity are implemented, validation pending.
 Execution qualifies US-listed USD stock/ETF contracts, persists model history by

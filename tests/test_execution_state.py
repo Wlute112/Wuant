@@ -86,6 +86,23 @@ def test_duplicate_execution_callback_is_idempotent_even_with_new_event_id():
     assert ledger.position("QQQ.SMART").quantity == Decimal("5")
 
 
+def test_corrected_execution_replay_is_idempotent_after_restore():
+    ledger = _ledger_with_order()
+    fill = dict(client_order_id="O-1", execution_id="X-1", instrument_id="QQQ.SMART",
+                side="BUY", quantity="5", price="100", ts_ns=4)
+    ledger.apply_fill(**fill)
+    corrected = {**fill, "execution_id": "X-2", "correction_of": "X-1", "price": "101"}
+    ledger.apply_fill(**corrected)
+    restored = ExecutionLedger.from_snapshot(ledger.snapshot())
+    assert restored.apply_fill(**corrected, event_id="replayed") is False
+    assert restored.position("QQQ.SMART").quantity == Decimal("5")
+    assert restored.position("QQQ.SMART").average_entry_price == Decimal("101")
+    before = restored.snapshot()
+    with pytest.raises(ValueError, match="conflicting duplicate execution"):
+        restored.apply_fill(**{**corrected, "price": "102"})
+    assert restored.snapshot() == before
+
+
 def test_conflicting_duplicate_execution_fails_closed():
     ledger = _ledger_with_order()
     ledger.apply_fill(

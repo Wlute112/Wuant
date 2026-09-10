@@ -4,6 +4,8 @@ import { useInterval } from "../../hooks/useInterval.js";
 import { api } from "../../lib/api.js";
 import { isJobActive } from "../../lib/jobs.js";
 
+import DataPreflight, { useDataPreflight } from "./DataPreflight.jsx";
+
 const PROMOTION_PHRASE = "CONSUME OUTER HOLDOUT";
 
 function parseNumbers(value) {
@@ -73,10 +75,15 @@ export default function CampaignPanel({ assetClass, profile, jobs, onJobStarted 
     return 0;
   }, [detail]);
 
+  const dataRequest = { csv, asset_class: assetClass,
+    tickers: tickers.split(",").map((value) => value.trim().toUpperCase()).filter(Boolean) };
+  const preflight = useDataPreflight(dataRequest, jobs);
+
   async function launch(kind, body) {
     setPending(kind);
     setError(null);
     try {
+      if (kind === "seeds" && !preflight.eligible) throw new Error("Repair the research data before starting a campaign.");
       const methods = {
         seeds: api.startCampaignSeeds,
         compare: api.startCampaignCompare,
@@ -113,6 +120,15 @@ export default function CampaignPanel({ assetClass, profile, jobs, onJobStarted 
         <label>Trials per seed<input type="number" min="100" max="150" value={trials} onChange={(event) => setTrials(event.target.value)} /></label>
         <label>Universe<input value={tickers} onChange={(event) => setTickers(event.target.value)} /></label>
         <label className="is-wide">Source CSV<input value={csv} onChange={(event) => setCsv(event.target.value)} /></label>
+        <label className="is-wide">Import Data CSV<input type="file" accept=".csv,text/csv" disabled={!!pending}
+          onChange={async (event) => {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            setPending("upload"); setError(null);
+            try { const uploaded = await api.uploadCsv(file); setCsv(uploaded.path); }
+            catch (cause) { setError(`Could not import CSV: ${cause.message}`); }
+            finally { setPending(null); }
+          }} /></label>
         <details className="campaign-panel__advanced is-wide">
           <summary>Validation and compute settings</summary>
           <div className="campaign-panel__advanced-grid">
@@ -128,9 +144,11 @@ export default function CampaignPanel({ assetClass, profile, jobs, onJobStarted 
             <label>Cluster distance<input type="number" min="0.01" max="1" step="0.01" value={maxClusterDistance} onChange={(event) => setMaxClusterDistance(event.target.value)} /></label>
           </div>
         </details>
+        <DataPreflight state={preflight} request={dataRequest} jobs={jobs} onJobStarted={onJobStarted}
+          repairOptions={assetClass === "equity" ? { ibkr_host: "127.0.0.1", ibkr_port: 7497, ibkr_client_id: 71, ibkr_years: 5, ibkr_bar_hours: 4 } : null} />
         <button
           type="button"
-          disabled={pending || parseNumbers(seeds).length < 3}
+          disabled={pending || !preflight.eligible || parseNumbers(seeds).length < 3}
           onClick={() => launch("seeds", {
             campaign_id: campaignId,
             seeds: parseNumbers(seeds),
