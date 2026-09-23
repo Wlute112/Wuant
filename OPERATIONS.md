@@ -216,6 +216,90 @@ The registry retains the previously approved model for explicit rollback.
 
 ## Backups and restore drills
 
+### Encrypted off-host recovery (P1-07)
+
+Paper/Live → **Live telemetry → Backup & recovery** provides local authenticated
+configuration, initialization, backup, full integrity checks, remote snapshot
+inventory, cancellation and isolated restore evidence. It uses the same
+`QUANT_CONTROL_TOKEN` as operator safety controls. Restic and the Redis CLI tools
+must be installed on the API host (`brew install restic redis` on macOS).
+
+Configure a dedicated `sftp:user@host:/absolute/repository` destination, an
+owner-only (`0600`) repository-password file outside this project, and the actual
+execution Redis host/port. SSH must already work noninteractively with a verified
+host key; unknown or changed host keys fail. Redis authentication uses the
+server's `QUANT_RECOVERY_REDIS_USERNAME` / `QUANT_RECOVERY_REDIS_PASSWORD`, falling
+back to `NAUTILUS_REDIS_USERNAME` / `NAUTILUS_REDIS_PASSWORD`. Credentials are never
+submitted as browser fields or logged. Back up the encryption password and SSH
+recovery credentials independently; losing the repository password loses access
+to the snapshots. Configuration alone does not prove a host is physically remote.
+See the [Restic SFTP and password documentation](https://restic.readthedocs.io/en/stable/030_preparing_a_new_repo.html#sftp).
+
+The defaults are a **6-hour recovery-point/data-loss target**, **120-minute
+recovery-time target**, and **56 retained snapshots**. These are targets to be
+validated, not measured guarantees. Automatic backups are opt-in and run only
+while the API is running; the scheduler retries failures hourly. API downtime,
+capture/transfer duration and failed jobs can exceed the target. Status measures
+age from the last successfully uploaded and checked bundle's capture start.
+An unknown or overdue status requires operator attention. Use an independently
+supervised API for unattended scheduling; the old local-backup launchd job below
+does not run the new encrypted workflow.
+
+Each bundle includes project `data/`, `optimize/`, `models/`, `jobs/`, `runs/`,
+and `evidence/` state, plus dependency locks. SQLite uses its online backup API;
+Redis uses a full RDB snapshot, including all databases and Nautilus key prefixes.
+Campaign JSON and SQLite holdout-consumption attributes are both included.
+Per-file SHA-256, SQLite integrity and Redis RDB integrity are verified. Restic
+encrypts and authenticates the upload and checks all repository data before
+retention removes any Quant-tagged snapshots, then checks again after pruning.
+Other repository tags are excluded from retention. A dedicated repository avoids
+coupling this full check to unrelated backups.
+
+This is **not a cross-store transaction**: the manifest records the capture
+interval. Symlinks and files changing during copying fail the job. External
+datasets/model paths, source checkout, virtualenvs, host configuration and secrets
+need separate recovery; establish their inventory before the clean-host drill.
+Stop research writers for a campaign-consistent checkpoint. Capturing a running
+paper node does not replace broker reconciliation. Restoring an older snapshot
+can omit a later kill or holdout consumption inside the data-loss window: never
+resume execution or tuning solely because the older snapshot verifies.
+
+**Restore procedure and evidence:**
+
+1. Prepare a clean host with the reviewed source checkout, recorded dependency
+   locks, Restic, Redis tools, repository password and SSH trust. Keep trading,
+   optimization, news writers and the original host disabled during migration.
+2. Open its local dashboard, configure the existing repository, run **Check remote
+   integrity / refresh snapshots**, select an exact snapshot, and type the shown
+   **RESTORE ISOLATED** confirmation. Restore downloads to a new private directory
+   below `jobs/recovery/drills/`; it never overwrites application state or loads
+   the RDB into a running Redis service. Cancellation can leave a partial drill
+   directory, which is not a valid restore until all checks pass.
+3. Review manifest coverage, file hashes, SQLite/RDB checks and capture dates.
+   Start the restored RDB only in an isolated Redis instance and verify permanent
+   kill/operator freeze, allocation/baseline and risk peak, audit history, and
+   every consumed/pending/failed holdout. Check all state written after capture
+   against independent audit and campaign evidence. Unknown consumption means no
+   further tuning; unknown risk state means no execution.
+4. Record actual clean-host identity/isolation and elapsed time through recovery,
+   not just download time. The dashboard reports download/integrity duration
+   separately; a different hostname is not proof of a clean host or full RTO.
+5. Reconcile fresh broker positions, working orders, executions and account state
+   with the restored ledger; preserve existing permanent kills and operator
+   freezes. Review outstanding commands before any use of restored state. Run
+   the existing doctor and supported-version paper recovery campaign before
+   resuming. Dashboard restoration never activates a node, approves a readiness
+   gate, or releases a freeze. Final state installation/resumption is an operator
+   recovery procedure, outside the isolated restore action.
+
+**Still required for full P1-07 completion:** provision and test the actual
+off-host destination, verify retention there, and record a reviewed clean-host
+restore with state preservation, measured end-to-end recovery/data-loss targets
+and fresh broker reconciliation. The user deferred that external part on
+2026-09-13. Local encrypted fixture drills do not close it.
+
+### Existing local snapshots
+
 Create a consistent SQLite backup plus a type-preserving Redis logical dump:
 
 ```bash
@@ -383,3 +467,57 @@ quant/.quant312/bin/python -m quant.data.research_preflight \
 The same command with `--repair --port 4002 --client-id 71 --bar-hours 4`
 fetches observed replacement data. Existing in-sample/out-of-sample snapshots
 and consumed campaign/holdout contracts are intentionally not regenerated.
+
+
+## Dataset provenance and universe review (P2-01)
+
+Research configuration's **Dataset provenance & universe** disclosure reviews
+all symbols in the input, including those outside the selected trading universe.
+The Data CSV picker accepts the normal OHLCV columns plus optional declarations:
+
+- `source`, `retrieved_at` (ISO UTC), `session`, `price_basis`, `volume_basis`;
+- `con_id`, `symbol_alias` (supplier-declared lineage, never inferred from price);
+- `membership_start`, `membership_end`, `membership_source` (dated evidence).
+
+Leave unknown values empty. Repeated declarations can describe separate
+membership intervals or symbol identities; each distinct supplied record is
+retained. Observed first/last bars are displayed separately from membership
+periods. A current constituent list does not establish a historical universe.
+Membership declarations are for review, not dynamic universe selection. Include
+removed/delisted instruments in the supplied data when the vendor supports them.
+The IBKR fetch already records retrieval time and source/session/adjustment/volume
+semantics; undeclared historical conIds and membership remain unknown.
+
+Import, IBKR replacement/merge, and research launch retain exact CSV bytes under
+`<source.csv>.provenance/<sha256>.csv`, with an integrity-checked JSON manifest.
+`observations.json` records source-version observations separately, so returning
+to an earlier version is visible and replaying an old snapshot does not rewind
+history. Files are published atomically under a process lock. Existing `.bak`
+originals from IBKR repairs remain retained. A read-only preflight does not write
+an archive; it shows changes relative to the latest retained source observation.
+Revision counts compare UTC ticker/bar identities, values and semantics, excluding
+retrieval-time-only changes. Duplicate/invalid timestamp data has unknown revision
+counts and remains subject to the execution preflight.
+
+Backtests and optimizations read the retained file throughout computation and
+reporting. Campaigns pin it before the first seed and reuse it on retry. New
+validation contracts lock both CSV and manifest hashes; robustness and promotion
+verify them before evaluation. Existing legacy contracts retain their CSV-hash
+check, without claiming new provenance. Existing optimizer studies created before
+this contract extension cannot silently resume under the changed contract; start
+a new study instead. Never reset or reuse a consumed holdout.
+
+Review source history in preflight, **Dataset & universe** under saved-run
+Evidence, or campaign evidence. **Download provenance evidence** exports the
+review record as JSON. Saved reports reflect evidence captured for that run,
+not later source revisions. Existing launch/progress/log/cancel controls apply;
+archiving is part of the admitted research or data-import operation.
+
+Do not edit retained CSVs or manifests. Missing/corrupted evidence blocks research
+or validation: restore the matching archive from backup. Archives inside the
+project's data/jobs directories are covered by the existing recovery bundle;
+external input directories need separate backup. Versions are not automatically
+pruned because studies may reference them. Disk use grows with distinct input
+versions. The UI displays up to 50 prior source observations; older observations
+remain in the journal. None of this proves vendor point-in-time availability or
+removes survivorship bias, and unknown historical coverage is displayed explicitly.

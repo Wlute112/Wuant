@@ -84,6 +84,8 @@ async def upload_csv(
                 stream.write(chunk)
         if total == 0:
             raise HTTPException(400, "The selected CSV is empty.")
+        from quant.data.provenance import archive
+        archive(target, content=partial.read_bytes(), operation="csv_import")
         partial.replace(target)
     except Exception:
         partial.unlink(missing_ok=True)
@@ -681,6 +683,9 @@ def get_job_progress(job_id: str):
 
 @router.post("/{job_id}/cancel")
 def cancel_job(job_id: str):
+    job = manager.get(job_id)
+    if job and job.get("kind") == "recovery":
+        raise HTTPException(403, "Use authenticated recovery controls to cancel this job")
     result = manager.cancel(job_id)
     if result is None:
         raise HTTPException(404, f"job {job_id!r} not found")

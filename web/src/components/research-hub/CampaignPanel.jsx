@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useInterval } from "../../hooks/useInterval.js";
 import { api } from "../../lib/api.js";
 import { isJobActive } from "../../lib/jobs.js";
 
+import ActiveResearchRun from "./ActiveResearchRun.jsx";
 import DataPreflight, { useDataPreflight } from "./DataPreflight.jsx";
 
 const PROMOTION_PHRASE = "CONSUME OUTER HOLDOUT";
@@ -38,52 +39,65 @@ export default function CampaignPanel({ assetClass, profile, jobs, onJobStarted 
   const [confirmation, setConfirmation] = useState("");
   const [pending, setPending] = useState(null);
   const [error, setError] = useState(null);
+  const inFlight = useRef(false);
+  const [registryReady, setRegistryReady] = useState(false);
   const hasActiveCampaignJob = jobs.some((job) => job.kind?.startsWith("campaign_") && isJobActive(job));
 
   const refresh = useCallback(async () => {
     try {
       const list = await api.listCampaigns();
-      setCampaigns(list);
-      setSelectedId((current) => current || list[0]?.campaign_id || "");
+      const matching = list.filter((item) => item.asset_class === assetClass);
+      setCampaigns(matching);
+      setRegistryReady(true);
+      setSelectedId((current) => current || matching[0]?.campaign_id || "");
       setError(null);
     } catch (loadError) {
+      setRegistryReady(false);
+      setDetail(null);
       setError(`Campaign registry unavailable: ${loadError.message}`);
     }
-  }, []);
+  }, [assetClass]);
 
   useEffect(() => { refresh(); }, [refresh]);
-  useInterval(refresh, hasActiveCampaignJob ? 4000 : null);
+  useInterval(refresh, 4000);
 
   useEffect(() => {
     if (!selectedId) {
       setDetail(null);
       return;
     }
+    if (!registryReady) return;
     let disposed = false;
     api.getCampaign(selectedId)
       .then((value) => { if (!disposed) setDetail(value); })
-      .catch((loadError) => { if (!disposed) setError(loadError.message); });
+      .catch((loadError) => { if (!disposed) { setDetail(null); setError(loadError.message); } });
     return () => { disposed = true; };
-  }, [campaigns, selectedId]);
+  }, [campaigns, selectedId, registryReady]);
+
+  useEffect(() => { setDetail(null); setConfirmation(""); }, [selectedId]);
 
   const stage = useMemo(() => {
-    if (!detail) return 0;
+    if (!registryReady || detail?.campaign_id !== selectedId) return 0;
     if (["PROMOTED", "REJECTED_OUTER_HOLDOUT", "CONSUMED_FAILED"].includes(detail.promotion_status)) return 4;
     if (detail.robustness_ready) return 3;
     if (detail.comparison_ready) return 2;
     if (detail.studies_complete >= 3) return 1;
     return 0;
-  }, [detail]);
+  }, [detail, registryReady, selectedId]);
 
   const dataRequest = { csv, asset_class: assetClass,
     tickers: tickers.split(",").map((value) => value.trim().toUpperCase()).filter(Boolean) };
   const preflight = useDataPreflight(dataRequest, jobs);
 
   async function launch(kind, body) {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setPending(kind);
     setError(null);
     try {
       if (kind === "seeds" && !preflight.eligible) throw new Error("Repair the research data before starting a campaign.");
+      if (kind !== "seeds" && (!registryReady || !detail || detail.campaign_id !== selectedId)) throw new Error("Reload campaign evidence before continuing.");
+      if (kind !== "seeds" && detail.promotion_status !== "UNTOUCHED") throw new Error("The outer holdout is already consumed or its state is unknown.");
       const methods = {
         seeds: api.startCampaignSeeds,
         compare: api.startCampaignCompare,
@@ -96,11 +110,17 @@ export default function CampaignPanel({ assetClass, profile, jobs, onJobStarted 
       setConfirmation("");
       await refresh();
     } catch (launchError) {
+      if (kind !== "seeds") setDetail(null);
       setError(launchError.message);
     } finally {
+      inFlight.current = false;
       setPending(null);
     }
   }
+
+  const reviewReady = registryReady && detail?.campaign_id === selectedId;
+  const mutable = reviewReady && detail.promotion_status === "UNTOUCHED" && !hasActiveCampaignJob;
+  const campaignJobs = jobs.filter((job) => job.kind?.startsWith("campaign_") && job.config?.campaign_id === selectedId);
 
   const stageRequest = {
     campaign_id: selectedId,
@@ -180,19 +200,28 @@ export default function CampaignPanel({ assetClass, profile, jobs, onJobStarted 
           <li className={stage >= 1 ? "is-complete" : "is-current"}><span>Seed studies</span><strong>{detail ? `${detail.studies_complete}/${detail.studies_total}` : "—"}</strong></li>
           <li className={stage >= 2 ? "is-complete" : stage === 1 ? "is-current" : ""}><span>Consensus</span><strong>{detail?.comparison_ready ? "READY" : "WAITING"}</strong></li>
           <li className={stage >= 3 ? "is-complete" : stage === 2 ? "is-current" : ""}><span>Robustness</span><strong>{detail?.robustness_ready ? "READY" : "WAITING"}</strong></li>
-          <li className={stage >= 4 ? "is-complete" : stage === 3 ? "is-current" : ""}><span>Outer holdout</span><strong>{detail?.promotion_status || "UNTOUCHED"}</strong></li>
+          <li className={stage >= 4 ? "is-complete" : stage === 3 ? "is-current" : ""}><span>Outer holdout</span><strong>{detail?.promotion_status || "UNKNOWN"}</strong></li>
         </ol>
         <div className="campaign-panel__actions">
-          <button type="button" disabled={!selectedId || stage < 1 || pending} onClick={() => launch("compare", stageRequest)}>Build consensus</button>
-          <button type="button" disabled={!selectedId || stage < 2 || pending} onClick={() => launch("robustness", stageRequest)}>Run robustness suite</button>
+          <button type="button" disabled={!mutable || stage < 1 || pending} onClick={() => launch("compare", stageRequest)}>Build consensus</button>
+          <button type="button" disabled={!mutable || stage < 2 || pending} onClick={() => launch("robustness", stageRequest)}>Run robustness suite</button>
         </div>
         <div className="campaign-panel__holdout">
           <p>The final action consumes the outer holdout exactly once. A failed or interrupted evaluation cannot be repeated.</p>
           <input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder={PROMOTION_PHRASE} aria-label="Outer holdout confirmation phrase" />
-          <button type="button" disabled={stage < 3 || confirmation !== PROMOTION_PHRASE || pending} onClick={() => launch("promote", { ...stageRequest, confirm: confirmation })}>Evaluate outer holdout</button>
+          <button type="button" disabled={!mutable || stage !== 3 || confirmation !== PROMOTION_PHRASE || pending} onClick={() => launch("promote", { ...stageRequest, confirm: confirmation })}>Evaluate outer holdout</button>
         </div>
+        {!reviewReady && <p role="status">Campaign evidence unavailable. Stage actions are locked.</p>}
+        <button type="button" disabled={!!pending} onClick={refresh}>Reload campaign evidence</button>
+        {reviewReady && <DatasetProvenance evidence={detail.manifest?.dataset_provenance} />}
+        {reviewReady && [["manifest", "Locked validation contract"], ["comparison", "Consensus evidence"], ["robustness", "Robustness evidence"], ["promoted_params", "Outer holdout result"]].map(([key, label]) => (
+          <details key={key}><summary>{label}</summary>{detail[key] ? <pre className="simulation-evidence">{JSON.stringify(detail[key], null, 2)}</pre> : <p>Evidence is not available.</p>}</details>
+        ))}
+        {campaignJobs.map((job) => <details key={job.id}><summary>{job.kind} · {job.status} · progress & logs</summary><ActiveResearchRun job={job} /></details>)}
         {error && <p className="campaign-panel__error" role="alert">{error}</p>}
       </div>
     </div>
   );
 }
+
+import DatasetProvenance from "./DatasetProvenance.jsx";

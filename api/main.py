@@ -13,7 +13,7 @@ import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from quant.api import broker_routes, campaigns, jobs_routes, live_mock, news_routes, operations, profiles, runs
+from quant.api import broker_routes, campaigns, jobs_routes, live_mock, news_routes, operations, profiles, runs, recovery
 from quant.api.jobs import JobManager, WORKDIR
 from quant.run.readiness import live_readiness_status
 
@@ -43,6 +43,7 @@ app.include_router(news_routes.router)
 app.include_router(broker_routes.router)
 app.include_router(profiles.router)
 app.include_router(operations.router)
+app.include_router(recovery.router)
 
 
 @app.on_event("startup")
@@ -51,10 +52,12 @@ def start_broker_monitor():
     # startup if the durable registry is unavailable.
     jobs_routes.manager.store.ping()
     broker_routes.monitor.start()
+    recovery.start_scheduler()
 
 
 @app.on_event("shutdown")
 def stop_broker_monitor():
+    recovery.stop_scheduler()
     broker_routes.monitor.stop()
 
 

@@ -45,6 +45,10 @@ async function controlRequest(path, token, options = {}) {
 }
 
 export const api = {
+  getRecovery: (token) => controlRequest("/api/recovery", token),
+  saveRecovery: (token, body) => controlRequest("/api/recovery/config", token, { method: "PUT", body: JSON.stringify(body) }),
+  launchRecovery: (token, body) => controlRequest("/api/recovery/jobs", token, { method: "POST", body: JSON.stringify(body) }),
+  cancelRecovery: (token, id) => controlRequest(`/api/recovery/jobs/${encodeURIComponent(id)}/cancel`, token, { method: "POST" }),
   validateSectorEvidence: (evidence, tickers) => request("/api/jobs/sector-evidence/validate", {
     method: "POST", body: JSON.stringify({ evidence, tickers }),
   }),

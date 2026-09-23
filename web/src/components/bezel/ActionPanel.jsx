@@ -73,6 +73,7 @@ export default function ActionPanel({
   const [persisted] = useState(readPersistedSettings);
   const tab = workflow;
   const [pending, setPending] = useState(false);
+  const submitting = useRef(false);
   const [error, setError] = useState(null);
   const [jobName, setJobName] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(Boolean(persisted.showAdvanced));
@@ -518,6 +519,8 @@ export default function ActionPanel({
   const researchDataReady = !preflight.busy && !preflight.error && (preflight.eligible || dataFetchMode !== "none");
 
   async function submit() {
+    if (submitting.current) return;
+    submitting.current = true;
     setPending(true);
     setError(null);
     try {
@@ -622,6 +625,7 @@ export default function ActionPanel({
     } catch (err) {
       setError(err.message);
     } finally {
+      submitting.current = false;
       setPending(false);
     }
   }

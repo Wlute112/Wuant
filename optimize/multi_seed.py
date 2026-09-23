@@ -145,6 +145,19 @@ def main() -> None:
         )
         atomic_write_json(manifest_path, manifest)
 
+    # Bind every seed (and later retries) to one retained dataset version.
+    from quant.data.provenance import archive, pin_csv, verify_contract_dataset
+    csv_parser = argparse.ArgumentParser(add_help=False)
+    csv_parser.add_argument("--csv", default="quant/data/sample_bars.csv")
+    csv_args, _ = csv_parser.parse_known_args(optimizer_args)
+    if not manifest.get("dataset_provenance"):
+        manifest["dataset_provenance"] = archive(csv_args.csv)
+        atomic_write_json(manifest_path, manifest)
+    evidence = manifest["dataset_provenance"]
+    snapshot_csv = pin_csv(evidence["snapshot_csv"])
+    verify_contract_dataset({"source_csv": snapshot_csv, "source_csv_sha256": evidence["sha256"],
+                             "dataset_manifest_sha256": evidence["manifest_sha256"]})
+
     failures = []
     params_dir = manifest_path.parent / f"{campaign_id}_params"
     params_dir.mkdir(parents=True, exist_ok=True)
@@ -187,6 +200,7 @@ def main() -> None:
             "-m",
             "quant.optimize.optimize",
             *optimizer_args,
+            "--csv", snapshot_csv,
             "--trials",
             str(remaining_trials),
             "--seed",

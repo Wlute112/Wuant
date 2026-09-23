@@ -117,6 +117,19 @@ export default function ActiveResearchRun({ job, onJobUpdated }) {
     </article>
   );
 
+  if (job.kind.startsWith("campaign_")) return (
+    <article className="active-research" aria-live="polite">
+      <header className="active-research__header">
+        <div><h2>{job.kind.replace("campaign_", "Campaign ")}</h2><p>{jobStatusLabel(job.status)} · {progress.phase_label || "Review process output for stage progress"}</p></div>
+        {active && <button type="button" disabled={cancelling || job.status === "cancelling"} onClick={cancel}>{cancelling || job.status === "cancelling" ? "Stopping…" : "Cancel run"}</button>}
+      </header>
+      <p>Campaign: {config.campaign_id} · Job: {job.id}</p>
+      {(error || job.failure_reason) && <p role="alert">{error || job.failure_reason}</p>}
+      <details className="active-research__logs"><summary>Stage progress evidence</summary><pre>{JSON.stringify(progress, null, 2)}</pre></details>
+      <details className="active-research__logs"><summary>Technical output</summary><pre>{logs.length ? logs.join("\n") : "No process output yet."}</pre></details>
+    </article>
+  );
+
   const readings = job.kind === "optimize"
     ? [
         ["Trial", progress.trial_current ? `${progress.trial_current}${progress.trials_target ? ` / ${progress.trials_target}` : ""}` : "—"],
@@ -141,14 +154,14 @@ export default function ActiveResearchRun({ job, onJobUpdated }) {
         <div>
           <div className="active-research__tags">
             <span className={active ? "is-live" : ""}>{active && <i aria-hidden="true" />}{active ? "LIVE COMPUTE" : jobStatusLabel(job.status).toUpperCase()}</span>
-            <span>{job.kind === "optimize" ? "OPTUNA SWEEP" : "HISTORICAL REPLAY"}</span>
+            <span>{job.kind.startsWith("campaign_") ? "VALIDATION CAMPAIGN" : job.kind === "optimize" ? "OPTUNA SWEEP" : "HISTORICAL REPLAY"}</span>
             <span>{String(config.asset_class || "crypto").toUpperCase()}</span>
           </div>
           <h1>{jobDisplayName(job)}</h1>
           <p>{tickers.join(" · ") || "Universe pending"} · {progress.phase_label || jobStatusLabel(job.status)}</p>
         </div>
         {active && (
-          <button type="button" className="active-research__cancel" disabled={cancelling} onClick={cancel}>
+          <button type="button" className="active-research__cancel" disabled={cancelling || job.status === "cancelling"} onClick={cancel}>
             {cancelling || job.status === "cancelling" ? "Stopping…" : "Cancel run"}
           </button>
         )}

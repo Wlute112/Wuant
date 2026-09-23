@@ -550,6 +550,7 @@ export default function ResearchHub({
               {research?.benchmark?.status !== "ready" && <p className="research-panel__notice">{research?.benchmark?.message || "Benchmark is unavailable."}</p>}
             </Panel>
             <Panel title="Performance ledger" note="Strategy against an independent market comparator"><MetricLedger research={research} /></Panel>
+            <Panel title="Dataset & universe" note="Retained input version and declared historical coverage" className="is-wide"><DatasetProvenance evidence={activeRun.dataset_provenance} /></Panel>
             <Panel title="Evidence checks" note="Research questions, not promotion guarantees"><RelativeEvidence research={research} run={activeRun} /></Panel>
           </div>
         )}
@@ -600,7 +601,7 @@ export default function ResearchHub({
 
         {!activeJobView && workflow === "optimize" && section === "optimization" && (
           <div className="research-hub__content-grid">
-            <Panel title="Validation campaign" note="Seed consensus → robustness → one-shot outer holdout" className="is-wide"><CampaignPanel assetClass={assetClass} profile={profile} jobs={jobs} onJobStarted={onJobStarted} /></Panel>
+            <Panel title="Validation campaign" note="Seed consensus → robustness → one-shot outer holdout" className="is-wide"><CampaignPanel key={assetClass} assetClass={assetClass} profile={profile} jobs={jobs} onJobStarted={onJobStarted} /></Panel>
             {activeRun && <Panel title="Search history" note="Every trial and the running incumbent" className="is-wide"><TrialHistory optimization={research?.optimization} /></Panel>}
             {activeRun && <Panel title="Parameter sensitivity" note="Search-space association"><ParameterImportance optimization={research?.optimization} /></Panel>}
             {activeRun && <Panel title="Selected parameters" note={`Trial ${research?.optimization?.best_trial_number ?? "—"}`}><BestParameters optimization={research?.optimization} /></Panel>}
@@ -629,3 +630,5 @@ export default function ResearchHub({
   );
 }
 import SimulationEvidence from "./SimulationEvidence.jsx";
+
+import DatasetProvenance from "./DatasetProvenance.jsx";

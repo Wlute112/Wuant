@@ -405,6 +405,12 @@ def _infer_bar_hours(df: pd.DataFrame) -> int | None:
 
 def _atomic_write_bars(csv_path, frame):
     """Retain a content-addressed original and publish only a complete new CSV."""
+    from quant.data.provenance import archive, dataset_lock
+    with dataset_lock(csv_path):
+        _publish_bars(csv_path, frame, archive)
+
+
+def _publish_bars(csv_path, frame, archive):
     target = Path(csv_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
@@ -426,6 +432,7 @@ def _atomic_write_bars(csv_path, frame):
             finally:
                 if backup_temp is not None:
                     backup_temp.unlink(missing_ok=True)
+        archive(target, content=original, operation="before_replacement", locked=True)
         print(f"Original data retained: {backup}")
     temporary = None
     try:
@@ -434,6 +441,7 @@ def _atomic_write_bars(csv_path, frame):
             frame.to_csv(stream, index=False)
             stream.flush()
             os.fsync(stream.fileno())
+        archive(target, content=temporary.read_bytes(), operation="ibkr_publication", locked=True)
         temporary.replace(target)
     finally:
         if temporary is not None:

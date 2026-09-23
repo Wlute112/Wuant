@@ -1,4 +1,5 @@
 import "./data-preflight.css";
+import DatasetProvenance from "./DatasetProvenance.jsx";
 
 export default function DataReport({ report }) {
   if (!report) return null;
@@ -19,6 +20,7 @@ export default function DataReport({ report }) {
     </div>
     {!!report.warnings?.length && <details><summary>Coverage limitations ({report.warnings.length})</summary><ul>{report.warnings.map((text) => <li key={text}>{text}</li>)}</ul></details>}
     <p>{report.coverage_note}</p>
+    <DatasetProvenance evidence={report.provenance} />
     {report.sha256 && <details><summary>Dataset fingerprint</summary><code className="data-preflight__hash">SHA-256 {report.sha256}</code></details>}
   </>;
 }

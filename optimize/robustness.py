@@ -24,7 +24,6 @@ from quant.optimize.compare import build_comparison_report
 from quant.optimize.optimize import (
     FoldPerformance,
     WalkForwardFold,
-    _file_sha256,
     _prepare_nested_walk_forward,
     stability_aware_score,
     evaluate_folds,
@@ -239,8 +238,8 @@ def run_robustness_suite(
     pool: ComputePool | None = None,
 ) -> list[dict[str, Any]]:
     source_csv = str(contract["source_csv"])
-    if _file_sha256(source_csv) != contract["source_csv_sha256"]:
-        raise ValueError("source CSV changed after the seed studies were created")
+    from quant.data.provenance import verify_contract_dataset
+    verify_contract_dataset(contract)
     tickers = list(contract["tickers"])
     base_fold_count = int(contract["walk_forward_folds"])
     warmup = max(int(contract["warmup_bars"]), int(contract["min_train_bars"]))

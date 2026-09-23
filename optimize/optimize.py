@@ -970,6 +970,10 @@ def main(refit_every_n_bars: int | None = 1) -> None:
             if fetched:
                 print(f"Fetched missing tickers via IBKR at the CSV's existing frequency: {fetched}")
 
+    from quant.data.provenance import archive, describe, verify_contract_dataset
+    dataset_provenance = archive(args.csv)
+    args.csv = dataset_provenance["snapshot_csv"]
+
     if args.asset_class == "equity":
         from quant.data.research_preflight import inspect_csv, require_execution_data
         require_execution_data(inspect_csv(args.csv, tickers, args.asset_class))
@@ -1068,6 +1072,7 @@ def main(refit_every_n_bars: int | None = 1) -> None:
         "scheme": "purged_nested_walk_forward_v1",
         "source_csv": str(Path(args.csv).resolve()),
         "source_csv_sha256": _file_sha256(args.csv),
+        "dataset_manifest_sha256": describe(args.csv)["manifest_sha256"],
         "tickers": tickers,
         "asset_class": args.asset_class,
         "final_test_frac": args.final_test_frac,
@@ -1303,6 +1308,7 @@ def main(refit_every_n_bars: int | None = 1) -> None:
         ),
         "backtest_trade_start_ns": nested_data.final_test_start_ns,
     }
+    verify_contract_dataset(validation_contract)
     # Fail closed before touching the holdout: even a partial/failed final run
     # consumes information and must prevent later tuning in this study.
     study.set_user_attr("final_test_evaluated", True)
@@ -1375,6 +1381,7 @@ def main(refit_every_n_bars: int | None = 1) -> None:
     try:
         progress.update(phase="saving", phase_label="Saving research artifact", percent=100)
         artifact = save_optimize_artifact(
+            dataset_provenance=dataset_provenance,
             study=study,
             oos_engine=engine,
             oos_score=oos_score,

@@ -22,7 +22,6 @@ from quant.optimize.campaign import (
 )
 from quant.optimize.optimize import (
     _engine_performance,
-    _file_sha256,
     _prepare_nested_walk_forward,
     stability_aware_score,
 )
@@ -68,8 +67,8 @@ def _consume_holdout(
     candidate: dict[str, Any],
 ) -> dict[str, Any]:
     source_csv = str(contract["source_csv"])
-    if _file_sha256(source_csv) != contract["source_csv_sha256"]:
-        raise ValueError("source CSV changed after optimization")
+    from quant.data.provenance import verify_contract_dataset
+    verify_contract_dataset(contract)
     tickers = list(contract["tickers"])
     cash = float(contract["starting_cash"])
     asset_class = str(contract["asset_class"])
@@ -203,6 +202,9 @@ def main() -> None:
     print(json.dumps(decision.to_dict(), indent=2, sort_keys=True))
     if not decision.passed:
         raise SystemExit("Promotion blocked; outer holdout remains untouched")
+
+    from quant.data.provenance import verify_contract_dataset
+    verify_contract_dataset(contract)
 
     digest = _candidate_digest(candidate)
     now = time.time()

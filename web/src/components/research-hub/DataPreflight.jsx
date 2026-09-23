@@ -66,6 +66,10 @@ export default function DataPreflight({ state, request, jobs = [], onJobStarted,
     </div>
     {state.error && <p role="alert">{state.error}. Recheck before launching research.</p>}
     <DataReport report={state.report} />
+    <details><summary>Import provenance and historical universe declarations</summary>
+      <p>The Data CSV picker accepts optional columns: source, retrieved_at (ISO UTC), session, price_basis, volume_basis, con_id, symbol_alias, membership_start, membership_end and membership_source. Supply dated evidence from your vendor; leave unknown values empty. Keep historical and delisted symbols in the file when available.</p>
+      <p>These declarations are retained for review. Research still uses the selected fixed ticker universe. Local archive dates do not establish historical availability or remove survivorship bias.</p>
+    </details>
     {repairOptions && <details>
       <summary>Repair with observed IBKR trade bars</summary>
       <p>Fetch replaces the selected CSV with the requested universe after validation. The original is retained as a backup. It requires TWS/Gateway and market-data permissions. To import instead, select a Data CSV above.</p>

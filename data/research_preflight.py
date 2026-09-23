@@ -102,8 +102,14 @@ def inspect_csv(csv_path: str | Path, tickers: list[str], asset_class: str) -> d
         return {"execution_eligible": False, "asset_class": asset_class, "tickers": [],
                 "errors": [f"Cannot read data CSV: {exc}. Select a valid CSV or fetch observed bars."],
                 "warnings": [], "csv": str(path), "sha256": None}
-    return {**inspect_frame(frame, tickers, asset_class), "csv": str(path),
-            "sha256": hashlib.sha256(content).hexdigest()}
+    from quant.data.provenance import describe
+    report = {**inspect_frame(frame, tickers, asset_class), "csv": str(path),
+              "sha256": hashlib.sha256(content).hexdigest(),
+              "provenance": describe(path, content)}
+    if report["provenance"]["status"] == "integrity_error":
+        report["execution_eligible"] = False
+        report["errors"].append("Dataset provenance integrity error: " + report["provenance"]["error"])
+    return report
 
 
 def require_execution_data(report: dict) -> dict:

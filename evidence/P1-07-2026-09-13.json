@@ -1,0 +1,63 @@
+{
+  "item": "P1-07",
+  "recorded_at": "2026-09-13",
+  "status": "IMPLEMENTED_EXTERNAL_VALIDATION_PENDING",
+  "reviewer": "Codex local implementation and test review; not external operational sign-off",
+  "user_deferral": "Actual off-host destination and clean-host restore drill deferred by the user on 2026-09-13; still required for full completion.",
+  "implementation": [
+    "ops/recovery.py",
+    "api/recovery.py",
+    "web/src/components/live-panel/RecoveryControls.jsx",
+    "OPERATIONS.md#encrypted-off-host-recovery-p1-07"
+  ],
+  "environment": {
+    "platform": "macOS arm64",
+    "restic": "0.19.1",
+    "browser": "installed Google Chrome through Playwright",
+    "production_state_mutated_by_tests": false,
+    "off_host_destination_configured": false
+  },
+  "verification": [
+    {
+      "command": "PYTHONPATH=<repository-parent> .quant312/bin/python -m pytest tests/test_recovery.py tests/test_operations_api.py tests/test_api_jobs.py tests/test_operations_automation.py -q",
+      "result": "62 passed",
+      "coverage": [
+        "Unsafe/local destinations and manifest path escapes rejected",
+        "Campaign CONSUMED_PENDING state, allocation, kill state and audit retained",
+        "Real restic encryption, backup, full check, retention and isolated restore against a temporary local repository",
+        "Restored fixture RDB loaded into network-disabled isolated Redis; allocation and kill payloads verified",
+        "Corrupt files fail integrity; failed repository checks never trigger retention",
+        "Authentication, idempotent retries, request-content conflicts, cancellation and public cancellation bypass rejection",
+        "Opt-in scheduling and bounded retry after failed jobs"
+      ]
+    },
+    {
+      "command": "cd web && PLAYWRIGHT_CHANNEL=chrome npm run test:e2e",
+      "result": "27 passed",
+      "coverage": "Existing research/campaign/safety suite plus recovery configuration, launch, cancellation, exact restore confirmation, result evidence, uncertain receipt retry, in-flight lock guard, narrow layout and draft retention during API failure"
+    },
+    { "command": "cd web && npm test", "result": "20 passed" },
+    { "command": "cd web && npm run build", "result": "passed" },
+    { "command": "git diff --check", "result": "passed" },
+    {
+      "review": "Skill-required independent frontend source review and desktop/mobile screenshot inspection",
+      "result": "Fixed the ability to lock while a mutation response could still update session state; existing design system preserved"
+    }
+  ],
+  "targets_not_guarantees": { "rpo_hours": 6, "rto_minutes": 120, "retained_snapshots": 56 },
+  "remaining_requirements": [
+    "Provision actual physically off-host SFTP repository, SSH trust and independently recoverable encryption credentials",
+    "Verify real transport, repository retention and integrity on the supported target",
+    "Inventory and recover source checkout, external data/model paths and host configuration separately",
+    "Perform reviewed clean-host restoration and confirm permanent kills, allocation baselines, audit history and all holdout-consumption records including post-capture changes",
+    "Measure end-to-end recovery time and actual data loss, including state installation and fresh broker reconciliation",
+    "Reconcile supported broker orders, positions, fills and account state before any resumption"
+  ],
+  "limits": [
+    "Local fixture drill is not an off-host or clean-host validation",
+    "Individual stores are consistent snapshots; the whole bundle is not a cross-store transaction",
+    "Scheduling operates only while the API is running",
+    "Isolated restore never overwrites active state or activates trading/research; final installation and resumption require the documented operator procedure",
+    "No P0 readiness gate was changed or approved"
+  ]
+}

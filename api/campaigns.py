@@ -37,10 +37,17 @@ def _summary(path: Path, manifest: dict) -> dict:
     campaign_id = str(manifest.get("campaign_id") or path.stem)
     paths = _paths(campaign_id)
     studies = manifest.get("studies") or []
+    profile = "crypto"
+    arguments = manifest.get("optimizer_args") or []
+    for index, argument in enumerate(arguments):
+        if argument == "--asset-class" and index + 1 < len(arguments):
+            profile = arguments[index + 1]
+        elif isinstance(argument, str) and argument.startswith("--asset-class="):
+            profile = argument.split("=", 1)[1]
     return {
         "campaign_id": campaign_id,
         "updated_at": manifest.get("updated_at"),
-        "asset_class": (manifest.get("validation_contract") or {}).get("asset_class"),
+        "asset_class": (manifest.get("validation_contract") or {}).get("asset_class") or profile,
         "seeds": manifest.get("seeds") or [],
         "trials_per_seed": manifest.get("trials_per_seed"),
         "studies_complete": sum(item.get("status") == "COMPLETE" for item in studies),

@@ -14,6 +14,7 @@ import {
 import ModelDecisionTape from "../model-tape/ModelDecisionTape.jsx";
 import NewsTape from "../news-tape/NewsTape.jsx";
 import SafetyControls from "./SafetyControls.jsx";
+import RecoveryControls from "./RecoveryControls.jsx";
 import SectorRiskEvidence from "./SectorRiskEvidence.jsx";
 import { executionEvidenceCurrent, telemetryIsFresh } from "../../lib/sectorRisk.js";
 import DockWorkspace from "../workspace/DockWorkspace.jsx";
@@ -724,6 +725,7 @@ function TelemetryReadout({
   return (
     <div className="live-panel__telemetry-readout">
       <SafetyControls key={executionJob?.id || "no-job"} job={executionJob} isDemo={isDemo} />
+      <RecoveryControls />
       {feedError && <div className="live-panel__feed-error" role="alert">{feedError}</div>}
       <div className="live-panel__authority" aria-label="Authoritative broker and execution state">
         <AuthorityItem label="Job registry" value={registryValue} unsafe={!registryReady} />

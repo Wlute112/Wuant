@@ -1,0 +1,51 @@
+{
+  "backlog_item": "P1-06",
+  "date": "2026-09-11",
+  "reviewer": "Codex (implementation and local verification; no broker gate approval)",
+  "scope": "Browser integration of the real React application with isolated HTTP fixtures, plus existing backend contract tests",
+  "environment": {
+    "platform": "macOS",
+    "browser": "Google Chrome 152.0.7977.83",
+    "playwright": "1.63.0",
+    "viewports": ["1440x1000", "390x844"]
+  },
+  "verification": [
+    {"command": "cd web && PLAYWRIGHT_CHANNEL=chrome npm run test:e2e", "passed": 24},
+    {"command": "cd web && npm test", "passed": 20},
+    {"command": "PYTHONPATH=.. .quant312/bin/python -m pytest tests/test_api_jobs.py tests/test_operations_api.py tests/test_research_hub.py -q", "passed": 32},
+    {"command": "cd web && npm run build", "result": "passed"}
+  ],
+  "coverage": [
+    "Data preflight, missing-data rejection, CSV import and API recovery",
+    "Observed-data repair configuration, launch, report, logs and cancellation",
+    "Backtest and optimization configuration, launch, progress, reload, cancellation and completed result sections",
+    "Calibration JSON validation, upload, review and request forwarding",
+    "Multi-seed, consensus, robustness and confirmed outer-holdout launch",
+    "Locked campaign contract and stage evidence review, job progress and cancellation",
+    "Consumed or unknown holdout disables stage actions",
+    "Paper params JSON, launch and registered-session cancellation",
+    "Authenticated paper safety actions, exact confirmation, command history and pending cancellation",
+    "Uncertain-request retry preserves request identity",
+    "Stale heartbeat and API failure block resume; credentials clear on reload",
+    "Live readiness failure keeps live launch locked",
+    "Repeated launch clicks issue one request",
+    "Narrow configuration, keyboard dismissal and focus recovery"
+  ],
+  "implementation_fixes": [
+    "Expose campaign result evidence, process output and cancellation in the research hub",
+    "Poll campaign registry after idle and completed jobs; expose unavailable evidence and reload",
+    "Prevent consumed, unavailable and different-campaign evidence from enabling stage actions",
+    "Reset campaign configuration when switching asset profiles",
+    "Guard immediate repeated research and campaign submissions",
+    "Require fresh heartbeat before enabling paper resume",
+    "Disable repeated cancellation while research job is cancelling"
+  ],
+  "sources": ["web/e2e/research.spec.js", "web/e2e/campaigns.spec.js", "web/e2e/safety.spec.js", "web/e2e/fixtures.js", "web/e2e/README.md", ".github/workflows/dashboard.yml"],
+  "limitations": [
+    "Browser HTTP responses are deterministic fixtures, not actual broker or research outcomes",
+    "The Linux Chromium CI job is configured but was not executed by the local macOS verification",
+    "No real broker commands, holdout consumption, live capital, calibration approval or multi-week paper evidence",
+    "Safari, Firefox and a full accessibility audit remain outside this Chromium workflow verification"
+  ],
+  "p0_gate_approvals": []
+}

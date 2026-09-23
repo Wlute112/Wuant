@@ -329,6 +329,10 @@ def main() -> None:
             if fetched:
                 print(f"Fetched missing tickers via IBKR at the CSV's existing frequency: {fetched}")
 
+    from quant.data.provenance import archive
+    dataset_provenance = archive(args.csv)
+    args.csv = dataset_provenance["snapshot_csv"]
+
     if args.asset_class == "equity":
         from quant.data.research_preflight import inspect_csv, require_execution_data
         require_execution_data(inspect_csv(args.csv, tickers, args.asset_class))
@@ -411,6 +415,7 @@ def main() -> None:
     try:
         progress.update(phase="saving", phase_label="Saving research artifact", percent=100)
         artifact = save_backtest_artifact(
+            dataset_provenance=dataset_provenance,
             engine=engine,
             venue=VENUE,
             starting_cash=args.cash,

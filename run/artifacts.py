@@ -500,11 +500,13 @@ def save_backtest_artifact(
     run_id: str | None = None,
     run_name: str | None = None,
     include_extended_hours: bool = False,
+    dataset_provenance: dict | None = None,
 ) -> dict:
     run_id = run_id or f"bt_{int(started_at)}_{uuid.uuid4().hex[:8]}"
     profile = get_asset_profile(asset_class)
     metrics = compute_metrics(engine, venue, starting_cash, asset_class)
     from quant.run.equity_simulation import simulation_report
+    from quant.data.provenance import describe
     news_series = news_series_by_ticker(csv_path, tickers, overrides)
     ml_performance = ml_performance_by_ticker(
         csv_path, tickers, overrides, news_series=news_series
@@ -528,6 +530,7 @@ def save_backtest_artifact(
         "bar_interval_minutes": infer_bar_interval_minutes_from_csv(csv_path, tickers),
         "tickers": tickers,
         "source_csv": csv_path,
+        "dataset_provenance": dataset_provenance if dataset_provenance is not None else describe(csv_path),
         "starting_cash": starting_cash,
         "params": overrides or {},
         "metrics": metrics.as_dict(),
@@ -573,6 +576,7 @@ def save_optimize_artifact(
     resumed_from: str | None = None,
     ibkr_bar_hours: int | None = None,
     include_extended_hours: bool = False,
+    dataset_provenance: dict | None = None,
     validation_metadata: dict | None = None,
 ) -> dict:
     run_id = run_id or f"opt_{int(started_at)}_{uuid.uuid4().hex[:8]}"
@@ -596,6 +600,7 @@ def save_optimize_artifact(
     regimes = regime_series_by_ticker(oos_path, tickers, scoring_params)
     oos_metrics = compute_metrics(oos_engine, VENUE, starting_cash, asset_class)
     from quant.run.equity_simulation import simulation_report
+    from quant.data.provenance import describe
     # The persisted optimization score is authoritative. Keeping the report's
     # objective field identical prevents the UI from presenting the raw ratio
     # as if it already included the fill-activity penalty.
@@ -618,6 +623,7 @@ def save_optimize_artifact(
         "bar_interval_minutes": infer_bar_interval_minutes_from_csv(oos_path, tickers),
         "tickers": tickers,
         "source_csv": csv_path,
+        "dataset_provenance": dataset_provenance if dataset_provenance is not None else describe(csv_path),
         "oos_source_csv": oos_path,
         "starting_cash": starting_cash,
         "seed": seed,

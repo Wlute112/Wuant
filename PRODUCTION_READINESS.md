@@ -68,15 +68,13 @@ again as unfinished features.
 | P1-03 | **Calibrate equity simulation — Implemented, calibration pending.** Finite books, partial fills, gap/session scenarios, fixed-plan costs, corporate actions and excess-return Sharpe already exist. | Dated spread/impact, participation, commission, regulatory, borrow/financing and issuer-action evidence, with sources and coverage by symbol/date. Compare predicted fills/costs with observed execution; retain both OHLC paths and stressed costs. Report uncovered periods as scenarios and record tolerances before evaluating agreement. |
 | P1-04 | **Complete supported-version paper and fault-injection campaign — Validation pending.** Includes short-control recall proxies, account evidence, corporate-action recovery and all P0 rows. | Versioned TWS/Gateway, API and Nautilus compatibility matrix; reproducible fixtures, logs and reconciliation reports for each required scenario; supervised long-only baseline, then short-enabled tests and multi-week soak. Review inventory/fee/forced-cover proxies rather than claiming an unavailable native recall feed. Every P0 gate needs its own linked evidence and reviewer decision. |
 | P1-05 | **Complete immutable research-to-promotion evidence — Validation pending.** Multi-seed comparison, robustness and one-shot holdout workflows are implemented. | One reproducible campaign with locked data/universe, seeds, folds, embargoes, assumptions and params; normal/stressed development results; independently reviewed finalists; single-use holdout; shadow/paper agreement. Preserve failed or interrupted holdout consumption. Use the sequential promotion procedure below; do not tune against inspected holdout results. |
-| P1-06 | **Verify complete dashboard workflows — Proposed.** Browser verification was unavailable in the most recent equity-simulation session. | Browser integration coverage for data validation, backtest, optimization, campaigns, evidence upload/review and paper safety operations: configuration, launch, progress/status, cancellation and results. Exercise reload/reconnect, API failures, duplicate requests, invalid JSON, missing data and stale status. Prove no supported workflow is CLI-only and no unknown state appears safe. |
-| P1-07 | **Establish an off-host recovery target — Open.** Local backup/restore, rollback and durable risk state already exist. | Encrypted off-host backups with retention and integrity checks; documented recovery-time/data-loss targets; a restore drill on a clean host that preserves kill-switch, allocation, audit and holdout-consumption state and reconciles with the broker before resuming. Dashboard configuration, backup status and restore evidence are required. |
+| P1-07 | **Establish an off-host recovery target — Implemented, external validation pending (deferred by user 2026-09-13).** Encrypted SFTP recovery, retention, integrity checks, dashboard configuration/jobs/status/cancellation and isolated restore evidence implemented. | **Still required for full completion:** actual off-host destination provisioning and verification; reviewed clean-host restore preserving kill-switch, allocation, audit and holdout-consumption state; measured end-to-end recovery/data-loss targets and fresh broker reconciliation before resuming. See [local evidence](evidence/P1-07-2026-09-13.json) and [recovery runbook](OPERATIONS.md#encrypted-off-host-recovery-p1-07). |
 | P1-08 | **Authorize remote operations before remote exposure — Open, conditional blocker.** Local authenticated controls exist. | Define identity, authorization by action, session expiry, transport protection and audit for remote use. Verify unauthorized and replayed requests fail; preserve action/target confirmation and fail-closed state. Keep the current local operating scope until validated. This is a blocker for remote deployment, not a requirement to expose the application remotely. |
 
 ## P2 — Operational and product improvements
 
 | ID | Item / status | Completion evidence |
 |---|---|---|
-| P2-01 | **Add point-in-time dataset provenance and universe review — Proposed.** Extend existing CSV hashes and locked validation contracts. | Reviewable source/retrieval timestamps, volume and adjustment semantics, symbol/conId lineage, revisions and universe membership dates. Preserve delisted/renamed instruments where supported and explicitly disclose survivorship or coverage limitations. Surface the snapshot and any changes in the research hub. |
 | P2-02 | **Automate drift and execution-quality review — Proposed.** Extend existing ML metrics, telemetry and alerts. | Compare research, shadow and paper predictions, fills, slippage, reject rates, feature freshness and regime behavior against declared baselines. Show sample size and uncertainty, configurable review thresholds and alert history. Model/parameter changes require a new reviewed version; alerts must not silently retune or promote models. |
 | P2-03 | **Add machine-wide research admission and resource visibility — Proposed.** Current CPU/RAM budgets apply per process pool. | Queue concurrent jobs against one host budget while reserving capacity for TWS, risk supervision, Redis and local inference. Dashboard shows queued/running state, resource limits, cancellation and measured peak memory. Verify competing studies cannot starve execution supervision. |
 | P2-04 | **Improve benchmark return-basis comparability — Proposed.** Same-period S&P 500 price-return benchmarking already exists. | Add an explicitly sourced S&P 500 total-return benchmark when available, retaining the price index as a labeled fallback. Show exact overlap, dividend treatment and comparable risk-free assumptions; never splice incompatible bases or conceal partial coverage. |
@@ -115,6 +113,60 @@ Record the completion date and evidence link here, then move the finished item
 to implementation evidence. Local tests alone never approve live capital.
 
 ## Local implementation verification
+
+**P2-01 — Dataset provenance and universe review completed, 2026-09-21.**
+[Verification and limitations](evidence/P2-01-2026-09-21.json).
+CSV import and IBKR publication retain exact content-addressed versions, sealed
+manifests and a separate source-observation journal. Revision review includes
+added/removed symbols and bars, changed values/semantics, supplier retrieval
+metadata, symbol/conId declarations and dated universe membership evidence.
+Earlier data remains retained when symbols disappear or change names.
+Backtest and optimization read pinned snapshots; multi-seed campaigns retain one
+input across seeds and retries. Manifest and CSV integrity are checked before
+robustness and holdout consumption. Existing hash-only contracts remain explicitly
+legacy evidence; no historical provenance is invented for them.
+
+Configuration preflight, campaign review and saved-run Evidence panels expose
+provenance, revisions, unknown coverage and downloadable evidence. Existing
+research/repair jobs provide launch, status, logs and cancellation. The runbook
+covers optional CSV declarations, archive recovery and storage. Local archives
+establish observation history only: vendor historical availability, survivorship
+and delisted coverage remain unknown unless supplied. Membership dates are
+review evidence; research continues to use its selected fixed universe. No P0
+gate or live-capital permission changes.
+
+**P1-07 — Encrypted recovery workflow implemented, 2026-09-13; external
+completion deferred.** The authenticated Paper/Live recovery disclosure provides
+SFTP/password-file/Redis configuration, retention and RPO/RTO targets, opt-in
+API-lifetime scheduling, initialization, backup/full integrity checks, durable
+job status, idempotent retries, cancellation, exact snapshot selection and
+isolated restore reports. Bundles preserve campaign holdout files, SQLite state,
+audit data and full Redis RDBs. Restore verifies data without activating it or
+releasing execution gates. [Verification and limitations](evidence/P1-07-2026-09-13.json).
+The actual off-host destination and clean-host/broker drill are explicitly still
+required; the user asked to skip that external portion for now. No P0 gate is
+approved by this implementation.
+
+**P1-06 — Dashboard browser workflows completed, 2026-09-11.**
+[Recorded environment, coverage and verification](evidence/P1-06-2026-09-11.json).
+The Playwright suite drives the real dashboard through isolated HTTP fixtures:
+data preflight/import/repair; backtest and optimization launch, progress, reload,
+cancellation and results; all campaign stages; evidence upload/review; paper
+configuration and safety actions; uncertain retries, duplicate clicks, stale
+health, API failure and narrow-screen keyboard/focus recovery. All 24 browser
+tests, 20 frontend unit tests, 32 relevant API/reporting tests and the production
+build pass locally in Chrome. CI configuration runs the suite with Chromium and
+retains reports and failure traces; that Linux job has not been run locally.
+
+Browser verification exposed and fixed missing campaign evidence and job review,
+stale/consumed holdout actions, repeated launch submission, and paper resume with
+a stale heartbeat. Campaigns now display locked contracts, consensus, robustness
+and holdout evidence plus stage progress, logs and cancellation. Unknown evidence
+is explicit and locks stage actions. The [browser runbook](web/e2e/README.md)
+documents isolation and reproduction. These are local browser/API workflow tests;
+P0 broker validation, historical calibration and paper soak evidence remain
+pending. Broader accessibility review stays in P2-08.
+
 
 **P0 Real-time risk — sector evidence and adapter disconnect implementation,
 2026-09-09.** Reviewed, expiring conId/symbol-bound sector declarations now feed

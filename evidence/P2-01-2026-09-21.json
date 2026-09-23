@@ -1,0 +1,79 @@
+{
+  "item": "P2-01",
+  "date": "2026-09-21",
+  "status": "implementation_completed",
+  "reviewer": "Codex; independent impeccable finish review with material findings addressed",
+  "scope": "Locally observed dataset versioning and supplier-declared universe/lineage review; no vendor PIT certification",
+  "selection": "Higher-priority remaining work needs external broker/calibration/paper evidence, deferred off-host infrastructure, or a remote deployment outside current local scope.",
+  "implementation": [
+    "Exact content-addressed CSV snapshots, checked manifests, separate integrity-checked observation journal and atomic writes under a process lock.",
+    "Import and IBKR publications retain all supplied symbols. Preflight is read-only and exposes pending revision differences.",
+    "Supplier retrieval/source/price/volume/session and conId/alias/membership declarations remain distinct from observed bar coverage and local capture time.",
+    "Pinned research inputs survive source replacement. Campaign seeds and retries share one retained version.",
+    "New validation contracts lock the dataset manifest. Standalone holdout, robustness and campaign promotion verify locked evidence before evaluation.",
+    "Frontend preflight, saved-run Evidence and campaign review expose versions, revisions, removed symbols, unknown coverage and JSON evidence download; existing research launch/status/cancel paths remain available."
+  ],
+  "verification": {
+    "python_full": {
+      "command": "PYTHONPATH=.. .quant312/bin/python -m pytest tests -q",
+      "passed": 484,
+      "warnings": "136 existing Pandas Timestamp.utcnow deprecation warnings"
+    },
+    "frontend_unit": {
+      "command": "npm --prefix web test",
+      "passed": 20
+    },
+    "browser_full": {
+      "command": "cd web && PLAYWRIGHT_CHANNEL=chrome npm run test:e2e",
+      "passed": 29,
+      "isolation": "Local HTTP fixtures; no broker orders"
+    },
+    "build": {
+      "command": "npm --prefix web run build",
+      "result": "passed"
+    },
+    "diff_check": "git diff --check passed",
+    "regressions": [
+      "source changes during a real isolated backtest",
+      "source replacement between campaign seeds and retry",
+      "A to B to A observations",
+      "old snapshot replay leaves source history unchanged",
+      "parallel snapshot retry",
+      "manifest, CSV, ancestry and missing-journal failures",
+      "legacy hash-only validation",
+      "early campaign profile visibility",
+      "desktop/mobile browser evidence review and download"
+    ],
+    "visual_review": "Desktop and 390px mobile screenshots inspected; hash wrapping, nested declaration details, visible unknowns and download focus styling checked.",
+    "test_isolation": "The added full backtest smoke runs in a fresh subprocess to avoid reinitializing Nautilus process-global native logging after other engine tests."
+  },
+  "limitations": [
+    "No historical availability, membership, conId or retrieval facts are invented. Imported declarations are not independently certified.",
+    "Research continues using a selected fixed universe; membership dates are review evidence, not a dynamic universe filter.",
+    "Delisted coverage and survivorship remain unknown unless supported by supplied evidence.",
+    "Legacy artifacts have explicit missing provenance; old optimizer contracts cannot silently migrate on resume.",
+    "Snapshots are retained without automatic pruning; external input locations require separate backup. UI source history displays the latest 50 observations.",
+    "Local file checksums detect corruption; they are not vendor signatures or protection against an operator rewriting all local evidence.",
+    "No broker validation, holdout promotion, live-readiness approval or real-capital execution was performed."
+  ],
+  "code_sha256": {
+    "data/provenance.py": "94039d258ce7aef0d820e6a7430d8d5be374c07e0a8de1e0009c117923e00971",
+    "data/research_preflight.py": "c7bb309c3d0bbccd84336a51faaf9052fd7230753ee16b23643b4daca0623697",
+    "data/ibkr_fetch.py": "547c0e45b333d57cdbf4cd655ea9cdbcc380b8762b964b3975d5d0b3c9ba9fad",
+    "api/jobs_routes.py": "f0c21c3e5ea01bd4028e856d81696c0bc0a9af3bfc0164feef3095bf0b562e17",
+    "api/campaigns.py": "bd5e2260843fb1c739f647e4e6062d0d9f6d256de082d5af9fe34a10aafe32fe",
+    "run/run_backtest.py": "68cf5e68a68ac2cb6784d4af9adaba032c75cd80c0c873157268cc10102ed3b6",
+    "run/artifacts.py": "7f81959cf96acb0459f09df07a06d87384eb8a514155055ecbce5941b784af01",
+    "optimize/optimize.py": "8811b994d7f0db97b6d17a59a0593c71aa6ef2e6d029eb828ccc28d0aeb0c012",
+    "optimize/multi_seed.py": "15fd98425fa474ff027d7f012238260f18964306c1f8d50120e7c3287529ce94",
+    "optimize/robustness.py": "df39d696eed92740c39b5429a3892461ef11118d599eaa5e03b1889716f13dde",
+    "optimize/promote.py": "498d5d46157911df4b9c1698f921e606735d7acb8464d4c186ae96c419faf195",
+    "web/src/components/research-hub/DatasetProvenance.jsx": "9edc363504936a9310f276b3cb87dee662ae6f603030994745002bf6d368c664",
+    "web/src/components/research-hub/DataPreflight.jsx": "4119bd5c9db753b58cab2e031554d8c6828de4830e0cd905b183288fdbe1030d",
+    "web/src/components/research-hub/DataReport.jsx": "e9c1b6acf6873246ab0a3d43e9dc01978ab1d349f5e2aaff7a4c3a86499e9f51",
+    "web/src/components/research-hub/CampaignPanel.jsx": "8c8adb1cfbcbfad191aaa29023cbee007c2b4b86c76527c492f1d6f82be362b4",
+    "web/src/components/research-hub/ResearchHub.jsx": "0a214f427f5f80456507efe21daae204be6c1dd517b9bdb667ab0f2172688f17",
+    "tests/test_dataset_provenance.py": "54c48cbf6b9abf06caf1d1f387015b4714a11c4c9a3b3751c7eb3ddea7a2f0b4",
+    "web/e2e/research.spec.js": "ecd3c1b8f58b3714d584c70db3af3a248c76de1e5c867c255cc1d0735dc48ff9"
+  }
+}

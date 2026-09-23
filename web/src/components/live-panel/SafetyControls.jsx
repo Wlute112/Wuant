@@ -69,7 +69,7 @@ export default function SafetyControls({ job, isDemo }) {
   }, [jobId]);
 
   const expected = `${action} strategy:${jobId}`;
-  const resumeBlocked = action === "RESUME_ENTRIES" && (!state || state.resume_blockers.length > 0);
+  const resumeBlocked = action === "RESUME_ENTRIES" && (!state || !state.heartbeat_fresh || state.resume_blockers.length > 0);
   const canSubmit = state && job?.status === "running" && !resumeBlocked
     && reason.trim().length >= 3 && (action === "FREEZE_ENTRIES" || confirmation === expected);
 

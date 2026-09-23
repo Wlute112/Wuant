@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test src/lib/*.test.js"
+    "test": "node --test src/lib/*.test.js",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "react": "18.3.1",
@@ -15,6 +16,7 @@
     "react-grid-layout": "1.5.4"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@vitejs/plugin-react": "6.0.4",
     "vite": "8.1.5"
   }
