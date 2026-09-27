@@ -28,6 +28,7 @@ from quant.api.schemas import (
     OptimizeJobRequest,
     PaperJobRequest,
     SectorEvidenceRequest,
+    SyntheticFixtureRequest,
 )
 from quant.run.asset_profiles import get_asset_profile
 from quant.run.readiness import live_readiness_status
@@ -118,6 +119,22 @@ def _research_report(req):
 @router.post("/data/preflight")
 def research_preflight(req: DataPreflightRequest):
     return _research_report(req)
+
+
+@router.post("/data/synthetic-fixture", status_code=202)
+def generate_synthetic_fixture(req: SyntheticFixtureRequest):
+    job_id = manager.new_job_id("synthetic_fixture")
+    output = JOBS_DIR / "fixtures" / f"{job_id}.csv"
+    args = _args_from([
+        ("--out", output), ("--asset-class", req.asset_class),
+        ("--tickers", req.tickers), ("--days", req.days),
+        ("--start", req.start.isoformat()), ("--seed", req.seed),
+        ("--progress-path", JOBS_DIR / f"{job_id}_progress.json"),
+    ])
+    return manager.submit(
+        "synthetic_fixture", "quant.data.generate_sample_bars", args,
+        config={**req.model_dump(mode="json"), "csv": str(output)}, job_id=job_id,
+    )
 
 
 def _admit_equity_research(req):

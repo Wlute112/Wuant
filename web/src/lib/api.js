@@ -119,6 +119,9 @@ export const api = {
   repairData: (body) => request("/api/jobs/data/repair", {
     method: "POST", body: JSON.stringify(body),
   }),
+  generateSyntheticFixture: (body) => request("/api/jobs/data/synthetic-fixture", {
+    method: "POST", body: JSON.stringify(body),
+  }),
   startBacktest: (body) =>
     request("/api/jobs/backtest", { method: "POST", body: JSON.stringify(body) }),
   startOptimize: (body) =>

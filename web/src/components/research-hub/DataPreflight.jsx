@@ -8,6 +8,7 @@ import { api } from "../../lib/api.js";
 import { isJobActive, jobStatusLabel } from "../../lib/jobs.js";
 import DataReport from "./DataReport.jsx";
 import ActiveResearchRun from "./ActiveResearchRun.jsx";
+import SyntheticFixture from "./SyntheticFixture.jsx";
 
 export function useDataPreflight(request, jobs = [], enabled = true) {
   const key = JSON.stringify(request);
@@ -37,7 +38,7 @@ export function useDataPreflight(request, jobs = [], enabled = true) {
 }
 
 
-export default function DataPreflight({ state, request, jobs = [], onJobStarted, repairOptions }) {
+export default function DataPreflight({ state, request, jobs = [], onJobStarted, onFixtureStarted, onSelectCsv, repairOptions }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(null);
   const [repairEdits, setRepairEdits] = useState({});
@@ -61,10 +62,12 @@ export default function DataPreflight({ state, request, jobs = [], onJobStarted,
   }
   return <section className="data-preflight" aria-label="Research data preflight" aria-busy={state.busy}>
     <div className="data-preflight__heading">
-      <strong role="status">{state.busy ? "Checking research data…" : state.error ? "Data status unavailable" : state.eligible ? "Data preflight passed" : "Execution research blocked"}</strong>
+      <strong role="status">{state.busy ? "Checking research data…" : state.error ? "Data status unavailable" : state.eligible ? "Data checks passed" : "Execution research blocked"}</strong>
       <button type="button" disabled={state.busy || pending || active} onClick={state.refresh}>Recheck data</button>
     </div>
     {state.error && <p role="alert">{state.error}. Recheck before launching research.</p>}
+    {state.eligible && <p>CSV and session checks passed. Model warmup and evaluation sample size still depend on the run configuration.</p>}
+    <SyntheticFixture request={request} jobs={jobs} onJobStarted={onFixtureStarted || onJobStarted} onSelectCsv={onSelectCsv} />
     <DataReport report={state.report} />
     <details><summary>Import provenance and historical universe declarations</summary>
       <p>The Data CSV picker accepts optional columns: source, retrieved_at (ISO UTC), session, price_basis, volume_basis, con_id, symbol_alias, membership_start, membership_end and membership_source. Supply dated evidence from your vendor; leave unknown values empty. Keep historical and delisted symbols in the file when available.</p>

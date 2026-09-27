@@ -469,6 +469,7 @@ export default function ResearchHub({
   const modelChart = ticker ? activeRun?.model_chart?.[ticker] || [] : [];
   const actionPanel = (
     <ActionPanel
+      onAuxiliaryJobStarted={onJobStarted}
       onJobStarted={(job) => {
         onJobStarted(job);
         setActiveJobViewId(job.id);

@@ -1,0 +1,26 @@
+{
+  "item": "P2-06",
+  "verified_at": "2026-09-26",
+  "status": "implementation_complete_local_verification",
+  "calendar": {
+    "exchange": "XNYS",
+    "package": "exchange_calendars",
+    "pinned_version": "4.13.2",
+    "source": "https://github.com/gerrymanoim/exchange_calendars",
+    "timestamps": "Session close in UTC; open and close retained separately",
+    "limitations": "Calendar rules are versioned fixtures, not evidence of unscheduled historical exchange closures or observed market prices."
+  },
+  "checks": [
+    "Thanksgiving 2026 is excluded and the following Friday has a 210-minute session ending 18:00 UTC.",
+    "The March 2026 DST transition changes the XNYS UTC open from 14:30 to 13:30 and close from 21:00 to 20:00.",
+    "Research preflight rejects altered session metadata and labels synthetic prices and volume explicitly.",
+    "The dashboard can configure, launch, cancel, review, and select a generated CSV; the selection is tied to its originating asset class and ticker universe.",
+    "Data checks are distinguished from model warmup; fixtures with at most 150 bars show a short-history warning."
+  ],
+  "verification": {
+    "python": "pytest tests/test_synthetic_exchange_calendar.py tests/test_api_jobs.py tests/test_dataset_provenance.py tests/test_research_hub.py",
+    "browser": "PLAYWRIGHT_CHANNEL=chrome npx playwright test e2e/research.spec.js",
+    "frontend": "npm run build"
+  },
+  "reviewer": "Local automated verification; no broker or market-data certification"
+}

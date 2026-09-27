@@ -32,17 +32,36 @@ export const test = base.extend({
       if (path.startsWith('/api/runs/')) return reply(state.runs.find(r => r.run_id === path.split('/')[3]));
       if (path === '/api/campaigns') return reply(state.campaigns);
       if (path.startsWith('/api/campaigns/')) return reply(state.details[path.split('/').at(-1)] || {}, state.details[path.split('/').at(-1)] ? 200 : 404);
-      if (path === '/api/jobs/data/preflight') return reply(state.preflight);
+      if (path === '/api/jobs/data/preflight') {
+        if (body?.csv?.includes('/fixtures/synthetic_fixture-')) return reply({
+          ...state.preflight, tickers: [{ ...state.preflight.tickers[0], ticker: body.tickers?.[0] || 'QQQ',
+            source: 'synthetic_fixture', session: 'XNYS_RTH', price_basis: 'synthetic_unadjusted',
+            volume_basis: 'synthetic', fixture_calendar: { calendar: 'XNYS', version: '4.13.2',
+              sessions: 12, early_close_sessions: 1, utc_open_times: ['14:30'] } }],
+        });
+        return reply(state.preflight);
+      }
       if (path === '/api/jobs/upload-csv') return reply({ path: 'quant/jobs/uploads/browser.csv', filename: 'browser.csv' });
       if (path === '/api/jobs') return reply(state.jobs);
-      if (method === 'POST' && /^\/api\/jobs\/(backtest|optimize|paper|data\/repair|campaign\/\w+)$/.test(path)) {
-        const kind = path.slice('/api/jobs/'.length).replace('data/repair', 'data_repair').replace('/', '_');
-        const job = { id: `${kind}-test`, kind, status: 'running', started_at: new Date().toISOString(), config: body,
+      if (method === 'POST' && /^\/api\/jobs\/(backtest|optimize|paper|data\/repair|data\/synthetic-fixture|campaign\/\w+)$/.test(path)) {
+        const kind = path.slice('/api/jobs/'.length).replace('data/repair', 'data_repair').replace('data/synthetic-fixture', 'synthetic_fixture').replace('/', '_');
+        const id = kind === 'synthetic_fixture'
+          ? `${kind}-test-${state.jobs.filter(job => job.kind === kind).length + 1}`
+          : `${kind}-test`;
+        const job = { id, kind, status: 'running', started_at: new Date().toISOString(), config: {
+          ...body, ...(kind === 'synthetic_fixture' ? { csv: `quant/jobs/fixtures/${id}.csv` } : {}),
+        },
           run_id: ['backtest', 'optimize'].includes(kind) ? `${kind}-result` : null };
         state.jobs.unshift(job);
         return reply(job);
       }
-      if (/^\/api\/jobs\/[^/]+\/(logs|progress)$/.test(path)) return reply(path.endsWith('/logs') ? { lines: ['Browser fixture process output'] } : { percent: 40, phase: 'replay', phase_label: 'Fixture computation', report: state.preflight });
+      if (/^\/api\/jobs\/[^/]+\/(logs|progress)$/.test(path)) {
+        const job = state.jobs.find(item => item.id === path.split('/')[3]);
+        if (job?.kind === 'synthetic_fixture' && path.endsWith('/progress')) return reply(job.status === 'completed'
+          ? { phase: 'completed', csv: job.config.csv, rows: 12, sessions: 12, seed: 42, start: '2026-11-23T21:00:00+00:00', end: '2026-12-09T21:00:00+00:00', calendar: 'XNYS', calendar_version: '4.13.2', early_close_sessions: 1 }
+          : { phase: 'generating', phase_label: 'Generating XNYS fixture' });
+        return reply(path.endsWith('/logs') ? { lines: ['Browser fixture process output'] } : { percent: 40, phase: 'replay', phase_label: 'Fixture computation', report: state.preflight });
+      }
       if (/^\/api\/jobs\/[^/]+\/cancel$/.test(path)) {
         const job = state.jobs.find(j => j.id === path.split('/')[3]);
         job.status = 'cancelling'; return reply(job);
@@ -69,5 +88,5 @@ export { expect };
 export async function configure(page, workflow = 'backtest') {
   await page.goto(`/?asset=equity&workflow=${workflow}`);
   await page.getByRole('button', { name: workflow === 'optimize' ? /New sweep/ : /New backtest/ }).click();
-  await expect(page.getByText('Data preflight passed', { exact: true })).toBeVisible();
+  await expect(page.getByText('Data checks passed', { exact: true })).toBeVisible();
 }

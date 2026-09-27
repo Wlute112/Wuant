@@ -1,6 +1,7 @@
 """Pydantic request models for the dashboard's job-trigger endpoints."""
 from __future__ import annotations
 
+from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -13,6 +14,25 @@ from quant.run.equity_simulation import EquitySimulationConfig
 # action that can deploy real capital (see run/run_live.py's own --live /
 # paper-port guard, enforced again here so a UI bug can never bypass it).
 LIVE_CONFIRM_PHRASE = "I UNDERSTAND THIS DEPLOYS REAL CAPITAL"
+
+
+class SyntheticFixtureRequest(BaseModel):
+    asset_class: Literal["crypto", "equity"] = "equity"
+    tickers: list[str] = Field(min_length=1, max_length=20)
+    days: int = Field(default=1000, ge=1, le=10000)
+    start: date = date(2021, 6, 28)
+    seed: int | None = Field(default=None, ge=0, lt=2**31)
+
+    @field_validator("tickers")
+    @classmethod
+    def valid_tickers(cls, value: list[str]) -> list[str]:
+        import re
+        normalized = [ticker.strip().upper() for ticker in value]
+        if any(not re.fullmatch(r"[A-Z0-9][A-Z0-9.-]{0,14}", ticker) for ticker in normalized):
+            raise ValueError("tickers must be valid symbols")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("tickers must be unique")
+        return normalized
 
 
 class FeatureConfig(BaseModel):

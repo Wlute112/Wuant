@@ -108,6 +108,14 @@ python -m quant.data.generate_sample_bars --asset-class equity --out quant/data/
 python -m quant.run.run_backtest --csv quant/data/equity_bars.csv --asset-class equity --tickers SPY QQQ --cash 5000
 ```
 
+Equity fixtures use the pinned XNYS exchange calendar. Each synthetic daily bar
+is stamped at the UTC session close and carries the session open/close, minutes,
+early-close flag and calendar version. In the dashboard, open research data
+preflight → “Generate synthetic NYSE session fixture” to configure, run, cancel,
+review and select a job-scoped CSV. The preflight verifies that CSV's session
+metadata against the installed calendar and labels its prices and volume as
+synthetic. These fixtures exercise the pipeline; they are not market evidence.
+
 ### Asset classes: crypto vs equity
 
 Every command in Stages 1-3 that touches an instrument (`run_backtest`,
@@ -122,7 +130,7 @@ book/account isn't supported). What actually changes per class:
 |---|---|---|
 | Instrument | `CurrencyPair` (fractional size) | `Equity` (whole shares) |
 | Fee model | tiered by trailing 30d volume (`backtest_common.ZeroHashCryptoFeeModel`) | flat per-share (`PerContractFeeModel`, `backtest_common.make_equity`) |
-| Synthetic calendar | consecutive calendar days (24/7) | weekdays-only (`_business_days`, no holiday calendar) |
+| Synthetic calendar | consecutive calendar days (24/7) | versioned XNYS sessions, including holidays, early closes and DST (`exchange_calendars`) |
 | IBKR fetch contract | `CRYPTO` / Zero Hash, `use_rth=False` | `STK` / `SMART`, `use_rth=True` |
 
 The ML/risk layers (`models/prediction_engine.py`, `models/regime.py`,

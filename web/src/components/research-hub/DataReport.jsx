@@ -3,7 +3,14 @@ import DatasetProvenance from "./DatasetProvenance.jsx";
 
 export default function DataReport({ report }) {
   if (!report) return null;
+  const synthetic = report.tickers?.some((row) => row.source?.split(", ").includes("synthetic_fixture"));
+  const fixtureCalendar = report.tickers?.find((row) => row.fixture_calendar)?.fixture_calendar;
+  const shortFixture = report.tickers?.some((row) => row.source?.split(", ").includes("synthetic_fixture") && row.bars <= 150);
   return <>
+    {synthetic && <p role="note"><strong>Synthetic fixture.</strong> Prices and volume are generated for pipeline testing; they are not observed market evidence.
+      {fixtureCalendar && <><br />{fixtureCalendar.calendar} v{fixtureCalendar.version || "unknown"} · {fixtureCalendar.sessions} verified sessions · {fixtureCalendar.early_close_sessions} early closes · UTC opens {fixtureCalendar.utc_open_times?.join(", ") || "unavailable"}</>}
+      {shortFixture && <><br />Short history: the default strategy needs 150 warmup bars and additional bars for trades or evaluation.</>}
+    </p>}
     <p>Diagnostics only. Zero-volume bars supply no equity execution liquidity.</p>
     {!!report.errors?.length && <ul>{report.errors.map((text) => <li key={text}>{text}</li>)}</ul>}
     <div className="data-preflight__table" tabIndex={0} role="region" aria-label="Per-ticker data coverage">

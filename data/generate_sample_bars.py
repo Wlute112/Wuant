@@ -23,9 +23,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import secrets
 from datetime import datetime, timedelta, timezone
+from importlib.metadata import version
+from pathlib import Path
 
+import exchange_calendars as xcals
 import numpy as np
 import pandas as pd
 
@@ -45,22 +49,69 @@ def _calendar_days(start: datetime, n: int) -> list[datetime]:
     return [start + timedelta(days=i) for i in range(n)]
 
 
-def _business_days(start: datetime, n: int) -> list[datetime]:
-    """``n`` weekday-only (Mon-Fri) dates starting from ``start``.
+def _equity_sessions(start: datetime, n: int) -> pd.DataFrame:
+    """NYSE sessions with authoritative UTC open/close, including half days."""
+    if n < 1:
+        raise ValueError("days must be positive")
+    start_date = pd.Timestamp(start).date().isoformat()
+    calendar = xcals.get_calendar("XNYS", start=start_date,
+                                  end=(pd.Timestamp(start_date) + pd.Timedelta(days=max(365, n * 2))).date().isoformat())
+    sessions = calendar.schedule.loc[start_date:]
+    if len(sessions) < n:
+        raise ValueError("requested days exceed the installed XNYS calendar range")
+    return sessions.iloc[:n].copy()
 
-    A documented simplification for equities/ETFs: skips weekends but does NOT
-    model a real exchange holiday calendar. Like the crypto generator, this is
-    a pipeline exerciser, not market reality -- it exists so the walk-forward /
-    backtest / Optuna pipeline can be run end-to-end on equity-shaped (real
-    trading-day gaps) data without a live IBKR connection.
-    """
-    dates = []
-    d = start
-    while len(dates) < n:
-        if d.weekday() < 5:  # 0=Mon .. 4=Fri
-            dates.append(d)
-        d = d + timedelta(days=1)
-    return dates
+
+def inspect_equity_fixture_calendar(rows: pd.DataFrame) -> dict:
+    """Check fixture timestamps and session declarations against installed XNYS."""
+    report = {"calendar": "XNYS", "version": None, "sessions": len(rows),
+              "early_close_sessions": 0, "utc_open_times": [], "errors": []}
+    required = {"calendar", "calendar_version", "session_date", "session_open_utc",
+                "session_close_utc", "session_minutes", "early_close"}
+    missing = required - set(rows.columns)
+    if missing:
+        report["errors"].append("Synthetic XNYS fixture is missing calendar metadata: " + ", ".join(sorted(missing)))
+        return report
+    if rows["calendar"].astype(str).nunique() != 1 or str(rows["calendar"].iloc[0]) != "XNYS":
+        report["errors"].append("Synthetic equity fixture must declare XNYS for every bar.")
+        return report
+    versions = rows["calendar_version"].astype(str).unique()
+    report["version"] = versions[0] if len(versions) == 1 else None
+    if len(versions) != 1:
+        report["errors"].append("Synthetic fixture has conflicting calendar versions.")
+        return report
+    if report["version"] != version("exchange_calendars"):
+        report["errors"].append("Synthetic fixture calendar version differs from the installed version; regenerate before research.")
+        return report
+    dates = pd.to_datetime(rows["session_date"], errors="coerce")
+    if dates.isna().any() or dates.duplicated().any() or not dates.is_monotonic_increasing:
+        report["errors"].append("Synthetic fixture session dates must be valid, unique and ordered.")
+        return report
+    try:
+        calendar = xcals.get_calendar("XNYS", start=dates.iloc[0], end=dates.iloc[-1])
+        schedule = calendar.schedule.loc[dates.iloc[0]:dates.iloc[-1]]
+    except (KeyError, ValueError, OverflowError) as exc:
+        report["errors"].append(f"XNYS calendar cannot cover fixture dates: {exc}")
+        return report
+    if list(schedule.index) != list(dates):
+        report["errors"].append("Synthetic fixture skips a session or includes an exchange holiday.")
+        return report
+    opens = pd.to_datetime(rows["session_open_utc"], utc=True, errors="coerce")
+    closes = pd.to_datetime(rows["session_close_utc"], utc=True, errors="coerce")
+    timestamps = pd.to_datetime(rows["timestamp"], utc=True, errors="coerce")
+    minutes = pd.to_numeric(rows["session_minutes"], errors="coerce")
+    early = rows["early_close"].astype(str).str.lower().map({"true": True, "false": False})
+    expected_minutes = (schedule["close"].to_numpy() - schedule["open"].to_numpy()) / np.timedelta64(1, "m")
+    if (opens.isna().any() or closes.isna().any() or timestamps.isna().any()
+            or not np.array_equal(opens.to_numpy(), schedule["open"].to_numpy())
+            or not np.array_equal(closes.to_numpy(), schedule["close"].to_numpy())
+            or not np.array_equal(timestamps.to_numpy(), schedule["close"].to_numpy())
+            or not np.array_equal(minutes.to_numpy(), expected_minutes)
+            or early.isna().any() or not np.array_equal(early.to_numpy(), expected_minutes < 390)):
+        report["errors"].append("Synthetic fixture bar times, duration or early-close flags disagree with XNYS.")
+    report["early_close_sessions"] = int(sum(expected_minutes < 390))
+    report["utc_open_times"] = sorted(opens.dt.strftime("%H:%M").dropna().unique().tolist())
+    return report
 
 
 def generate(
@@ -73,8 +124,7 @@ def generate(
     """Synthetic OHLCV. If seed is None, a fresh random seed is drawn.
 
     ``asset_class`` selects the trading calendar (crypto: 24/7 consecutive
-    calendar days; equity: weekdays-only business days -- see
-    ``_business_days``) and the daily-volatility range used to simulate
+    calendar days; equity: XNYS sessions) and the daily-volatility range used to simulate
     returns (equities are far less volatile day-to-day than crypto).
     """
     if seed is None:
@@ -82,7 +132,10 @@ def generate(
     rng = np.random.default_rng(seed)
     start = start or datetime(2021, 6, 28, tzinfo=timezone.utc)
     is_equity = asset_class == "equity"
-    dates = _business_days(start, n_days) if is_equity else _calendar_days(start, n_days)
+    if n_days < 1:
+        raise ValueError("days must be positive")
+    sessions = _equity_sessions(start, n_days) if is_equity else None
+    dates = _calendar_days(start, n_days) if not is_equity else None
 
     frames = []
     for i, ticker in enumerate(tickers):
@@ -116,7 +169,10 @@ def generate(
         frames.append(
             pd.DataFrame(
                 {
-                    "timestamp": [d.strftime("%Y-%m-%d") for d in dates],
+                    "timestamp": (
+                        [value.isoformat() for value in sessions["close"]]
+                        if is_equity else [d.strftime("%Y-%m-%d") for d in dates]
+                    ),
                     "ticker": ticker,
                     "open": np.round(open_, 2),
                     "high": np.round(high, 2),
@@ -126,6 +182,23 @@ def generate(
                 }
             )
         )
+        frame = frames[-1]
+        frame["source"] = "synthetic_fixture"
+        frame["session"] = "XNYS_RTH" if is_equity else "24/7"
+        frame["price_basis"] = "synthetic_unadjusted"
+        frame["volume_basis"] = "synthetic"
+        if is_equity:
+            frame["calendar"] = "XNYS"
+            frame["calendar_version"] = version("exchange_calendars")
+            frame["session_date"] = [day.date().isoformat() for day in sessions.index]
+            frame["session_open_utc"] = [value.isoformat() for value in sessions["open"]]
+            frame["session_close_utc"] = [value.isoformat() for value in sessions["close"]]
+            frame["session_minutes"] = [
+                int((close - opened).total_seconds() // 60)
+                for opened, close in zip(sessions["open"], sessions["close"])
+            ]
+            frame["early_close"] = frame["session_minutes"] < 390
+            frame["requested_bar_hours"] = 24
 
     df = pd.concat(frames, ignore_index=True)
     df = df.sort_values(["timestamp", "ticker"]).reset_index(drop=True)
@@ -140,7 +213,7 @@ def main() -> None:
         "--asset-class",
         choices=["crypto", "equity"],
         default="crypto",
-        help="Trading calendar (24/7 vs weekdays-only) and vol range to simulate.",
+        help="Trading calendar (24/7 vs XNYS sessions) and vol range to simulate.",
     )
     p.add_argument(
         "--tickers",
@@ -150,6 +223,8 @@ def main() -> None:
         "--asset-class if omitted.",
     )
     p.add_argument("--days", type=int, default=1000)
+    p.add_argument("--start", default="2021-06-28", help="First eligible session date (YYYY-MM-DD).")
+    p.add_argument("--progress-path", default=None)
     p.add_argument(
         "--seed",
         type=int,
@@ -161,11 +236,37 @@ def main() -> None:
         EQUITY_DEFAULT_TICKERS if args.asset_class == "equity" else DEFAULT_TICKERS
     )
 
-    df = generate(tickers, n_days=args.days, seed=args.seed, asset_class=args.asset_class)
-    df.to_csv(args.out, index=False)
+    try:
+        start = datetime.fromisoformat(args.start).replace(tzinfo=timezone.utc)
+    except ValueError as exc:
+        p.error(f"invalid --start date: {exc}")
+    df = generate(tickers, n_days=args.days, start=start, seed=args.seed, asset_class=args.asset_class)
+    output = Path(args.out)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_suffix(output.suffix + ".tmp")
+    try:
+        df.to_csv(temporary, index=False)
+        temporary.replace(output)
+    finally:
+        temporary.unlink(missing_ok=True)
+    summary = {
+        "phase": "completed", "phase_label": "Synthetic fixture ready",
+        "csv": str(output), "asset_class": args.asset_class, "tickers": tickers,
+        "rows": len(df), "sessions": args.days, "seed": df.attrs["seed"],
+        "start": str(df["timestamp"].iloc[0]), "end": str(df["timestamp"].iloc[-1]),
+        "calendar": "XNYS" if args.asset_class == "equity" else "24/7",
+        "calendar_version": version("exchange_calendars") if args.asset_class == "equity" else None,
+        "early_close_sessions": int(df.loc[df.early_close, "session_date"].nunique()) if args.asset_class == "equity" else 0,
+    }
+    if args.progress_path:
+        progress = Path(args.progress_path)
+        progress.parent.mkdir(parents=True, exist_ok=True)
+        partial = progress.with_suffix(".tmp")
+        partial.write_text(json.dumps(summary, allow_nan=False))
+        partial.replace(progress)
     print(
         f"Wrote {len(df):,} rows ({df.ticker.nunique()} tickers) -> {args.out} "
-        f"[seed={df.attrs['seed']}]"
+        f"[seed={df.attrs['seed']}, calendar={summary['calendar']}, version={summary['calendar_version']}]"
     )
 
 

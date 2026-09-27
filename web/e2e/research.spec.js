@@ -32,7 +32,7 @@ test('preflight blocks missing data, imports CSV and recovers from API failure',
   delete backend.failures['/api/jobs/data/preflight'];
   backend.preflight = { execution_eligible: true, tickers: [] };
   await page.locator('input[type=file][accept*="csv"]').setInputFiles({ name: 'browser.csv', mimeType: 'text/csv', buffer: Buffer.from('timestamp,ticker,open,high,low,close,volume\n') });
-  await expect(page.getByText('Data preflight passed', { exact: true })).toBeVisible();
+  await expect(page.getByText('Data checks passed', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Run Backtest', exact: true })).toBeEnabled();
 });
 
@@ -95,6 +95,36 @@ test('observed-data repair has settings, result evidence and cancellation', asyn
   await expect(page.locator('article:visible').getByText('Browser fixture process output', { exact: true })).toBeVisible();
   await page.locator('article:visible').getByRole('button', { name: 'Cancel data fetch', exact: true }).click();
   expect(backend.jobs[0].status).toBe('cancelling');
+});
+
+test('synthetic NYSE fixture can be configured, cancelled, reviewed and selected', async ({ page, backend }) => {
+  await configure(page);
+  await page.getByText('Generate synthetic NYSE session fixture', { exact: true }).click();
+  await page.getByLabel('Sessions', { exact: true }).fill('12');
+  await page.getByLabel('First eligible date', { exact: true }).fill('2026-11-23');
+  await page.getByLabel('Seed (optional)', { exact: true }).fill('42');
+  await page.getByRole('button', { name: 'Generate fixture', exact: true }).click();
+  const request = backend.requests.find(item => item.path === '/api/jobs/data/synthetic-fixture');
+  expect(request.body).toMatchObject({ asset_class: 'equity', days: 12, start: '2026-11-23', seed: 42 });
+  await expect(page.getByText('Generating XNYS fixture', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel generation' }).click();
+  expect(backend.jobs[0].status).toBe('cancelling');
+  backend.jobs[0].status = 'completed';
+  await expect(page.getByText(/XNYS calendar v4.13.2 · 1 early closes/)).toBeVisible();
+  await page.getByRole('button', { name: 'Use fixture for research' }).click();
+  await expect(page.locator('#data-csv-file-status')).toContainText('XNYS synthetic fixture · synthetic_fixture-test-1.csv');
+  await expect.poll(() => backend.requests.filter(item => item.path === '/api/jobs/data/preflight').at(-1)?.body?.csv)
+    .toBe('quant/jobs/fixtures/synthetic_fixture-test-1.csv');
+  await expect(page.getByRole('note').filter({ hasText: 'Synthetic fixture.' })).toBeVisible();
+  await expect(page.getByText('12 verified sessions · 1 early closes')).toBeVisible();
+  await page.getByLabel('Tickers', { exact: true }).fill('SPY');
+  await expect(page.getByRole('button', { name: 'Use fixture for research' })).toHaveCount(0);
+  await page.getByLabel('Tickers', { exact: true }).fill('QQQ');
+  await expect(page.getByRole('button', { name: 'Use fixture for research' })).toBeVisible();
+  await page.screenshot({ path: 'test-results/synthetic-fixture-review.png', fullPage: true });
+  await page.reload();
+  await page.getByRole('button', { name: /New backtest/ }).click();
+  await expect(page.locator('#data-csv-file-status')).toContainText('quant/jobs/fixtures/synthetic_fixture-test-1.csv');
 });
 
 test('rapid repeat launch submits a single request while pending', async ({ page, backend }) => {

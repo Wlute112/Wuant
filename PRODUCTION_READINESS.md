@@ -79,7 +79,6 @@ again as unfinished features.
 | P2-03 | **Add machine-wide research admission and resource visibility — Proposed.** Current CPU/RAM budgets apply per process pool. | Queue concurrent jobs against one host budget while reserving capacity for TWS, risk supervision, Redis and local inference. Dashboard shows queued/running state, resource limits, cancellation and measured peak memory. Verify competing studies cannot starve execution supervision. |
 | P2-04 | **Improve benchmark return-basis comparability — Proposed.** Same-period S&P 500 price-return benchmarking already exists. | Add an explicitly sourced S&P 500 total-return benchmark when available, retaining the price index as a labeled fallback. Show exact overlap, dividend treatment and comparable risk-free assumptions; never splice incompatible bases or conceal partial coverage. |
 | P2-05 | **Add automatic corporate-action discovery and review — Proposed.** The current journal is operator-maintained. | Dated issuer/vendor evidence with deduplication and symbol/conId matching, an operator review queue and pending-event cancellation. Preserve flat-account recovery until an independently validated in-position policy exists; ambiguous events freeze affected execution rather than being auto-applied. |
-| P2-06 | **Use an exchange calendar for synthetic equity fixtures — Open.** Current generation skips weekends only. | Fixtures respect holidays, early closes and DST, with explicit calendar/version metadata. Keep synthetic data visibly separate from market evidence and verify bar/session expectations in the dashboard. |
 | P2-07 | **Support tiered commission and financing schedules — Open.** Fixed-plan per-order minimums/caps and configurable regulatory fees/financing already exist. | Dated selectable plans, account/currency and balance tiers, accrual/day-count rules and statement reconciliation. Lock the plan into every fold and expose assumptions and cashflow reconciliation in results. Prioritize only plans relevant to the intended account. |
 | P2-08 | **Complete accessibility and resilience review — Proposed.** Apply the existing product/design contract. | Keyboard-only configuration and safety flows, focus recovery, programmatic labels, announced stale/error/progress states, chart text summaries and usable narrow layouts. Verify long evidence files, empty/partial results and network interruption without losing unsaved configuration. |
 | P2-09 | **Measure target-host scaling and release reproducibility — Validation pending / proposed release check.** Local performance improvements already exist. | Run representative serial/parallel benchmarks on the actual target host; record hardware, dependency locks, worker count, peak memory and fold-result parity. Verify clean installation and dashboard/API startup. Do not infer throughput from advertised hardware or change folds/model settings to improve a benchmark. See `MAC_STUDIO_SCALING.md` for the measurement procedure. |
@@ -113,6 +112,18 @@ Record the completion date and evidence link here, then move the finished item
 to implementation evidence. Local tests alone never approve live capital.
 
 ## Local implementation verification
+
+**P2-06 — XNYS synthetic fixture calendar completed, 2026-09-26.**
+[Verification and limitations](evidence/P2-06-2026-09-26.json).
+Equity fixture generation uses pinned `exchange_calendars` XNYS sessions and
+session-close UTC timestamps, with session open/close, duration, early-close,
+calendar name/version and explicit synthetic source/basis columns. Research data
+preflight rechecks every fixture session against the installed calendar and
+shows session coverage, early closes and DST-dependent UTC open times in the
+dashboard. The research data disclosure generates job-scoped fixtures with
+configuration, status, cancellation, result review and CSV selection. Crypto
+fixtures remain 24/7. These bars are demonstration inputs, not market evidence
+or a claim about unscheduled historical exchange closures.
 
 **P2-01 — Dataset provenance and universe review completed, 2026-09-21.**
 [Verification and limitations](evidence/P2-01-2026-09-21.json).

@@ -39,6 +39,15 @@ def inspect_frame(frame: pd.DataFrame, tickers: list[str], asset_class: str) -> 
         for column in METADATA:
             values = rows[column].fillna("unknown").astype(str).unique().tolist() if column in rows else []
             item[column] = ", ".join(sorted(values)) if values else "unknown"
+        if count and "synthetic_fixture" in item["source"].split(", "):
+            item["warnings"].append("Synthetic fixture: prices, volume and fills are demonstration inputs, not observed market evidence.")
+            if count <= 150:
+                item["warnings"].append("Fixture has at most 150 bars; the default strategy needs 150 warmup bars before prediction and more bars for trades or evaluation.")
+            if asset_class == "equity":
+                from quant.data.generate_sample_bars import inspect_equity_fixture_calendar
+                calendar_report = inspect_equity_fixture_calendar(rows)
+                item["fixture_calendar"] = calendar_report
+                item["errors"].extend(calendar_report["errors"])
         if "requested_bar_hours" in rows:
             widths = pd.to_numeric(rows.requested_bar_hours, errors="coerce").dropna().unique()
             if len(widths) == 1 and np.isfinite(widths[0]):

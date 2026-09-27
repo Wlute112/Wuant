@@ -61,6 +61,7 @@ function formatParamValue(v) {
 
 export default function ActionPanel({
   onJobStarted,
+  onAuxiliaryJobStarted = onJobStarted,
   onJobStopped,
   workflow = "backtest",
   assetClass: selectedAssetClass,
@@ -686,6 +687,7 @@ export default function ActionPanel({
                 <DataCsvPicker
                   inputRef={csvInput}
                   fileName={csvFileName}
+                  selectedPath={csvPath}
                   loading={uploadingCsv}
                   defaultPath={defaultCsvPath(assetClass)}
                   onChange={handleCsvFile}
@@ -776,6 +778,8 @@ export default function ActionPanel({
             </div>
 
             <DataPreflight state={preflight} request={dataRequest} jobs={jobs} onJobStarted={onJobStarted}
+              onFixtureStarted={onAuxiliaryJobStarted}
+              onSelectCsv={(path, label) => { setCsvPath(path); setCsvFileName(label); }}
               repairOptions={assetClass === "equity" ? { ...structuralPayload().ibkr, ibkr_bar_hours: Number(ibkrBarHours), ibkr_client_id: 71 } : null} />
             <div className="action-panel__actions">
               <button className="button-primary" disabled={pending || uploadingCsv || !researchDataReady} onClick={submit}>
@@ -1298,7 +1302,8 @@ function StrategyParamsPicker({ inputRef, fileName, onChange, onClear }) {
   );
 }
 
-function DataCsvPicker({ inputRef, fileName, loading, defaultPath, onChange, onClear }) {
+function DataCsvPicker({ inputRef, fileName, selectedPath, loading, defaultPath, onChange, onClear }) {
+  const selectedLabel = fileName || selectedPath.split(/[\\/]/).at(-1);
   return (
     <div className="action-panel__file-control">
       <input
@@ -1317,14 +1322,14 @@ function DataCsvPicker({ inputRef, fileName, loading, defaultPath, onChange, onC
           disabled={loading}
           onClick={() => inputRef.current?.click()}
         >
-          <span>{loading ? "Loading CSV…" : fileName || "Choose data CSV"}</span>
+          <span>{loading ? "Loading CSV…" : selectedLabel || "Choose data CSV"}</span>
           <span className="action-panel__file-type" aria-hidden="true">CSV</span>
         </button>
-        {fileName && (
+        {selectedPath && (
           <button
             type="button"
             className="action-panel__file-clear"
-            aria-label={`Clear selected data file ${fileName}`}
+            aria-label={`Clear selected data file ${selectedLabel}`}
             onClick={onClear}
           >
             Clear
@@ -1333,11 +1338,11 @@ function DataCsvPicker({ inputRef, fileName, loading, defaultPath, onChange, onC
       </div>
       <span
         id="data-csv-file-status"
-        className={`action-panel__file-status ${fileName ? "has-file" : ""}`}
+        className={`action-panel__file-status ${selectedPath ? "has-file" : ""}`}
         role="status"
         aria-live="polite"
       >
-        {fileName || `Default: ${defaultPath}`}
+        {fileName || selectedPath || `Default: ${defaultPath}`}
       </span>
     </div>
   );
