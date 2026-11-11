@@ -1,0 +1,31 @@
+{
+  "verified_at": "2026-11-09T01:36:55.604107+00:00",
+  "implementation": "Current session; no local model or delegated agents",
+  "broker": {
+    "status": "connected",
+    "port": 4002
+  },
+  "read_only_chart": {
+    "symbol": "QQQ",
+    "bar_hours": 24,
+    "status": "historical",
+    "update_mode": "historical_snapshot",
+    "bars": 251,
+    "last_session_date": "2026-11-06",
+    "warning": "Live updates unavailable with the current market-data permissions.",
+    "error": null
+  },
+  "checks": {
+    "targeted_python_tests_passed": 277,
+    "chromium_browser_tests_passed": 49,
+    "javascript_tests_passed": 26,
+    "production_build": "passed",
+    "source_diff_whitespace": "passed"
+  },
+  "limits": [
+    "No broker order-placement or multi-session soak validation",
+    "Browser regression tests use API fixtures; real Gateway historical transport verified separately",
+    "Fresh execution quotes, account/reconciliation and sector evidence checks remain enforced"
+  ],
+  "active_execution_jobs": 0
+}

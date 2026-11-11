@@ -1,0 +1,72 @@
+{
+  "implementation": "Cloud directly: coupled lifecycle and simulation repair; no local delegation.",
+  "affected_run_id": "optimize_fccfe699fc",
+  "affected_study_id": "optimize_36be2d0907",
+  "corrected_outcome": "REJECTED_OUTER_HOLDOUT",
+  "qualification_claim_withdrawn": true,
+  "causes": [
+    "Development selection was reported as full qualification, parameters were published before holdout evaluation, and no inactive-holdout gate existed.",
+    "Venue-wide queued commands were drained after the first instrument opening book, before a different target instrument book loaded. The first JPM order was rejected with no market with no fills.",
+    "The one-rejection execution safety threshold then suspended further entries."
+  ],
+  "fixes": [
+    "Target-instrument next-observed-book arrival, then auction flush before the next OHLC stage.",
+    "Equity execution version locked into new validation contracts.",
+    "Whole-share quantities floor so rounding cannot breach the risk-sized limit.",
+    "No-trade or nonpositive/nonfinite normal/stressed holdout rejection; publish parameters only after passing.",
+    "Explicit development-only status; rejected results blocked in API, CLI, UI selectors and progress. Historical metrics retained."
+  ],
+  "execution_model_version": 2,
+  "checks": {
+    "full_python_suite": {
+      "passed": 639,
+      "subtests_passed": 6,
+      "warnings": 216,
+      "seconds": 41.62
+    },
+    "final_holdout_and_risk_tests_passed": 15,
+    "browser_regressions": {
+      "passed": 37,
+      "channel": "Chrome",
+      "viewports": [
+        1440,
+        390
+      ]
+    },
+    "javascript_tests_passed": 26,
+    "production_build": "passed",
+    "changed_file_whitespace": "passed",
+    "mechanical_ui_detector_findings": 0,
+    "saved_result_api_json": "passed",
+    "saved_result_execution_selection": "HTTP 422 as expected",
+    "consumed_study_lock": "preserved, still 124 trials"
+  },
+  "synthetic_before_after": {
+    "before": "2 cases failed for later-in-stream JPM (full/streamed); reversing symbols filled.",
+    "after": "Both symbol orders pass, full and streamed; fill is the target next OPEN."
+  },
+  "evidence": [
+    "evidence/zero_trade_order_events_20261109.json",
+    "evidence/zero_trade_execution_gates_20261109.json",
+    "evidence/zero_trade_holdout_diagnosis_20261109.json",
+    "evidence/holdout_status_correction_20261109.json",
+    "web/test-results/rejected-holdout-1440.png",
+    "web/test-results/rejected-holdout-390.png"
+  ],
+  "limits": [
+    "No new market-data optimization or replacement holdout score was produced.",
+    "The original holdout remains consumed. Forensic diagnosis is not fresh validation or authorization for tuning against it.",
+    "Historical results affected by the ordering defect cannot certify corrected execution.",
+    "Browser checks use isolated fixtures; real saved-run API serialization and selection guards were verified through Python route handlers."
+  ],
+  "source_sha256": {
+    "optimize/selection.py": "158e587b8fb54220c03c1aa16385cc947237f47abcb706662bf98ac3c0f7a184",
+    "optimize/optimize.py": "5272f2582d285ae1800473bdf167925074c173d75c492f16658955d8f59e8759",
+    "run/equity_simulation.py": "67dc56f02f507aae3bb51250a7e21261e67b5af8aaad8fa6aa5803bb0abda7a2",
+    "strategies/ml_strategy.py": "6ec72b2563232281fde87e8cb82ca9f896255b098b7f2b90b675ce485e70b542",
+    "run/artifacts.py": "28b457af6d3b8bc95c26daed2120a3ff80d0a99d51a3764eda63082485bc1b65",
+    "api/strategy_selection.py": "4d055db06b207c903fac699985bfdb536e2bd0076b51daa06d7585708ff8d896",
+    "run/run_live.py": "8706489f0c617ce95f5b34772e63384fe656f59dffe18c2788d22f09c32b738e"
+  },
+  "post_fix_optimization_smoke": "evidence/post_fix_optimization_smoke_20261109.json"
+}

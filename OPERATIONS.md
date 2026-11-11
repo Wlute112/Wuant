@@ -407,8 +407,8 @@ before relying on it for an unattended session.
 ## Reviewed sector exposure and broker disconnects
 
 Paper/Live configuration accepts a separate **Reviewed sector evidence (JSON)**
-upload, or evidence embedded in the strategy params file. The form includes the
-required format. Supply every selected equity/ETF's qualified broker conId and
+upload alongside a saved Optuna result selection. The form includes the
+required format. Low-level runner replay can also carry embedded evidence. Supply every selected equity/ETF's qualified broker conId and
 symbol, full sector weights summing to one, an HTTPS source reference, source
 date, reviewer and review timestamp, and expiry within 31 days of the source
 date. These are operator-reviewed declarations; validation does not independently
@@ -469,6 +469,90 @@ fetches observed replacement data. Existing in-sample/out-of-sample snapshots
 and consumed campaign/holdout contracts are intentionally not regenerated.
 
 
+## Drift and execution-quality review (P2-02)
+
+Open the workspace menu → **Drift review**, then unlock it with the existing
+`QUANT_CONTROL_TOKEN`. The API accepts review controls only from localhost with
+the configured operator token. Credentials stay in component memory and are
+cleared on lock, navigation or reload. This workflow does not start or stop trading.
+
+1. Import a newly generated standalone backtest or collect a registered paper
+   session. Existing artifacts without `review_contract` must be regenerated;
+   restart older paper sessions to publish a model fingerprint. Optimization and
+   holdout artifacts are deliberately excluded from this diagnostic import path.
+2. Review the source, observation count, dataset/execution provenance and exact
+   model fingerprint. Capture a baseline with a reason. The immutable snapshot
+   includes its source evidence and SHA-256; later telemetry cannot rewrite it.
+3. Select that baseline in **Review settings**, enter a review reason, set the
+   sample/window limits, freshness limit and six adverse-change thresholds, then
+   save. Saved settings are append-only versions attributed to the operator.
+4. Import comparable recorded shadow/research evidence or run a paper session
+   with the same resolved alpha, universe and bar/session contract. **Run review
+   now** collects running paper jobs and records comparisons. Enabled review
+   repeats every 15 seconds while the API is running. **Pause automatic review**
+   stops future cycles and retains evidence. It never cancels the trading node.
+5. Review results by source and regime. Each metric shows its baseline/current
+   mean, sample counts, approximate 95% interval, change, threshold and review
+   state. Select a recorded review to inspect an earlier report; a result from
+   earlier settings is labeled historical. Alert history records state transitions,
+   including insufficient evidence, stale/incompatible sources, breaches and
+   recovery; repeated identical reviews do not create repeated alerts.
+
+The fingerprint hashes resolved alpha/strategy parameters, source implementation,
+symbol universe, asset class, bar basis and extended-hours setting. Runtime
+accounts, broker venue IDs and file paths are excluded. A parameter or code
+change requires new evidence and an explicitly reviewed baseline; the review
+service cannot retune, approve or promote a model. Fingerprints identify the
+code/parameter contract, not a frozen Huber fit: normal past-only refits continue.
+
+Research imports use OOS forward-log-return observations retained in the saved
+backtest. Paper imports use completed-bar predictions and realized targets only
+after the configured horizon. The comparison thins overlapping target intervals
+per ticker. Against an earlier snapshot of the same paper source, only new IDs
+at or after the baseline's final target instant are eligible. Other same-stage
+sources with overlapping baseline dates are rejected. Comparisons across stages
+may use the same dates; they remain separate sources and are never pooled.
+
+Slippage is signed adverse basis points versus the last completed decision close,
+averaged per terminal entry order; it is **not** an NBBO/arrival-price execution
+study and includes market movement between decision and fill. Buy fills above
+the reference and sell fills below it are adverse. Actual average fills include
+the execution ledger's corrections; order IDs prevent repeated polls from
+inflating counts. Pending orders do not enter rejection rates. Missing prices,
+reference bars or execution rows stay unavailable. Peer-input age measures the
+oldest required peer bar at the decision instant; no peer features means zero,
+and a missing required peer means unknown. It does not measure every news/model
+feature's freshness. Research artifacts currently lack comparable per-order
+execution/freshness observations, so those comparisons need a declared recorded
+paper/shadow baseline instead of assumed zeros.
+
+Intervals are descriptive normal standard-error intervals, not calibrated
+significance tests. They assume independent observations and do not correct for
+serial/cross-symbol dependence or repeated comparisons. Minimum sample counts
+gate alerts but do not establish reliability. Source freshness is based on its
+snapshot time; market/peer age remains a separate measurement. Stopped or stale
+paper/shadow evidence must not be interpreted as an active healthy monitor.
+
+Use **Export [source]** to download the exact normalized schema. **Import recorded
+evidence JSON** accepts the same envelope for a recorded shadow run, with a new
+`source_id`, the exact `contract`, a dated `reference`, an `as_of` timestamp and
+`samples`. Each sample has an ID, timezone-aware decision `ts`, `ticker`, `regime`
+and any available `prediction`, `actual`, `target_ts`, `slippage_bps`, `rejected`
+(numeric 0 or 1) and `feature_age_seconds`. Prediction/actual are log returns;
+an actual requires a later `target_ts` no later than `as_of`. Omit unknown values.
+Duplicate IDs/forecast decisions, invalid/future timestamps, nonfinite values,
+out-of-universe symbols and modified model hashes are rejected. Recorded imports
+are immutable; provenance remains supplied evidence, not independent certification.
+
+State is in `jobs/drift.sqlite3` with WAL and full synchronization. Automatic
+collection retains at most 10,000 observations per source, so missed telemetry
+windows cannot reconstruct an entire broker archive. Baselines/settings/reports/
+alerts are append-only and grow over time; include the database in normal backups
+and monitor disk use. The dashboard lists the newest 100 baselines/alerts and
+newest 20 reports (the database retains older records). It
+shows missing comparison stages explicitly. API downtime stops collection and
+review; an overdue review is announced. No P0 gate is approved by these reports.
+
 ## Dataset provenance and universe review (P2-01)
 
 Research configuration's **Dataset provenance & universe** disclosure reviews
@@ -521,3 +605,231 @@ pruned because studies may reference them. Disk use grows with distinct input
 versions. The UI displays up to 50 prior source observations; older observations
 remain in the journal. None of this proves vendor point-in-time availability or
 removes survivorship bias, and unknown historical coverage is displayed explicitly.
+
+
+## Strategy modularity audit — 2026-11-08
+
+The system has reusable research and execution infrastructure, but currently
+constructs one concrete Huber strategy. Adding a second strategy still requires
+changes outside `strategies/`; this is not yet a strategy plugin platform.
+
+| Ownership | Components to retain across strategy changes | Boundary to preserve |
+|---|---|---|
+| Market data | `data/ibkr_fetch.py`, provenance archives, research preflight, exchange calendars and corporate actions | Versioned bars and universe/session declarations; no strategy-specific feature calculation in ingestion. |
+| Research orchestration | `api/jobs.py`, job worker, progress, cancellation, logs and compute pool | Jobs invoke an identified strategy contract; lifecycle and worker limits remain shared. |
+| Optimization method | Optuna TPE studies, storage, seeds, pruning and resume lifecycle in `optimize/optimize.py` | Shared search engine calls a strategy-owned suggestion function. Parameter names, bounds and conditional dimensions belong to the strategy. |
+| Validation | Purged walk-forward folds, embargo, outer holdout, normal/stressed costs, multi-seed comparison and promotion | Common evaluation protocol; strategy declares required history and prediction horizon. Compare only compatible validation contracts. |
+| Backtest execution | Venue/instrument construction, fee models, equity simulation, event replay and liquidation | Shared engine accepts a strategy factory instead of constructing `MLStrategy` directly. |
+| Risk and broker operations | `strategies/risk.py`, sector checks, short controls, sessions, reconciliation, supervisor and live-readiness gates | Account and portfolio limits apply independently of alpha. Optuna must not optimize away these limits. |
+| Results and dashboard | Artifact storage, run library, benchmark-relative performance, drawdown, trades, optimization history, progress and logs | A common result schema feeds common panels; optional diagnostics depend on strategy capabilities. |
+| Strategy implementation | Huber prediction, lag/regime/news/industry features, entries, exits and parameter search space | Replace with the selected strategy; do not copy these assumptions into API schemas or the dashboard. |
+
+### Findings and disposition
+
+- **P1 — Sampled parameters could be silently replaced. Fixed.** The optimizer
+  applied structural overrides after `trial.suggest_*`, allowing a manually
+  pinned lag to differ from the trial's recorded parameters. The optimizer now
+  rejects collisions with the strategy's tuned keys, including CLI structural
+  JSON. The existing fifteen search dimensions and distributions are preserved.
+- **P1 — Client-owned parameter payloads obscured provenance. Fixed for the
+  dashboard/job API.** Manual feature settings, lag-mode switches and strategy
+  JSON upload are removed. The API rejects these fields rather than silently
+  ignoring stale clients. Replays select `source_run_id`, load the winner on the
+  server, check strategy/profile/universe/cadence/session compatibility, and
+  retain its fixed fit settings. Missing, partial and non-qualifying results
+  fail with a recovery message. Existing complete Huber artifacts without a
+  strategy ID remain compatible; older incomplete artifacts require a new sweep.
+- **P1 — Default backtests bypassed optimization. Fixed for the dashboard/job
+  API.** With no saved result selected, backtest launch starts the existing
+  forty-trial Optuna workflow and its outer-test report. The UI switches to the
+  optimization hub with progress, cancellation and result review. A selected
+  result replays without a new search. Search budget, validation, capital,
+  simulation assumptions and risk limits remain operational controls.
+- **P2 — Strategy construction is concrete. Open.** `build_engine` and
+  `run_live.build_node` import and instantiate `MLStrategyConfig`/`MLStrategy`.
+  Introduce a strategy registry/factory before adding a second strategy, keeping
+  backtest/paper/live on the same selected implementation.
+- **P2 — Model diagnostics reconstruct this alpha. Open.** `run/artifacts.py`
+  creates `PredictionEngine` and regime/model chart data; `ModelDecisionTape`
+  and model panels expect Huber forecasts and HMM state. Extract a diagnostics
+  provider and capability metadata; retain the common performance/trade panels.
+- **P2 — Profile and strategy defaults are mixed. Open.**
+  `strategy_defaults_for_asset` combines venue-oriented defaults with alpha
+  feature defaults; `optimize/stability.py` names Huber feature-adoption and
+  conditional parameters. Move these definitions into a strategy descriptor.
+- **P2 — Identity is only an initial boundary. Open.** Optimization artifacts
+  now record `huber_mean_reversion_v1`, but campaigns, model registry, backtest
+  artifacts and job/study contracts need strategy/schema/code-version identity
+  throughout before multiple strategies can coexist safely.
+
+The initial strategy contract is `strategies/parameters.py`: strategy ID, tuned
+and fixed parameter keys, Optuna suggestions and collision validation. This
+extracts ownership without rewriting the engine or claiming multi-strategy
+support. Future descriptor interfaces should supply `suggest_parameters`,
+`build_strategy`, history/horizon requirements and optional diagnostics. Keep
+Optuna and the dashboard as shared services.
+
+The public restriction applies to dashboard and job API configuration. The
+low-level Python replay runners retain parameter-file inputs for internal job
+handoff, model-registry replay and developer diagnostics; they are not a
+security boundary against someone who can edit local source/artifact files.
+No real optimization campaign or broker orders were launched for this change.
+Validation uses real Optuna trial generation with controlled fold evaluations,
+existing simulator/research regressions, and isolated browser API fixtures.
+Follow-up work is tracked only in `PRODUCTION_READINESS.md`.
+
+
+## Daily paper execution and historical charts — 2026-11-08
+
+Completed daily equity signals in broker mode are scheduled for the next
+eligible entry window from IBKR's exchange calendar. The window honors session
+policy, opening/closing buffers, holidays, early closes and DST. The existing
+one-second supervision loop dispatches eligible signals using a fresh current
+market mark, preserving the forecast and ATR from the completed signal bar.
+Signals compete by conviction through the existing order/risk path. They expire
+at the target window's entry cutoff and are not carried indefinitely.
+
+Pending daily intent is included in the persisted strategy state with a
+configuration fingerprint. Changed strategy/account/session contracts invalidate
+it; expired or malformed intent is discarded. Explicit operator freeze/resume,
+cancellation, emergency exit, corporate-action recovery and stop invalidate
+pending intent. Temporary supervisor freeze/recovery retains bounded intent but
+cannot execute it until all existing execution and data-health checks pass.
+The Live telemetry panel shows scheduled-signal count and next window. Audit
+events record scheduling, unavailable schedules, dispatch and expiry.
+Backtests retain their existing next-book simulation; no objective, search space
+or Huber feature calculation changed. Broker parity still needs a supervised
+paper-session test; no readiness gate was approved by this implementation.
+
+Daily dashboard candles request one-time IBKR historical snapshots with
+`keepUpToDate=False`, refreshed at most every five minutes while viewed. The
+snapshot refresh merges recent bars without discarding older history. IBKR
+warning 2188 retains the request until historical callbacks finish; it does not
+turn delivered history into an error. Intraday continuous subscriptions fall
+back to snapshots if their live permission is denied. Genuine historical-data
+permission errors remain visible. Each request has a timeout, callbacks from
+replaced requests are ignored, and disconnect/reconnect preserves the cached
+chart with explicit status. Snapshots show receipt time and are labeled
+historical rather than live; they do not satisfy execution's fresh-quote checks.
+The paper form follows a connected paper Gateway's host/port unless the operator
+edits that connection in the current form.
+
+Read-only Gateway verification on 2026-11-09 UTC: connection to localhost port
+4002 succeeded; QQQ `1 day` historical request returned 251 bars through session
+2026-11-06 despite warning 2188, with `status=historical` and no chart error.
+No orders or market-data subscriptions were purchased. This verifies historical
+access for that instrument, not every exchange or real-time execution access.
+Regression evidence includes 277 targeted Python tests, 49 isolated Chromium
+browser tests, 26 JavaScript tests and a successful production build. Desktop
+and narrow chart screenshots were reviewed. Direct access to the user's browser
+was unavailable; broker transport was verified through the read-only API.
+
+
+## Optimization without a qualifying candidate — 2026-11-08
+
+A completed study can produce no usable candidate. Only completed trials with a
+finite objective above the rejection sentinel can become the incumbent; the
+stability objective still owns fold eligibility. Penalized negative scores above
+the sentinel remain eligible. Pruned, rejected and nonfinite trials cannot meet
+a goal target or supply winning parameters.
+
+When no trial qualifies, the optimizer records `NO_QUALIFYING_CANDIDATE` in the
+study, progress snapshot and diagnostic run artifact. It leaves `--out-params`
+unchanged, does not lock a candidate, and returns before evaluating the outer
+holdout. The holdout remains `UNTOUCHED`, and the same study can accept more
+trials under its existing immutable data/validation contract. Empty/all-pruned
+searches use the same outcome. Completed means the search process ended, not
+that a candidate was approved. Artifact/progress errors remain process failures.
+
+The run library labels the diagnostic result "No candidate". The research hub
+shows rejected-trial history, explains that the holdout was not evaluated, and
+provides the study ID for the existing New sweep → Resume study field. No
+selected parameters or fictitious performance metrics are supplied. Diagnostic
+runs are excluded from backtest/paper winner selectors. Seed campaigns record
+this outcome explicitly rather than marking a rejected seed complete.
+
+Consumed holdouts stay consumed: both the consumption marker and the final-test
+flag block resuming such studies. In particular, this fix does not reopen or
+rewrite `optimize_480e8fbb02`, whose holdout was already evaluated by the previous
+workflow. Existing parameter files and historical run artifacts are not repaired
+by inventing a replacement winner.
+
+Regression checks exercise real Optuna study/storage and optimizer entrypoint
+lifecycles with controlled objective values. They verify parameter-file byte
+preservation, no holdout-engine invocation, persistent study markers, valid JSON
+reports, pruned/empty/nonfinite outcomes, resume to a qualifier, qualifying
+holdout dispatch and seed-campaign reporting. Browser checks cover outcome and
+resume guidance, skipped holdout progress, rejected-result selection and narrow
+layouts. No new market-data optimization campaign was launched for this fix.
+
+### Development selection and outer-holdout rejection (2026-11-09)
+
+A completed development trial is a candidate for the one-shot outer test, not
+an execution-qualified result. The optimizer now requires executed holdout
+trades and positive finite normal/stressed risk-adjusted returns and net PnL.
+Rejected holdouts retain their parameters and metrics for diagnosis, carry
+`REJECTED_OUTER_HOLDOUT`, and are excluded by the dashboard, job API and paper
+runner. Ordinary sweeps publish `best_params.json` only after this gate passes.
+Deferred campaign outputs are explicitly `DEVELOPMENT_SELECTED` and cannot
+start execution. Legacy results with recorded failed evidence are rejected on
+read even when their original writer omitted an outcome status.
+
+The NVDA/AMD/JPM result `optimize_fccfe699fc` is rejected. Its first holdout
+market order for JPM was rejected as "no market with no fills": the venue
+drained its delayed command after NVDA's next opening book, before JPM's book
+was loaded. Synthetic regressions reproduce this instrument-order dependency
+in both full and streamed replay. Equity execution model version 2 schedules
+closed-book commands for the target instrument's next observed auction and
+flushes them after same-time books are loaded, before the next OHLC stage.
+Protection commands are activated before that next stage as well. Whole-share
+entry quantities are floored so rounding cannot increase the risk-sized order.
+
+Historical results from the faulty replay are not new validation evidence.
+The corrected execution version is locked into new optimizer contracts; old
+studies cannot silently resume under different execution semantics. The
+consumed study stays locked: neither diagnosis nor rejection authorizes more
+tuning against its observed holdout. Forensic traces retain the original
+metrics; no replacement performance claim was generated.
+
+See [diagnosis and regression evidence](evidence/optimization_holdout_rejection_fix_20261109.json).
+
+### Execution economics audit (2026-11-10)
+
+Normal and stressed runs replay the same frozen candidate. Costs change quotes,
+commissions, financing and equity; they do not automatically change prediction
+thresholds or rerun parameter selection. Counts can remain equal when limits,
+whole-share sizing and risk thresholds do not cross a boundary. The displayed
+count is now labelled **Filled orders**: it is neither completed round trips
+nor the number of individual partial-fill events. The legacy `total_trades`
+field retains its filled-order meaning.
+
+Execution model version 3 sets the daily/session risk baseline before the
+synthetic opening's accrual and execution costs, including midnight-stamped
+daily bars. Turnover uses executed quantity rather than requested quantity for
+partially filled orders. The CLI backtest accepts a dashboard artifact's
+`best_params` instead of silently dropping its tuned settings.
+
+Research and execution now default to long-only. Equity research can explicitly
+enable shorts through `allow_shorts` in the API or `--allow-shorts` in the CLI;
+`--no-allow-shorts` explicitly selects long-only. The policy is recorded as
+`allow_short_positions` in saved parameters and validation contracts. The
+dashboard selects that policy with a saved result, and execution rejects a
+different policy. Saved API results without recorded direction require a new
+sweep. Identified optimizer payloads with missing direction also fail in the
+CLI loaders. Crypto spot research rejects short entries. Explicit simulated
+shorting models scenario borrow costs; it does not establish live borrow
+availability or broker short-control equivalence.
+
+The historical 85-order synthetic replay used implicit long/short policy. Its
+normal/stressed commissions were $85/$170 and profits $557.67/$468.22. The
+corrected explicit long-only replay of the same frozen parameters produced
+39/39 filled orders, $39/$78 commissions and $264.55/$221.92 profit. Ten prices
+and two fill times changed despite equal aggregate counts. These are synthetic
+execution diagnostics, not new market validation or an optimization result.
+
+Native regressions also prove that doubled spread can prevent a marginal limit
+fill and higher commission can trigger the daily-loss halt. Independent cash,
+fill and marked-inventory accounting reconciles all four native replays within
+$0.00000001. The original market study stays consumed and rejected; published
+market parameters were not changed. See the [execution audit, checks and
+remaining limits](evidence/execution_logic_audit_20261110.json).

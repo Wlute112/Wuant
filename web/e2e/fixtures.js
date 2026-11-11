@@ -29,7 +29,7 @@ export const test = base.extend({
       if (path === '/api/live/telemetry') return reply({ mock: false, job_id: 'paper-test', status: 'running', job_status: 'running', as_of: new Date().toISOString(), tickers: ['QQQ'], series: {}, risk: {}, model: {} });
       if (path === '/api/runs') return reply(state.runs);
       if (path.match(/^\/api\/runs\/[^/]+\/research$/)) return reply({ benchmark: { status: 'unavailable', message: 'No benchmark fixture' }, strategy: {}, relative: {} });
-      if (path.startsWith('/api/runs/')) return reply(state.runs.find(r => r.run_id === path.split('/')[3]));
+      if (path.startsWith('/api/runs/')) return reply(state.details[path.split('/')[3]] || state.runs.find(r => r.run_id === path.split('/')[3]));
       if (path === '/api/campaigns') return reply(state.campaigns);
       if (path.startsWith('/api/campaigns/')) return reply(state.details[path.split('/').at(-1)] || {}, state.details[path.split('/').at(-1)] ? 200 : 404);
       if (path === '/api/jobs/data/preflight') {
@@ -88,5 +88,5 @@ export { expect };
 export async function configure(page, workflow = 'backtest') {
   await page.goto(`/?asset=equity&workflow=${workflow}`);
   await page.getByRole('button', { name: workflow === 'optimize' ? /New sweep/ : /New backtest/ }).click();
-  await expect(page.getByText('Data checks passed', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Research data preflight', exact: true }).getByRole('status')).toHaveText(/Data checks passed|Data usable with limitations/);
 }

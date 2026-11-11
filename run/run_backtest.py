@@ -34,101 +34,26 @@ from quant.run.progress import ProgressWriter
 DEFAULT_TICKERS = ["BTC", "ETH", "SOL", "XRP", "DOGE"]  # crypto (24/7)
 EQUITY_DEFAULT_TICKERS = ["SPY", "QQQ", "DIA", "IWM"]  # liquid index ETFs
 
-# The hyperparameters Optuna is allowed to tune (must match MLStrategyConfig
-# fields). Anything else in the JSON is ignored so a stray key can't crash the
-# strategy config.
-TUNABLE_KEYS = {
-    "n_lags",
-    "horizon",
-    "entry_threshold",
-    "atr_period",
-    "atr_stop_mult",
-    "use_limit_orders",
-    "limit_offset_bps",
-    "use_kelly_sizing",
-    "kelly_fraction",
-    "max_open_positions",
-    "cross_asset_lags",
-    "spread_lags",
-    "huber_alpha",
-    "huber_epsilon",
-    "training_window_bars",
-}
+from quant.strategies.parameters import STRUCTURAL_KEYS, TUNABLE_KEYS
 
-# Structural settings (fixed, NOT Optuna-tuned) that optimize.py records as
-# TOP-LEVEL keys in best_params.json -- siblings of "params", not inside it
-# (see optimize.py's payload dict). Applied whenever present so a saved run's
-# warmup/refit cadence actually gets replayed here too, not just its tuned
-# hyperparameters -- e.g. on low-bar-count data (weekly bars) where the
-# default warmup_bars=150/min_train_bars=120 alone can exceed the whole
-# in-sample window and produce zero trades.
-STRUCTURAL_KEYS = {
-    "equity_simulation",
-    "refit_every_n_bars",
-    "warmup_bars",
-    "min_train_bars",
-    # --- feature toggles (dashboard-controlled, NOT Optuna-tuned) ---
-    "use_regime_features",
-    "use_hmm_feature",
-    "regime_source",
-    "hmm_source",
-    "regime_raw_scale",
-    "hmm_raw_scale",
-    "regime_window",
-    "regime_bull_threshold",
-    "regime_bear_threshold",
-    # --- causal news factor (captured DB is frozen at run start) ---
-    "use_news_features",
-    "news_source",
-    "news_raw_scale",
-    "news_score_clip",
-    "news_data_path",
-    "news_half_life_hours",
-    "news_max_age_hours",
-    "news_direct_weight",
-    "news_industry_weight",
-    "news_commodity_weight",
-    "news_macro_weight",
-    # --- correlation-weighted same-industry factor ---------------------
-    "use_industry_features",
-    "industry_map",
-    "industry_benchmark_map",
-    "sector_map",
-    "industry_correlation_window_bars",
-    "industry_correlation_half_life_bars",
-    "industry_minimum_observations",
-    "industry_minimum_correlation",
-    "industry_correlation_shrinkage",
-    "industry_momentum_bars",
-    # --- risk rails (dashboard-editable, NOT Optuna-tuned) ---
-    "risk_budget_pct",
-    "max_trade_risk_pct",
-    "max_leverage",
-    "daily_loss_limit_pct",
-    "kill_switch_pct",
-    "kill_warn_pct",
-    "kelly_max_fraction",
-    "max_order_notional_pct",
-    "max_symbol_exposure_pct",
-    "max_sector_exposure_pct",
-    "max_gross_exposure_pct",
-    "max_concentration_pct",
-    "price_collar_pct",
-}
 
 
 def load_best_params(path: str) -> dict:
     """Load Optuna's saved params JSON.
 
-    Accepts both the wrapper written by optimize.py ({"params": {...}, ...})
-    and a bare {param: value} dict. Returns the recognised TUNABLE_KEYS from
+    Accepts optimizer wrappers, dashboard runs ("best_params"), and bare
+    {param: value} dicts. Returns the recognised TUNABLE_KEYS from
     "params", merged with any STRUCTURAL_KEYS found at the top level.
     """
     with open(path) as fh:
         data = json.load(fh)
     if not isinstance(data, dict):
-        return {}
-    params = data.get("params", data)
+        raise ValueError("--params must contain a JSON object")
+    if any(key in data for key in ("strategy_id", "validation_scheme", "source_run_id")) and not isinstance(data.get("allow_short_positions"), bool):
+        raise ValueError("Optimizer parameters must record their long/short policy; run a new sweep")
+    params = data.get("params", data.get("best_params", data))
+    if not isinstance(params, dict):
+        raise ValueError("Nested strategy parameters must be a JSON object")
     overrides = {k: v for k, v in params.items() if k in TUNABLE_KEYS}
     overrides.update({k: data[k] for k in STRUCTURAL_KEYS if k in data})
     dropped = set(params) - TUNABLE_KEYS - STRUCTURAL_KEYS
@@ -219,6 +144,8 @@ def _run_with_progress(
 
 def main() -> None:
     p = argparse.ArgumentParser()
+    p.add_argument("--allow-shorts", action=argparse.BooleanOptionalAction, default=None,
+                   help="Explicit equity research direction; default is long-only.")
     p.add_argument("--csv", default="quant/data/sample_bars.csv")
     p.add_argument(
         "--asset-class",
@@ -351,6 +278,12 @@ def main() -> None:
         if key not in loaded_overrides or loaded_overrides.get(key) == sessions:
             overrides[key] = sessions * bars_per_session
     overrides.update(loaded_overrides)
+    if args.allow_shorts is not None:
+        if "allow_short_positions" in loaded_overrides and loaded_overrides["allow_short_positions"] != args.allow_shorts:
+            p.error("Long/short policy must match the selected Optuna parameters")
+        overrides["allow_short_positions"] = args.allow_shorts
+    if args.asset_class != "equity" and overrides.get("allow_short_positions"):
+        p.error("Crypto spot research does not support short entries")
     if args.no_news:
         overrides["use_news_features"] = False
         overrides["news_data_path"] = ""

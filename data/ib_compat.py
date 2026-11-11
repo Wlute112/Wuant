@@ -1,4 +1,4 @@
-"""Zero Hash crypto compatibility shim for the nautilus_trader 1.229 IB adapter.
+"""Compatibility fixes for the nautilus_trader 1.229 IB adapter.
 
 Why this exists
 ---------------
@@ -23,6 +23,10 @@ crypto venue at runtime so both the historical fetch and the live node work.
 
 ``register_zerohash_crypto()`` is idempotent -- call it once before any adapter
 use (import, client construction, node build).
+
+``register_ibkr_historical_fixes()`` separately preserves historical requests
+after warning 2188. IBKR can deliver historical bars without up-to-the-second
+entitlement; the adapter otherwise cancels those requests prematurely.
 """
 from __future__ import annotations
 
@@ -33,6 +37,37 @@ CRYPTO_VENUE = "ZEROHASH"
 # Track whether we've already patched so re-invocation is a no-op.
 _REGISTERED = False
 _EXECUTION_FIX_REGISTERED = False
+
+
+def register_ibkr_historical_fixes() -> None:
+    """Keep historical bars alive after IBKR's nonfatal entitlement warning.
+
+    Gateway can send 2188 (up-to-the-second data needs a subscription) and
+    still deliver historical bars followed by historicalDataEnd. Nautilus
+    1.229 logs it as a warning but then cancels the pending request. Preserve
+    that warning and allow only reqHistoricalData to finish normally; genuine
+    permission errors, other requests and request timeouts retain their handling.
+    """
+    from nautilus_trader.adapters.interactive_brokers.client.client import InteractiveBrokersClient
+
+    if getattr(InteractiveBrokersClient, "_quant_preserves_historical_2188", False):
+        return
+    original = InteractiveBrokersClient._handle_request_error
+
+    async def _historical_warning(self, req_id, error_code, error_string):
+        request = self._requests.get(req_id=req_id)
+        handle = getattr(request, "handle", None)
+        function = getattr(handle, "func", handle)
+        if error_code == 2188 and getattr(function, "__name__", "") == "reqHistoricalData":
+            self._log.warning(
+                f"2188: {error_string}; keeping historical request {req_id} active "
+                "until historicalDataEnd or its configured timeout",
+            )
+            return
+        return await original(self, req_id, error_code, error_string)
+
+    InteractiveBrokersClient._handle_request_error = _historical_warning
+    InteractiveBrokersClient._quant_preserves_historical_2188 = True
 
 
 def _restore_zerohash_base_quantity(ib_order, order, instrument) -> None:

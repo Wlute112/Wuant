@@ -25,6 +25,8 @@ _BAR_HOURS = {1, 2, 3, 4, 8, 24}
 _SYMBOL_PATTERN = re.compile(r"^[A-Z0-9][A-Z0-9.-]{0,14}$")
 _MAX_BAR_SUBSCRIPTIONS = 8
 _MAX_BARS = 750
+_HISTORICAL_REFRESH_SECS = 300
+_HISTORICAL_TIMEOUT_SECS = 120
 
 
 def _now() -> str:
@@ -243,18 +245,42 @@ class BrokerMonitor:
             self._state["last_error"] = message
 
     def set_request_error(self, req_id: int, code: int, message: str) -> bool:
+        fallback = None
         with self._lock:
-            key = self._contract_requests.pop(req_id, None)
-            if key is None:
-                key = self._bar_requests.pop(req_id, None)
-            if key is None:
-                return False
-            entry = self._bar_subscriptions.get(key)
-            if entry is not None:
-                entry["status"] = "error"
-                entry["error"] = f"IBKR {code}: {message}"
-                entry["updated_at"] = _now()
-            return True
+            key = self._bar_requests.get(req_id)
+            entry = self._bar_subscriptions.get(key) if key else None
+            if entry is not None and code == 2188:
+                # Nonfatal: Gateway can deliver history after this warning.
+                # Retaining the request mapping is essential for those callbacks.
+                entry["historical_only"] = True
+                entry["warning"] = "Live updates unavailable with the current market-data permissions."
+                return True
+            entitlement_error = code in {354, 420, 10089, 10090, 10167, 10168} or (
+                code == 162 and "subscri" in message.lower()
+            )
+            if entry is not None and entry.get("request_streaming") and entitlement_error:
+                entry["historical_only"] = True
+                entry["warning"] = "Live updates unavailable with the current market-data permissions."
+                self._bar_requests.pop(req_id, None)
+                fallback = (key, self._probe)
+            else:
+                key = self._contract_requests.pop(req_id, None) or self._bar_requests.pop(req_id, None)
+                if key is None:
+                    return False
+                entry = self._bar_subscriptions.get(key)
+                if entry is not None:
+                    entry["status"] = "error"
+                    entry["error"] = f"IBKR {code}: {message}"
+                    entry["updated_at"] = _now()
+        if fallback is not None:
+            key, probe = fallback
+            if probe is not None:
+                try:
+                    probe.cancelHistoricalData(req_id)
+                except Exception:  # noqa: BLE001
+                    pass
+                self._request_history(key, probe)
+        return True
 
     def set_disconnected(self, message: str) -> None:
         self._settled_cash.clear()
@@ -358,9 +384,15 @@ class BrokerMonitor:
                     "use_rth": asset_class == "equity" and not include_extended_hours,
                     "status": "idle",
                     "error": None,
+                    "warning": None,
+                    "historical_only": hours == 24,
+                    "request_streaming": False,
+                    "refresh_after": None,
+                    "request_started": None,
                     "bars": OrderedDict(),
                     "created_at": _now(),
                     "updated_at": None,
+                    "last_received_at": None,
                     "last_accessed": time.monotonic(),
                     "contract_candidates": [],
                     "qualified_contract": None,
@@ -437,26 +469,29 @@ class BrokerMonitor:
             contract = details.contract
             entry["qualified_contract"] = contract
             entry["primary_exchange"] = getattr(contract, "primaryExchange", "")
+            probe = self._probe
+        self._request_history(key, probe)
+
+    def _request_history(self, key: str, probe: _Probe | None) -> None:
+        with self._lock:
+            entry = self._bar_subscriptions.get(key)
+            if entry is None:
+                return
             bar_request_id = self._request_id_locked()
             entry["bar_request_id"] = bar_request_id
             entry["status"] = "backfilling"
             entry["error"] = None
+            entry["request_started"] = time.monotonic()
+            entry["request_streaming"] = not entry["historical_only"]
             self._bar_requests[bar_request_id] = key
-            probe = self._probe
             request = (
-                bar_request_id,
-                contract,
-                "",
-                entry["duration"],
-                entry["bar_size"],
-                entry["what_to_show"],
-                int(entry["use_rth"]),
-                2,
-                True,
-                [],
+                bar_request_id, entry["qualified_contract"], "",
+                "2 D" if entry["bars"] and entry["historical_only"] else entry["duration"],
+                entry["bar_size"], entry["what_to_show"], int(entry["use_rth"]),
+                2, entry["request_streaming"], [],
             )
         if probe is None or not probe.isConnected():
-            self.set_request_error(bar_request_id, 0, "IBKR disconnected during contract qualification")
+            self.set_request_error(bar_request_id, 0, "IBKR disconnected during historical request")
             return
         try:
             probe.reqHistoricalData(*request)
@@ -491,20 +526,58 @@ class BrokerMonitor:
                 bars[last_key]["complete"] = True
             bars[timestamp] = point
             bars.move_to_end(timestamp)
+            entry["last_received_at"] = _now()
             while len(bars) > _MAX_BARS:
                 bars.popitem(last=False)
-            entry["status"] = "streaming" if forming else entry["status"]
+            entry["status"] = "streaming" if forming and not entry["historical_only"] else entry["status"]
             entry["error"] = None
             entry["updated_at"] = _now()
 
     def complete_historical_backfill(self, request_id: int) -> None:
+        cancel = None
         with self._lock:
             key = self._bar_requests.get(request_id)
             entry = self._bar_subscriptions.get(key) if key is not None else None
             if entry is not None:
-                entry["status"] = "streaming"
+                snapshot = entry["historical_only"]
+                entry["status"] = "historical" if snapshot else "streaming"
                 entry["error"] = None
                 entry["updated_at"] = _now()
+                if snapshot:
+                    entry["refresh_after"] = time.monotonic() + _HISTORICAL_REFRESH_SECS
+                    self._bar_requests.pop(request_id, None)
+                    entry["bar_request_id"] = None
+                    if entry["request_streaming"]:
+                        cancel = self._probe
+                    # A snapshot of today's daily candle may still be forming.
+                    for point in entry["bars"].values():
+                        if point.get("session_date") == datetime.now(timezone.utc).date().isoformat():
+                            point["complete"] = False
+        if cancel is not None:
+            try:
+                cancel.cancelHistoricalData(request_id)
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _refresh_history_if_due(self, key: str) -> None:
+        with self._lock:
+            entry = self._bar_subscriptions.get(key)
+            probe = self._probe
+            if entry is None or probe is None or not probe.isConnected():
+                return
+            now = time.monotonic()
+            if entry["status"] == "backfilling":
+                if now - entry["request_started"] > _HISTORICAL_TIMEOUT_SECS:
+                    request_id = entry["bar_request_id"]
+                    self.set_request_error(request_id, 0, "Historical bars timed out; retry the chart request.")
+                    probe.cancelHistoricalData(request_id)
+                return
+            if (entry["status"] != "historical" or entry["bar_request_id"] is not None
+                    or entry["refresh_after"] is None or now < entry["refresh_after"]):
+                return
+            # Reserve under the lock so concurrent chart polls cannot duplicate.
+            entry["refresh_after"] = now + _HISTORICAL_REFRESH_SECS
+            self._request_history(key, probe)
 
     def _restart_bar_subscriptions(self, probe: _Probe) -> None:
         with self._lock:
@@ -534,6 +607,7 @@ class BrokerMonitor:
             hours,
             include_extended_hours,
         )
+        self._refresh_history_if_due(key)
         with self._lock:
             entry = self._bar_subscriptions.get(key)
             if entry is None:
@@ -565,8 +639,12 @@ class BrokerMonitor:
                 ),
                 "primary_exchange": entry.get("primary_exchange", ""),
                 "bars": list(entry["bars"].values()),
-                "as_of": entry["updated_at"],
+                "as_of": entry["last_received_at"],
+                "status_updated_at": entry["updated_at"],
                 "error": entry["error"],
+                "warning": entry["warning"],
+                "update_mode": "historical_snapshot" if entry["historical_only"] else "live_stream",
+                "refresh_interval_seconds": _HISTORICAL_REFRESH_SECS if entry["historical_only"] else None,
             }
 
     def _run(self) -> None:

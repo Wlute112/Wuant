@@ -41,30 +41,37 @@ live** — only the engine/venue wiring changes.
 
 ## Quick start (macOS)
 
-From the repository root, start the dashboard stack with:
+Install the `quant` command once from the repository root:
 
 ```bash
-./quant
+bash scripts/install-quant.sh
+source "${ZDOTDIR:-$HOME}/.zshrc"
 ```
 
-When run from the directory containing `quant/`, use
-`./quant`. The script
-starts Homebrew Redis when needed, launches the API and frontend, opens the
-dashboard at http://localhost:5173, and stops the two dashboard processes on
+Then run `quant` from any directory. You can also run `./quant` directly from
+the repository root without installing the command. The launcher
+starts Homebrew Redis when needed, launches the API and Vite development server, opens the
+dashboard at http://127.0.0.1:5173, and stops the two dashboard processes on
 Ctrl-C. Redis is intentionally left running for paper/live persistence.
+The installer adds a symlink in `~/.local/bin` and a PATH entry in your zsh
+configuration; repeating installation is safe. It refuses to overwrite an
+existing command. Keep the checkout in place, or reinstall after moving it.
 
 Useful options:
 
 ```bash
-./quant/.start-macos.sh --no-browser
-./quant/.start-macos.sh --no-redis
-./quant/.start-macos.sh --install
+quant dev              # same as quant: frontend edits update live
+quant --static         # build once and serve the production frontend
+quant --no-browser
+quant --no-redis
+quant --install
 ```
 
 `--install` installs Python requirements before starting and the script runs
-`npm ci` from the lockfile when `web/node_modules` is missing, then creates a
-static production frontend build. The old
-`.start-macos.sh` launcher has been removed.
+`npm ci` from the lockfile when `web/node_modules` is missing. By default, frontend source edits update in the browser through Vite;
+`--static` builds once and serves the production output. The API does not auto-restart
+on Python edits; restart `quant` after changing backend code. The launcher uses an ignored `.quant-runtime/`
+package link, so the checkout directory does not need to be named `quant`.
 
 ## Layout
 
@@ -360,10 +367,10 @@ The dashboard Paper/Live forms expose the same asset-class selection, optional
 equity primary exchange, and fail-closed short-selling opt-in. Short entries
 require fresh TWS shortable-share/tier and NBBO data, the IBKR borrow-fee feed,
 account/PDT/margin state, and a passing order-specific IBKR what-if check.
-Strategy parameters are selected with the browser's native JSON file picker;
-the frontend validates the JSON and sends its contents to the API, which writes
-a job-scoped params file for `run_live.py`. No server-side file path needs to be
-typed. The API also forwards `asset_class`, `primary_exchange`, `allow_shorts`,
+Strategy parameters are selected by Optuna. The browser selects a saved
+optimization run ID; the API loads and validates its winning contract and writes
+a job-scoped params file for `run_live.py`. Manual strategy JSON upload and
+feature overrides are not accepted by dashboard/job API requests. The API also forwards `asset_class`, `primary_exchange`, `allow_shorts`,
 and the short-control thresholds.
 
 ## Stage 5 — Live trading (disabled pending readiness approval)
@@ -488,8 +495,9 @@ the optimizer's saved `best_params.json` format. For optimizer output it reads
 tuned values from the nested `params` object, carries recognized structural
 settings from the top level, and ignores run metadata such as trial count and
 source CSV.
-The Paper and Live dashboard forms expose the same optional params path and
-pass it through the API to `run_live.py`.
+The Paper and Live dashboard forms require a saved Optuna result via
+`source_run_id`; raw parameter objects and paths are reserved for low-level
+runner/model-registry replay and developer diagnostics.
 The runner refuses `--live` on the paper port as a guardrail.
 
 ---
@@ -515,22 +523,16 @@ pieces, both additive — nothing above this line changed behavior:
   even though the button exists in the UI.
 - `web/`: a React + Vite frontend consuming that API.
 
-**Dashboard-controllable settings** (all optional overrides; omitting them keeps
-every existing default): Optuna sweeps can run a fixed trial count OR "goal
-mode" (run until the selected profile's target score is reached, `--score` —
-Sortino for crypto, Sharpe for equity); which alpha feature
-blocks are on (AR/`n_lags`, regime transition-matrix, HMM, cross-asset
-ARDL+spread) and whether the regime/HMM features are **fit** (jointly weighted
-inside the Huber regression, original behavior) or **raw** (bypass the Huber
-fit entirely and contribute `value * <feature>_raw_scale` directly to yhat —
-the Huber model then fits only the residual after subtracting every raw
-contribution; see `PredictionConfig.regime_source`/`hmm_source` in
-`models/prediction_engine.py`); and the risk rails themselves
-(`risk_budget_pct`, `max_trade_risk_pct`, `max_leverage`,
-`daily_loss_limit_pct`, `kill_switch_pct`, `kill_warn_pct`,
-`kelly_max_fraction` — see `strategies/risk.py`'s `RiskConfig`, now threaded
-through `MLStrategyConfig` instead of being hardcoded at construction).
-`run_backtest.py` accepts these via its existing `--params` JSON mechanism
+**Dashboard configuration:** strategy parameters are owned by Optuna. Backtest
+launch without `source_run_id` starts the forty-trial search and outer-test
+report; choosing a saved Optuna result replays it. Paper/Live requires a saved
+result. The API checks strategy, asset profile, ticker universe and execution
+cadence/session compatibility, and rejects manual `params`, `params_path`,
+`features`, warmup and training overrides. Alpha feature structure remains at
+strategy defaults. Users retain search budget/goal mode, validation settings,
+data/universe, simulation assumptions, capital and risk limits. The existing
+risk rails are not Optuna search dimensions.
+Low-level `run_backtest.py` accepts replay settings via its existing `--params` JSON mechanism
 (now also a STRUCTURAL_KEYS carrier, not just Optuna-tuned keys);
 `optimize.py` accepts them via a new `--structural-json <path>` file, applied
 identically to every trial and the final OOS validation (never searched by

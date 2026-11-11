@@ -1,4 +1,5 @@
 import "./data-preflight.css";
+import { DataErrors } from "./DataIssues.jsx";
 import DatasetProvenance from "./DatasetProvenance.jsx";
 
 export default function DataReport({ report }) {
@@ -12,7 +13,7 @@ export default function DataReport({ report }) {
       {shortFixture && <><br />Short history: the default strategy needs 150 warmup bars and additional bars for trades or evaluation.</>}
     </p>}
     <p>Diagnostics only. Zero-volume bars supply no equity execution liquidity.</p>
-    {!!report.errors?.length && <ul>{report.errors.map((text) => <li key={text}>{text}</li>)}</ul>}
+    <DataErrors errors={report.errors} />
     <div className="data-preflight__table" tabIndex={0} role="region" aria-label="Per-ticker data coverage">
       <table>
         <caption>Observed coverage and declared source semantics</caption>

@@ -1,4 +1,4 @@
-const BASE_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+const BASE_URL = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? "" : "http://127.0.0.1:8000");
 
 async function request(path, options) {
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -45,6 +45,15 @@ async function controlRequest(path, token, options = {}) {
 }
 
 export const api = {
+  getDrift: (token) => controlRequest("/api/drift", token),
+  importDriftEvidence: (token, body) => controlRequest("/api/drift/evidence", token, { method: "POST", body: JSON.stringify(body) }),
+  exportDriftEvidence: (token, id) => controlRequest(`/api/drift/evidence/${encodeURIComponent(id)}`, token),
+  importDriftResearch: (token, id) => controlRequest(`/api/drift/research/${encodeURIComponent(id)}`, token, { method: "POST" }),
+  importDriftPaper: (token, id) => controlRequest(`/api/drift/paper/${encodeURIComponent(id)}`, token, { method: "POST" }),
+  declareDriftBaseline: (token, body) => controlRequest("/api/drift/baselines", token, { method: "POST", body: JSON.stringify(body) }),
+  configureDrift: (token, body) => controlRequest("/api/drift/config", token, { method: "POST", body: JSON.stringify(body) }),
+  reviewDrift: (token) => controlRequest("/api/drift/review", token, { method: "POST" }),
+  stopDrift: (token) => controlRequest("/api/drift/stop", token, { method: "POST" }),
   getRecovery: (token) => controlRequest("/api/recovery", token),
   saveRecovery: (token, body) => controlRequest("/api/recovery/config", token, { method: "PUT", body: JSON.stringify(body) }),
   launchRecovery: (token, body) => controlRequest("/api/recovery/jobs", token, { method: "POST", body: JSON.stringify(body) }),

@@ -209,7 +209,7 @@
   text-transform: uppercase;
 }
 
-.action-panel__file-button {
+.action-panel__file-picker .action-panel__file-button {
   display: flex;
   flex: 1 1 auto;
   align-items: center;
@@ -222,12 +222,20 @@
   transition: border-color var(--duration-fast), background var(--duration-fast);
 }
 
+.action-panel__file-button > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .action-panel__file-button:hover {
   border-color: var(--color-text-primary);
   background: var(--color-panel);
 }
 
 .action-panel__file-type {
+  flex-shrink: 0;
   color: var(--color-text-dim);
   letter-spacing: 0.12em;
 }

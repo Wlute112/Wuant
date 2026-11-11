@@ -64,7 +64,7 @@ again as unfinished features.
 
 | ID | Item / status | Completion evidence |
 |---|---|---|
-| P1-02 | **Validate broker data ingestion and revision semantics — Implemented, validation pending.** Consolidates the historical-fetch, cross-asset freshness and adapter-shutdown follow-ups. | Supported TWS/Gateway evidence for historical fetch, replacement/merge, cadence, RTH/extended hours, permissions, pacing, shutdown, missing peers and revised/out-of-order bars. Verify that recovered or revised data cannot create duplicate decisions or lookahead. Link evidence to the affected P0 gates. |
+| P1-02 | **Validate broker data ingestion and revision semantics — Implemented, validation pending.** Consolidates the historical-fetch, cross-asset freshness and adapter-shutdown follow-ups. | [Gateway 10.50 daily SMART/RTH fetch evidence, 2026-10-28](evidence/P1-02-2026-10-28-historical.json): 20 companies, 25,160 observed OHLCV bars; fixed nonfatal 2188 cancellation, share-class contract resolution and UTC request windows. Remaining supported TWS/Gateway evidence for replacement/merge, intraday cadence, extended hours, permissions, pacing, shutdown, missing peers and revised/out-of-order bars. Verify that recovered or revised data cannot create duplicate decisions or lookahead. Link evidence to the affected P0 gates. |
 | P1-03 | **Calibrate equity simulation — Implemented, calibration pending.** Finite books, partial fills, gap/session scenarios, fixed-plan costs, corporate actions and excess-return Sharpe already exist. | Dated spread/impact, participation, commission, regulatory, borrow/financing and issuer-action evidence, with sources and coverage by symbol/date. Compare predicted fills/costs with observed execution; retain both OHLC paths and stressed costs. Report uncovered periods as scenarios and record tolerances before evaluating agreement. |
 | P1-04 | **Complete supported-version paper and fault-injection campaign — Validation pending.** Includes short-control recall proxies, account evidence, corporate-action recovery and all P0 rows. | Versioned TWS/Gateway, API and Nautilus compatibility matrix; reproducible fixtures, logs and reconciliation reports for each required scenario; supervised long-only baseline, then short-enabled tests and multi-week soak. Review inventory/fee/forced-cover proxies rather than claiming an unavailable native recall feed. Every P0 gate needs its own linked evidence and reviewer decision. |
 | P1-05 | **Complete immutable research-to-promotion evidence — Validation pending.** Multi-seed comparison, robustness and one-shot holdout workflows are implemented. | One reproducible campaign with locked data/universe, seeds, folds, embargoes, assumptions and params; normal/stressed development results; independently reviewed finalists; single-use holdout; shadow/paper agreement. Preserve failed or interrupted holdout consumption. Use the sequential promotion procedure below; do not tune against inspected holdout results. |
@@ -75,14 +75,15 @@ again as unfinished features.
 
 | ID | Item / status | Completion evidence |
 |---|---|---|
-| P2-02 | **Automate drift and execution-quality review — Proposed.** Extend existing ML metrics, telemetry and alerts. | Compare research, shadow and paper predictions, fills, slippage, reject rates, feature freshness and regime behavior against declared baselines. Show sample size and uncertainty, configurable review thresholds and alert history. Model/parameter changes require a new reviewed version; alerts must not silently retune or promote models. |
 | P2-03 | **Add machine-wide research admission and resource visibility — Proposed.** Current CPU/RAM budgets apply per process pool. | Queue concurrent jobs against one host budget while reserving capacity for TWS, risk supervision, Redis and local inference. Dashboard shows queued/running state, resource limits, cancellation and measured peak memory. Verify competing studies cannot starve execution supervision. |
-| P2-04 | **Improve benchmark return-basis comparability — Proposed.** Same-period S&P 500 price-return benchmarking already exists. | Add an explicitly sourced S&P 500 total-return benchmark when available, retaining the price index as a labeled fallback. Show exact overlap, dividend treatment and comparable risk-free assumptions; never splice incompatible bases or conceal partial coverage. |
+| P2-04 | **Improve benchmark return-basis comparability — Proposed.** Same-period S&P 500 price-return benchmarking already exists. Partial or gapped exchange-session coverage is disclosed and excluded from benchmark metrics, relative comparisons and chart overlays; backend and browser regressions cover stale caches. | Add an explicitly sourced S&P 500 total-return benchmark when available, retaining the price index as a labeled fallback. Show exact overlap, dividend treatment and comparable risk-free assumptions; never splice incompatible bases or conceal partial coverage. |
 | P2-05 | **Add automatic corporate-action discovery and review — Proposed.** The current journal is operator-maintained. | Dated issuer/vendor evidence with deduplication and symbol/conId matching, an operator review queue and pending-event cancellation. Preserve flat-account recovery until an independently validated in-position policy exists; ambiguous events freeze affected execution rather than being auto-applied. |
 | P2-07 | **Support tiered commission and financing schedules — Open.** Fixed-plan per-order minimums/caps and configurable regulatory fees/financing already exist. | Dated selectable plans, account/currency and balance tiers, accrual/day-count rules and statement reconciliation. Lock the plan into every fold and expose assumptions and cashflow reconciliation in results. Prioritize only plans relevant to the intended account. |
 | P2-08 | **Complete accessibility and resilience review — Proposed.** Apply the existing product/design contract. | Keyboard-only configuration and safety flows, focus recovery, programmatic labels, announced stale/error/progress states, chart text summaries and usable narrow layouts. Verify long evidence files, empty/partial results and network interruption without losing unsaved configuration. |
 | P2-09 | **Measure target-host scaling and release reproducibility — Validation pending / proposed release check.** Local performance improvements already exist. | Run representative serial/parallel benchmarks on the actual target host; record hardware, dependency locks, worker count, peak memory and fold-result parity. Verify clean installation and dashboard/API startup. Do not infer throughput from advertised hardware or change folds/model settings to improve a benchmark. See `MAC_STUDIO_SCALING.md` for the measurement procedure. |
-| P2-10 | **Keep operator documentation and readiness evidence synchronized — Proposed.** | Check launcher commands, supported workflows, parameter upload behavior, simulation assumptions and live-lock descriptions against the application. Link each completed backlog item to code/test or broker evidence with date and reviewer. Remove duplicate todo lists and stale “unimplemented” claims when closing work. |
+| P2-10 | **Keep operator documentation and readiness evidence synchronized — Proposed.** | Check launcher commands, supported workflows, saved Optuna result selection, simulation assumptions and live-lock descriptions against the application. Link each completed backlog item to code/test or broker evidence with date and reviewer. Remove duplicate todo lists and stale “unimplemented” claims when closing work. |
+| P2-11 | **Introduce strategy adapters before adding another strategy — Proposed after modularity audit (2026-11-08).** Parameter ownership and Optuna-only dashboard/API selection are implemented; engine and diagnostics remain Huber-specific. | Registry/descriptor identifies strategy, schema/code version, search space, fixed defaults, history/horizon, factory and diagnostics capabilities. Exercise two fixture strategies through the same backtest/paper assembly, study/campaign identity and generic dashboard; unsupported diagnostics stay explicitly unavailable. See the audit in `OPERATIONS.md`. |
+
 
 ## P3 — Optional research and scope extensions
 
@@ -112,6 +113,22 @@ Record the completion date and evidence link here, then move the finished item
 to implementation evidence. Local tests alone never approve live capital.
 
 ## Local implementation verification
+
+**P2-02 — Automated drift and execution-quality review completed, 2026-11-05.**
+[Implementation, routing, verification and limits](evidence/P2-02-2026-11-05.json).
+The authenticated Drift review workspace imports version-bound backtest evidence,
+collects registered paper telemetry and accepts recorded shadow evidence. Immutable
+baseline snapshots and versioned, operator-reviewed settings drive opt-in automatic
+review, manual launch, pause, result history and transition-based alerts. Comparisons
+show prediction shift, matured forecast error/direction, terminal-entry-order
+slippage/rejections and peer-input age, with per-regime sample counts and descriptive
+95% intervals. Unknown, incompatible, stale, overlapping and undersized evidence
+remains explicit. Code, alpha settings, universe and bar/session semantics bind the
+comparison; a changed contract needs a new reviewed baseline. A paper session can
+be monitored against its own earlier snapshot without reusing baseline observations.
+Alerts never retune, promote or change execution. [Operating procedure and evidence
+schema](OPERATIONS.md#drift-and-execution-quality-review-p2-02). This closes local
+implementation, not historical calibration, paper-soak or any P0 validation gate.
 
 **P2-06 — XNYS synthetic fixture calendar completed, 2026-09-26.**
 [Verification and limitations](evidence/P2-06-2026-09-26.json).
@@ -344,3 +361,77 @@ The live readiness gate cannot be approved before every P0 row passes its paper
 and compatibility evidence. P1 items that affect the proposed live account,
 instrument universe, or operating model become promotion blockers for that
 deployment even if they are not globally complete.
+
+
+### Daily-session execution and chart entitlement correction (2026-11-08)
+
+Daily broker signals now persist until the next eligible exchange-policy
+window, use fresh execution prices, preserve safety gates, and expire at that
+window's cutoff. Historical chart handling preserves data after IBKR warning
+2188 and requests daily snapshots without continuous updates. A read-only
+Gateway check returned 251 QQQ daily bars. See `OPERATIONS.md` for semantics and
+local verification. Supported-version close/reopen order, rejection, halt,
+restart and multi-session paper validation remains in P1-04; P0 gates remain
+unapproved. Non-qualifying optimization results still require new research;
+market-data permissions and reviewed sector evidence are not bypassed.
+
+
+### No-qualifying-candidate optimization outcome (2026-11-08)
+
+Rejected, pruned, empty and nonfinite searches now stop before parameter
+publication or holdout evaluation. Diagnostic artifacts remain reviewable;
+unconsumed studies can resume under the same validation contract. Seed campaigns
+record rejected outcomes explicitly. Previously consumed studies remain locked.
+[Implementation and regression evidence](evidence/optimization_no_candidate_20261108.json)
+records 155 targeted Python tests, 53 browser tests, 26 JavaScript tests and a
+passing production build. See `OPERATIONS.md` for outcome and resume semantics.
+
+### Inactive holdout rejection and equity replay correction (2026-11-09)
+
+Development selection no longer implies outer-holdout qualification. Inactive
+or nonprofitable normal/stressed holdouts are rejected, remain nonresumable,
+and cannot supply execution parameters. The three-stock result previously
+reported as qualifying is explicitly rejected. A multi-instrument auction
+ordering defect caused its first JPM market order to be rejected before JPM's
+next book loaded. Execution model version 2 removes the instrument-order
+dependency and is part of new immutable research contracts. Whole-share
+entries also floor rather than round up their risk-sized quantity.
+
+[Diagnosis, implementation, checks and limits](evidence/optimization_holdout_rejection_fix_20261109.json).
+P1-05 remains open: historical studies affected by the replay defect cannot
+serve as corrected validation, and the inspected holdout cannot be reused for
+further tuning or a new performance claim.
+
+Follow-up synthetic optimization smoke: 20 real Optuna trials, 202 native
+engine evaluations, no rejected orders, and 85 fills in each normal/stressed
+synthetic holdout. The real MLStrategy rejection-safety path now has explicit
+instrument-order regressions in addition to full/streamed auction tests.
+[Smoke evidence and limits](evidence/post_fix_optimization_smoke_20261109.json).
+Twelve Huber convergence warnings remained on the deterministic fixture.
+This is integration evidence; P1-05 still requires corrected market validation.
+
+### Execution economics follow-up (2026-11-10)
+
+The deeper native-engine audit found and corrected partial-fill turnover,
+daily-loss baseline timing, implicit research/paper short-policy mismatch and
+CLI replay dropping dashboard `best_params`. Execution version 3 records an
+explicit direction policy and prevents silent resumption under older execution
+semantics. Research and paper now default to long-only; selected execution
+requires a matching recorded policy.
+
+Equal order counts were not proof of equal execution. A fixed synthetic
+long-only replay produced 39 filled orders at each cost level, with ten changed
+fill prices, two changed fill times, doubled commissions and lower net profit.
+Independent accounting reconciled all four audited native replays within
+$0.00000001. Marginal-limit and daily-loss tests separately exercise cost changes
+that alter fills or halt entries. Validation passed 658 Python tests plus six
+subtests, 22 affected browser checks, 26 JavaScript tests and the production
+build. Desktop and mobile-viewport render checks passed for the affected UI.
+
+[Execution evidence, prior-smoke scope correction and remaining limits](evidence/execution_logic_audit_20261110.json).
+The earlier 20-trial smoke remains historical version-2 integration evidence;
+it did not validate the subsequently discovered daily-risk and direction-policy
+issues. This follow-up used fixed-candidate native replays and regressions,
+without retuning the consumed market holdout. P1-05 stays open: synthetic OHLC
+auctions and scenario costs do not establish corrected observed-market results
+or shadow/paper agreement. Live-capital readiness remains unchanged.

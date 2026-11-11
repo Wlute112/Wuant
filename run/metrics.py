@@ -178,7 +178,7 @@ def compute_metrics(
             gross_traded_notional = float(np.nansum(notional))
         else:
             # Reconstruct notional = |qty| * avg_px when no notional column.
-            qcol = _first_col(fills, ("quantity", "filled_qty", "last_qty"))
+            qcol = _first_col(fills, ("filled_qty", "last_qty", "quantity"))
             pcol = _first_col(fills, ("avg_px", "price", "last_px"))
             if qcol is not None and pcol is not None:
                 q = np.abs(_to_float_series(fills[qcol]))
@@ -244,7 +244,7 @@ def render_panel(m: StrategyMetrics) -> str:
         f"   Sharpe Ratio     : {m.sharpe_ratio}",
         f"   Sortino Ratio    : {m.sortino_ratio}",
         f"   Max Drawdown     : {m.max_drawdown_pct}%",
-        f"   Trades (fills)   : {m.total_trades}  |  Closed: {m.closed_positions}",
+        f"   Filled orders    : {m.total_trades}  |  Closed: {m.closed_positions}",
         f"   Win/Loss Ratio   : {m.win_loss_ratio}  ({m.win_rate_pct}% win rate)",
         f"   Profit Factor    : {m.profit_factor}",
         f"   Turnover Rate    : {m.turnover_rate}x",

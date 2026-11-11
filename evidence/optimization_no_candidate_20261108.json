@@ -1,0 +1,31 @@
+{
+  "implementation": "Direct implementation in current session",
+  "change": "No qualifying candidate stops before parameter publication and holdout evaluation; diagnostic result remains reviewable and resumable",
+  "checks": {
+    "targeted_python_tests_passed": 155,
+    "browser_tests_passed": 53,
+    "javascript_tests_passed": 26,
+    "production_build": "passed",
+    "source_diff_whitespace": "passed"
+  },
+  "regression_scope": [
+    "rejected, pruned, empty and nonfinite trial sets",
+    "parameter file byte preservation",
+    "no holdout engine invocation without qualifier",
+    "resume to a qualifier",
+    "qualifying holdout dispatch",
+    "consumed-study resume rejection",
+    "seed-campaign result status",
+    "API JSON serialization",
+    "desktop and narrow dashboard review"
+  ],
+  "historical_study": {
+    "id": "optimize_480e8fbb02",
+    "final_test_evaluated": true,
+    "outer_holdout_status": "CONSUMED"
+  },
+  "limits": [
+    "Tests use controlled objectives with real Optuna study/storage lifecycle; no new market-data optimization campaign",
+    "Browser checks use isolated API fixtures; updated running API and frontend health checked after restart"
+  ]
+}

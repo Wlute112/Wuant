@@ -451,6 +451,31 @@ class ExchangeSessionCalendar:
             candidate = candidate or intervals[0][2]
         return candidate.isoformat()
 
+    def next_entry_window(self, when: datetime) -> MarketInterval | None:
+        """Next eligible window from known broker schedules, independent of quotes.
+
+        Freshness/halt checks still apply when executing. Never invent a session
+        outside the broker schedule or carry a signal past this window's end.
+        """
+        when = _aware_utc(when)
+        candidates = []
+        for day in self.days.values():
+            for interval in self.policy_intervals(day.session_date):
+                start = interval.start + timedelta(minutes=self.policy.opening_buffer_minutes)
+                end = interval.end - timedelta(minutes=max(
+                    self.policy.closing_buffer_minutes,
+                    self.policy.no_new_entry_minutes_before_close,
+                ))
+                for liquid in day.liquid:
+                    if not self.policy.participate_opening_auction and liquid.contains(start):
+                        start = max(start, liquid.start + self.auction_window)
+                    if not self.policy.participate_closing_auction and liquid.start < end <= liquid.end:
+                        end = min(end, liquid.end - self.auction_window)
+                start = max(start, when)
+                if start < end:
+                    candidates.append(MarketInterval(start, end))
+        return min(candidates, default=None)
+
     def within_policy_window(self, when: datetime) -> bool:
         """Whether resting entries may remain during the configured session."""
         when = _aware_utc(when)

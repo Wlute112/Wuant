@@ -213,3 +213,23 @@ def test_kill_and_freeze_survive_without_a_shutdown_snapshot(strategy):
     obj._restore_operator_controls()
     assert not obj._risk.can_open
     assert obj._execution_safety.state == ExecutionSafetyState.EMERGENCY
+
+
+def test_supervisor_freeze_and_recovery_preserve_bounded_daily_intent(strategy):
+    obj, store, *_ = strategy
+    obj._operations_entries_frozen = False
+    store.set_state(obj._control_key("operator-freeze"), False)
+    obj._session_signals = {"SPY": "bounded next-session intent"}
+    result = command(strategy, "FREEZE_ENTRIES", payload={"supervisor": "supervisor:test"})
+    assert result.status == "COMPLETED"
+    assert obj._session_signals and not obj._execution_safety.entries_allowed
+    result = command(strategy, "RESUME_ENTRIES", payload={"supervisor": "supervisor:test"})
+    assert result.status == "COMPLETED" and obj._session_signals
+    assert obj._execution_safety.entries_allowed
+
+
+def test_operator_freeze_cancels_scheduled_daily_intent(strategy):
+    obj, *_ = strategy
+    obj._session_signals = {"SPY": "bounded next-session intent"}
+    assert command(strategy, "FREEZE_ENTRIES").status == "COMPLETED"
+    assert not obj._session_signals

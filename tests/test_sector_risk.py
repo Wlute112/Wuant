@@ -183,8 +183,11 @@ def test_dashboard_validation_and_execution_upload_reach_runtime(tmp_path, monke
         jobs_routes.validate_sector_upload(SectorEvidenceRequest(evidence=payload, tickers=["UNKNOWN"]))
     assert exc.value.status_code == 400
     monkeypatch.setattr(jobs_routes, "JOBS_DIR", tmp_path)
-    req = PaperJobRequest(asset_class="equity", tickers=["AAA", "FUND"], sector_evidence=payload,
-                          params={"params": {"sector_evidence": {"bad": True}, "n_lags": 7}, "ibkr_bar_hours": 4})
+    monkeypatch.setattr(jobs_routes, "selected_strategy", lambda req: {
+        "params": {"sector_evidence": {"bad": True}, "n_lags": 7}, "ibkr_bar_hours": 4,
+    })
+    req = PaperJobRequest(asset_class="equity", tickers=["AAA", "FUND"],
+                          source_run_id="optuna_fixture", sector_evidence=payload)
     path = jobs_routes._execution_params_file("paper-test", req)
     params, hours = load_params(path)
     assert hours == 4 and params["n_lags"] == 7

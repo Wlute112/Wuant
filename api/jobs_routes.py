@@ -32,6 +32,7 @@ from quant.api.schemas import (
 )
 from quant.run.asset_profiles import get_asset_profile
 from quant.run.readiness import live_readiness_status
+from quant.api.strategy_selection import selected_strategy
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 manager: JobManager | None = None  # set by quant.api.main at startup
@@ -236,9 +237,8 @@ def _write_params_file(
 def _execution_params_file(job_id, req):
     from quant.run.sector_risk import validate_sector_evidence
     try:
-        payload = dict(req.params or {})
-        if not payload and req.params_path:
-            payload = json.loads(Path(req.params_path).read_text())
+        payload = selected_strategy(req)
+        payload.update(req.risk.as_overrides())
         if not isinstance(payload, dict):
             raise ValueError("Execution params must be a JSON object")
         nested_key = next((key for key in ("params", "best_params") if payload.get(key) is not None), None)
@@ -330,15 +330,20 @@ def _submit_execution_with_supervisor(
 
 @router.post("/backtest", status_code=202)
 def start_backtest(req: BacktestJobRequest):
+    if not req.source_run_id:
+        # An unconfigured backtest enters the existing Optuna lifecycle, whose
+        # final report already includes the untouched outer-test backtest.
+        fields = req.model_dump(exclude={"source_run_id"})
+        return start_optimize(OptimizeJobRequest(**fields))
     _admit_equity_research(req)
     job_id = manager.new_job_id("backtest")
     progress_path = JOBS_DIR / f"{job_id}_progress.json"
-    overrides = {**req.features.as_overrides(), **req.risk.as_overrides()}
+    overrides = req.risk.as_overrides()
     if req.equity_simulation is not None:
         if req.asset_class != "equity":
             raise HTTPException(422, "Equity simulation requires the equity profile")
         overrides["equity_simulation"] = req.equity_simulation.model_dump(mode="json")
-    params_path = _write_params_file(job_id, req.params_path, req.params, overrides)
+    params_path = _write_params_file(job_id, None, selected_strategy(req), overrides)
     args = _args_from(
         [
             ("--csv", req.csv),
@@ -378,7 +383,8 @@ def start_optimize(req: OptimizeJobRequest):
     _admit_equity_research(req)
     job_id = manager.new_job_id("optimize")
     progress_path = JOBS_DIR / f"{job_id}_progress.json"
-    overrides = {**req.features.as_overrides(), **req.risk.as_overrides()}
+    overrides = req.risk.as_overrides()
+    overrides["allow_short_positions"] = req.allow_shorts
     if req.equity_simulation is not None:
         if req.asset_class != "equity":
             raise HTTPException(422, "Equity simulation requires the equity profile")
@@ -394,6 +400,7 @@ def start_optimize(req: OptimizeJobRequest):
             ("--asset-class", req.asset_class),
             ("--tickers", req.tickers),
             ("--trials", req.trials),
+            ("--refit-every-n-bars", 1),
             ("--workers", req.workers),
             ("--memory-budget-gb", req.memory_budget_gb),
             ("--worker-memory-gb", req.worker_memory_gb),
@@ -409,8 +416,6 @@ def start_optimize(req: OptimizeJobRequest):
             ("--stress-cost-multiplier", req.stress_cost_multiplier),
             ("--cash", req.cash),
             ("--seed", req.seed),
-            ("--warmup-bars", req.warmup_bars),
-            ("--min-train-bars", req.min_train_bars),
             ("--structural-json", str(structural_path) if structural_path else None),
             ("--resume-run-id", req.resume_run_id),
             ("--run-name", req.name),
@@ -470,6 +475,8 @@ def start_campaign_seeds(req: CampaignSeedJobRequest):
         ("--walk-forward-folds", req.walk_forward_folds),
         ("--embargo-bars", req.embargo_bars),
     ])
+    if req.allow_shorts:
+        args += ["--allow-shorts"]
     return manager.submit(
         "campaign_seeds", "quant.optimize.multi_seed", args, config=req.model_dump()
     )

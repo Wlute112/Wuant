@@ -51,17 +51,20 @@ test('uncertain command receipt retries the same identity, without duplicate com
   expect(backend.commands).toHaveLength(1);
 });
 
-test('paper params upload validates JSON, starts and stops the registered session', async ({ page, backend }) => {
+test('paper selects an Optuna result, starts and stops the registered session', async ({ page, backend }) => {
+  backend.runs = [{ run_id: 'optuna-test', kind: 'optimize', asset_class: 'equity', allow_short_positions: false, tickers: ['QQQ'] }];
+  backend.details['optuna-test'] = { ...backend.runs[0], best_params: { entry_threshold: 0.002 }, bar_interval_minutes: 240 };
   await page.goto('/?asset=equity&workflow=paper');
   await page.getByRole('button', { name: 'Session controls' }).click();
-  const file = page.locator('.action-panel__file-input[accept*="json"]');
-  await file.setInputFiles({ name: 'bad.json', mimeType: 'application/json', buffer: Buffer.from('{broken') });
-  await expect(page.locator('.action-panel__error')).toBeVisible();
-  await file.setInputFiles({ name: 'params.json', mimeType: 'application/json', buffer: Buffer.from('{"entry_threshold":0.002}') });
-  await expect(page.getByText('params.json', { exact: true })).toBeVisible();
+  await expect(page.locator('input[type=file][accept*="json"]')).toHaveCount(1); // sector evidence only
+  await expect(page.getByRole('button', { name: 'Start Paper Trading', exact: true })).toBeDisabled();
+  await page.getByRole('combobox', { name: 'Optuna result', exact: true }).selectOption('optuna-test');
   await page.getByRole('button', { name: 'Start Paper Trading', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Stop Paper Trading', exact: true })).toBeVisible();
-  expect(JSON.stringify(backend.requests.find(r => r.path === '/api/jobs/paper').body)).toContain('0.002');
+  const body = backend.requests.find(r => r.path === '/api/jobs/paper').body;
+  expect(body.source_run_id).toBe('optuna-test');
+  expect(body).not.toHaveProperty('params');
+  expect(body).not.toHaveProperty('params_path');
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Stop Paper Trading', exact: true }).click();
   expect(backend.jobs[0].status).toBe('cancelling');
@@ -87,4 +90,19 @@ test('live capital stays locked when readiness is unavailable', async ({ page, b
   await expect(page.getByText(/Readiness status unavailable/)).toBeVisible();
   await expect(page.locator('.action-panel__actions .button-danger')).toBeDisabled();
   expect(backend.requests.some(r => r.path === '/api/jobs/live')).toBe(false);
+});
+
+
+test('paper configuration follows the connected Gateway port and preserves a manual edit', async ({ page, backend }) => {
+  await page.addInitScript(() => localStorage.setItem('quant-dashboard.action-settings.v1', JSON.stringify({ port: 7497 })));
+  await page.route('**/api/broker/status', route => route.fulfill({ json: {
+    status: 'connected', config: { host: '127.0.0.1', port: 4002, mode: 'paper' },
+  } }));
+  await page.goto('/?asset=equity&workflow=paper');
+  await page.getByRole('button', { name: 'Session controls' }).click();
+  await page.locator('.action-panel__trading-advanced > summary').filter({ hasText: /^Advanced$/ }).click();
+  const port = page.getByLabel('Port', { exact: true });
+  await expect(port).toHaveValue('4002');
+  await port.fill('7497');
+  await expect(port).toHaveValue('7497');
 });

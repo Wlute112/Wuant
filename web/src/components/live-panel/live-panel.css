@@ -857,3 +857,12 @@
     gap: var(--space-xs);
   }
 }
+
+
+.live-panel__market-note {
+  color: var(--color-text-dim);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+}

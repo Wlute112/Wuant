@@ -47,11 +47,48 @@ class StubJobManager:
         return {"id": parent_job_id, "companion_job_ids": [companion_job_id]}
 
 
+@pytest.fixture
+def selected_winner(monkeypatch):
+    # Policy validation is covered by test_strategy_selection.py. These tests
+    # isolate job wiring, session policy and broker safeguards.
+    def resolve(req):
+        assert req.source_run_id == "optuna_fixture"
+        return {"params": {"n_lags": 7}, "source_run_id": req.source_run_id,
+                "allow_short_positions": req.allow_shorts}
+    monkeypatch.setattr(jobs_routes, "selected_strategy", resolve)
+
+
+@pytest.mark.parametrize("allow_shorts", [False, True])
+def test_research_and_campaign_keep_explicit_direction(monkeypatch, tmp_path, allow_shorts):
+    manager = StubJobManager()
+    monkeypatch.setattr(jobs_routes, "manager", manager)
+    monkeypatch.setattr(jobs_routes, "JOBS_DIR", tmp_path)
+    monkeypatch.setattr(jobs_routes, "CAMPAIGNS_DIR", tmp_path)
+    csv = tmp_path / "direction_bars.csv"
+    csv.write_text("timestamp,ticker,open,high,low,close,volume\n2025-01-02,QQQ,100,101,99,100,1000\n")
+    jobs_routes.start_optimize(OptimizeJobRequest(asset_class="equity", tickers=["QQQ"], csv=str(csv), allow_shorts=allow_shorts))
+    args = manager.submitted["args"]
+    payload = json.loads(open(args[args.index("--structural-json") + 1]).read())
+    assert payload["allow_short_positions"] is allow_shorts
+    jobs_routes.start_campaign_seeds(CampaignSeedJobRequest(
+        campaign_id="direction_test", asset_class="equity", tickers=["QQQ"], csv=str(csv), allow_shorts=allow_shorts))
+    assert ("--allow-shorts" in manager.submitted["args"]) is allow_shorts
+
+
+@pytest.mark.parametrize("model,kwargs", [
+    (OptimizeJobRequest, {}), (BacktestJobRequest, {}),
+    (CampaignSeedJobRequest, {"campaign_id": "spot_test"}),
+])
+def test_spot_research_cannot_enable_short_entries(model, kwargs):
+    with pytest.raises(ValueError, match="does not support short entries"):
+        model(asset_class="crypto", allow_shorts=True, **kwargs)
+
+
 @pytest.mark.parametrize("route,request_model,flag", [
     (jobs_routes.start_backtest, BacktestJobRequest, "--params"),
     (jobs_routes.start_optimize, OptimizeJobRequest, "--structural-json"),
 ])
-def test_equity_simulation_is_validated_and_forwarded_to_research_job(monkeypatch, tmp_path, route, request_model, flag):
+def test_equity_simulation_is_validated_and_forwarded_to_research_job(monkeypatch, tmp_path, route, request_model, flag, selected_winner):
     manager = StubJobManager()
     monkeypatch.setattr(jobs_routes, "manager", manager)
     monkeypatch.setattr(jobs_routes, "JOBS_DIR", tmp_path)
@@ -60,6 +97,8 @@ def test_equity_simulation_is_validated_and_forwarded_to_research_job(monkeypatc
     request = request_model(csv=str(csv), asset_class="equity", tickers=["SPY"], equity_simulation={
         "spread_bps": 12, "participation": 0.02, "risk_free_rate": 0.04,
     })
+    if isinstance(request, BacktestJobRequest):
+        request.source_run_id = "optuna_fixture"
     route(request)
     args = manager.submitted["args"]
     with open(args[args.index(flag) + 1]) as file:
@@ -72,11 +111,11 @@ def test_equity_simulation_is_validated_and_forwarded_to_research_job(monkeypatc
         request_model(asset_class="equity", equity_simulation={"participation": 1})
 
 
-def test_paper_session_policy_is_validated_forwarded_and_saved(monkeypatch, tmp_path):
+def test_paper_session_policy_is_validated_forwarded_and_saved(monkeypatch, tmp_path, selected_winner):
     manager = StubJobManager()
     monkeypatch.setattr(jobs_routes, "manager", manager)
     monkeypatch.setattr(jobs_routes, "JOBS_DIR", tmp_path)
-    req = PaperJobRequest(
+    req = PaperJobRequest(source_run_id="optuna_fixture",
         tickers=["QQQ"], asset_class="equity", include_extended_hours=True,
         session_policy={"mode": "CUSTOM", "custom_windows": [["10:00", "15:00"]],
                         "overnight_pnl_assignment": "PRIOR_SESSION"},
@@ -232,7 +271,7 @@ def test_live_route_is_disabled_until_p0_gates_pass(monkeypatch, tmp_path):
                 host="127.0.0.1",
                 port=4001,
                 account_id="U123",
-                params={"entry_threshold": 0.002},
+                source_run_id="optuna_fixture",
                 confirm=LIVE_CONFIRM_PHRASE,
             )
         )
@@ -241,13 +280,13 @@ def test_live_route_is_disabled_until_p0_gates_pass(monkeypatch, tmp_path):
     assert manager.submitted is None
 
 
-def test_paper_route_accepts_gateway_paper_port(monkeypatch, tmp_path):
+def test_paper_route_accepts_gateway_paper_port(monkeypatch, tmp_path, selected_winner):
     manager = StubJobManager()
     monkeypatch.setattr(jobs_routes, "manager", manager)
     monkeypatch.setattr(jobs_routes, "JOBS_DIR", tmp_path)
 
     jobs_routes.start_paper(
-        PaperJobRequest(tickers=["QQQ"], asset_class="equity", port=4002, account_id="DU123")
+        PaperJobRequest(source_run_id="optuna_fixture", tickers=["QQQ"], asset_class="equity", port=4002, account_id="DU123")
     )
 
     args = manager.submitted["args"]
@@ -255,13 +294,13 @@ def test_paper_route_accepts_gateway_paper_port(monkeypatch, tmp_path):
     assert manager.submitted["config"]["account_id"] == "<redacted-account>"
 
 
-def test_equity_paper_route_forwards_session_and_telemetry_options(monkeypatch, tmp_path):
+def test_equity_paper_route_forwards_session_and_telemetry_options(monkeypatch, tmp_path, selected_winner):
     manager = StubJobManager()
     monkeypatch.setattr(jobs_routes, "manager", manager)
     monkeypatch.setattr(jobs_routes, "JOBS_DIR", tmp_path)
 
     jobs_routes.start_paper(
-        PaperJobRequest(
+        PaperJobRequest(source_run_id="optuna_fixture",
             tickers=["SPY"],
             asset_class="equity",
             port=7497,
@@ -285,21 +324,21 @@ def test_equity_paper_route_forwards_session_and_telemetry_options(monkeypatch, 
 @pytest.mark.parametrize("port", [7496, 4001])
 def test_paper_route_rejects_known_live_ports(port):
     with pytest.raises(HTTPException, match="LIVE port"):
-        jobs_routes.start_paper(PaperJobRequest(tickers=["QQQ"], asset_class="equity", port=port))
+        jobs_routes.start_paper(PaperJobRequest(source_run_id="optuna_fixture", tickers=["QQQ"], asset_class="equity", port=port))
 
 
 def test_paper_route_rejects_unsupported_crypto_paper():
     with pytest.raises(HTTPException, match="do not support spot-crypto"):
-        jobs_routes.start_paper(PaperJobRequest(tickers=["BTC"], port=7497))
+        jobs_routes.start_paper(PaperJobRequest(source_run_id="optuna_fixture", tickers=["BTC"], port=7497))
 
 
-def test_paper_route_forwards_fail_closed_short_controls(monkeypatch, tmp_path):
+def test_paper_route_forwards_fail_closed_short_controls(monkeypatch, tmp_path, selected_winner):
     manager = StubJobManager()
     monkeypatch.setattr(jobs_routes, "manager", manager)
     monkeypatch.setattr(jobs_routes, "JOBS_DIR", tmp_path)
 
     jobs_routes.start_paper(
-        PaperJobRequest(
+        PaperJobRequest(source_run_id="optuna_fixture",
             tickers=["QQQ"],
             asset_class="equity",
             port=7497,
@@ -318,7 +357,7 @@ def test_paper_route_forwards_fail_closed_short_controls(monkeypatch, tmp_path):
 def test_paper_route_rejects_short_control_client_id_collision():
     with pytest.raises(HTTPException, match="client ID"):
         jobs_routes.start_paper(
-            PaperJobRequest(
+            PaperJobRequest(source_run_id="optuna_fixture",
                 tickers=["QQQ"],
                 asset_class="equity",
                 port=7497,

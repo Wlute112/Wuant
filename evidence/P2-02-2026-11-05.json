@@ -1,0 +1,63 @@
+{
+  "item": "P2-02",
+  "verified_at_local": "2026-11-05 America/Los_Angeles",
+  "status": "implementation_complete_local_verification",
+  "selection": "Highest-priority remaining locally implementable item. Earlier P0/P1 rows require external broker, execution calibration, paper/holdout or off-host evidence; remote authorization is conditional on a remote deployment.",
+  "implementation": {
+    "backend": ["ops/drift.py", "ops/drift_statistics.py", "run/drift_evidence.py", "api/drift_routes.py"],
+    "integration": ["api/main.py", "run/artifacts.py", "strategies/ml_strategy.py"],
+    "frontend": ["web/src/components/drift-review/DriftReview.jsx", "web/src/components/drift-review/drift-review.css", "web/src/App.jsx", "web/src/components/bezel/WorkflowDrawer.jsx", "web/src/lib/api.js"],
+    "workflow": "Authenticated localhost evidence collection/import/export, immutable baseline snapshots, operator-attributed versioned configuration, manual launch, 15-second opt-in API-lifetime scheduling, pause, recorded result selection and transition-based alert history.",
+    "contract": "Resolved alpha/strategy parameters, source implementation, universe, asset class, bar type and extended-hours setting. Runtime accounts, venue identifiers and file paths are excluded. Contract changes require a new reviewed baseline. Normal past-only model refits continue.",
+    "observations": "Matured non-overlapping forward-return predictions per symbol; terminal entry-order fill-price slippage and rejects; oldest required peer-input age; per-regime descriptive means, counts and approximate 95% mean intervals.",
+    "persistence": "SQLite WAL/full synchronization; append-only baseline/config/report/alert history; upserted observations keyed by source and stable observation ID; 10,000-observation retention per source. Earlier baseline observations are excluded when comparing a paper session against its own snapshot.",
+    "missing_evidence": "Explicit insufficient, incompatible, overlapping, stale, awaiting and unavailable states. Research imports do not synthesize absent execution or peer-freshness samples. Demo telemetry and optimization/holdout artifacts are excluded.",
+    "execution_authority": "Advisory only: no retuning, promotion, order submission or changes to live readiness. Existing P0 gates remain unapproved."
+  },
+  "local_overseer": {
+    "model": "qwen3-coder-next:latest",
+    "run_id": "b358686d964845e6bfaec07ec79ad047",
+    "attempts": 1,
+    "draft_verdict": "reject",
+    "reason": "The initial statistics draft counted boolean rejects and incorrectly clipped signed/unbounded confidence intervals to [0,1]. Recorded failed review before cloud repair; no third attempt or claimed local acceptance.",
+    "cloud_contribution": "Repaired/rewrote the small statistics helper and authored architecture, evidence normalization, persistence, API/scheduling integration, frontend, tests, documentation and final Impeccable review.",
+    "verification": "CLI verify recorded passing syntax and 25 feature/telemetry tests against current tracked file hashes. The rejected local draft remains unaccepted; passing verification covers cloud-repaired source.",
+    "verification_record": "/tmp/wuant-drift-verification.json"
+  },
+  "checks": {
+    "feature_and_telemetry": "25 passed: tests/test_drift_review.py and tests/test_live_telemetry.py. Includes actual Nautilus backtest artifact/telemetry identity and normalized evidence validation.",
+    "python_full_suite": "539 passed, 1 failed, 6 subtests passed. Existing test_pool_cancellation_stops_its_workers_promptly stalled beyond its 10-second timing bound; interrupted after more than two minutes. Its isolated rerun passed in 1.29 seconds. This full-suite run is not claimed clean.",
+    "python_environment": "Use absolute PYTHONPATH=/Users/wynstonsu/Projects/Wuant/Wuant/.quant-runtime. Initial full-suite subprocess import failures with a relative PYTHONPATH were resolved by correcting the invocation; all 25 research-preflight tests then passed.",
+    "frontend_unit": "26 passed via npm test.",
+    "browser_regression": "41 passed via PLAYWRIGHT_CHANNEL=chrome npx playwright test. After final history/provenance polish, all four drift browser tests passed again.",
+    "browser_coverage": "Configuration, evidence import, baseline declaration, save/launch/pause/result/history, missing samples, stage coverage, token headers, keyboard focus, network interruption with unsaved draft retention, native document scrolling, and source-state announcements. Widths 1440/768/390 in dark/white/lilac respectively.",
+    "touch": "Chrome DevTools Protocol synthesized horizontal touch pan of the overflowing 390px comparison table and verified positive scrollLeft. Mouse document scrolling verified separately before enabling touch emulation. Physical touch devices were not tested.",
+    "contrast": "Computed primary text versus raised control background exceeded 4.5:1 in all three tested themes.",
+    "build": "Production Vite build passed; 106 modules, JS 463.77 kB / 136.64 kB gzip, CSS 124.59 kB / 18.80 kB gzip.",
+    "diff": "git diff --check passed. Existing unrelated uncommitted work was preserved."
+  },
+  "impeccable": {
+    "mode": "Operate, incumbent Strip Recorder visual system",
+    "context": "Launcher ran from the enclosing workspace; nested repository PRODUCT.md/DESIGN.md and incumbent code were read directly. Audit, polish and craft-floor references applied.",
+    "detector": "One manual source detector pass returned [] on the changed interface targets; subsequent focused polish was visually and behaviorally verified.",
+    "audit_scores": {"accessibility": 3, "performance": 3, "theming": 4, "responsive": 3, "implementation_integrity": 4, "total": 17},
+    "integrity": "Pass: existing palette tokens, panel borders, mono data/heading type, semantic forms/tables and native disclosures. No new decorative visual system.",
+    "fixed_findings": [
+      "P1: inherited desktop operating-deck overflow clipped the new document; review now uses a scrolling document at all widths.",
+      "P1: select controls received precise accessible names, verified in browser workflows.",
+      "P2: section links and current/overdue status expose long-document evidence review promptly.",
+      "P2: corrected paragraph spacing, table alignment, model hash wrapping, mono measurements, provenance disclosure and review-history selection."
+    ],
+    "visual_review": "Rendered desktop, intermediate and narrow captures inspected. No remaining blocking finding in the changed path. Scores apply to this surface only, not a full WCAG or application-wide certification.",
+    "captures": ["web/test-results/drift-1440-dark.png", "web/test-results/drift-768-light.png", "web/test-results/drift-390-lilac.png"]
+  },
+  "limitations": [
+    "No actual research/shadow/paper track record or calibration evidence was fabricated. Recorded imports retain supplied provenance and do not certify it.",
+    "Intervals are approximate descriptive normal mean intervals; independence, autocorrelation and repeated-comparison limits are disclosed.",
+    "Slippage is per terminal entry order versus the last completed decision close, not NBBO/arrival-price execution quality. Pending orders are excluded from rejection rates.",
+    "Peer-input age does not cover every news/model feature's freshness. Research execution/freshness comparisons remain unavailable without recorded samples.",
+    "API downtime stops collection/scheduling. Telemetry and source observation windows are bounded. Immutable review history consumes disk over time and requires backup/monitoring.",
+    "Browser verification used local Chrome and isolated HTTP fixtures; actual broker compatibility, paper soak and other browsers/physical devices remain outside this implementation verification."
+  ],
+  "reviewer": "Codex cloud integration and review using local-overseer and Impeccable"
+}

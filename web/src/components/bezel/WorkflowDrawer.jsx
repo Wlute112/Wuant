@@ -16,6 +16,7 @@ const WORKFLOW_GROUPS = [
         label: "Optuna sweep",
         description: "Profile-aware parameter search",
       },
+      { key: "review", label: "Drift review", description: "Research, shadow and paper quality evidence" },
     ],
   },
   {

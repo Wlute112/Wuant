@@ -1,0 +1,46 @@
+.app.is-review { height: auto; min-height: 100dvh; display: block; overflow: visible; }
+.app.is-review .app__main { max-width: 1300px; margin-inline: auto; overflow: visible; padding: var(--space-lg); }
+.drift-review { color: var(--color-text-primary); min-width: 0; }
+.drift-review__toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-md); border-bottom: 1px solid var(--color-hairline); padding-bottom: var(--space-md); }
+.drift-review h1 { font-size: var(--text-display-size); margin: 0; flex: 1; }
+.drift-review h1, .drift-review h2 { font-family: var(--font-mono); }
+.drift-review h2 { font-size: var(--text-metric-size); margin: 0 0 var(--space-md); }
+.drift-review h3 { font-size: var(--text-body-size); }
+.drift-review p { max-width: 75ch; line-height: 1.5; overflow-wrap: anywhere; margin-block: var(--space-sm); }
+.drift-review__intro { margin-block: var(--space-lg); }
+.drift-review__section { padding-block: var(--space-lg); border-top: 1px solid var(--color-hairline); }
+.drift-review__forms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); }
+.drift-review label, .drift-review form { display: grid; gap: var(--space-sm); min-width: 0; }
+.drift-review form { margin-block: var(--space-md); }
+.drift-review input, .drift-review select, .drift-review textarea, .drift-review button { font: inherit; color: var(--color-text-primary); background: var(--color-panel-raised); border: 1px solid var(--color-hairline); border-radius: var(--radius-sm); min-height: var(--touch-target-size); padding: var(--space-sm); max-width: 100%; min-width: 0; }
+.drift-review button { cursor: pointer; white-space: normal; justify-self: start; }
+.drift-review button:hover:not(:disabled) { border-color: var(--color-text-primary); }
+.drift-review button:disabled { color: var(--color-text-dim); cursor: default; }
+.drift-review input, .drift-review textarea { width: 100%; caret-color: var(--color-text-primary); }
+.drift-review textarea { resize: vertical; font-family: var(--font-mono); }
+.drift-review :is(input, select, textarea, button, summary, [tabindex]):focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 3px; }
+.drift-review ::selection { color: var(--color-void); background: var(--color-text-primary); }
+.drift-review__unlock { max-width: 34rem; }
+.drift-review__status, .drift-review__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-md); margin-block: var(--space-md); }
+.drift-review__actions a { color: var(--color-text-primary); text-underline-offset: 3px; min-height: var(--touch-target-size); display: inline-flex; align-items: center; }
+.drift-review h2 { scroll-margin-top: var(--space-lg); }
+.drift-review fieldset { min-width: 0; border: 1px solid var(--color-hairline); padding: var(--space-md); }
+.drift-review summary { cursor: pointer; padding-block: var(--space-md); min-height: var(--touch-target-size); }
+.drift-review code { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.drift-review pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto; }
+.drift-review__sources, .drift-review__alerts { padding-left: var(--space-lg); }
+.drift-review__sources li { display: grid; gap: var(--space-sm); padding-block: var(--space-md); border-top: 1px solid var(--color-hairline); }
+.drift-review__alerts li { padding-block: var(--space-sm); overflow-wrap: anywhere; }
+.drift-review__comparison { margin-block: var(--space-lg); padding-block: var(--space-md); border-top: 1px solid var(--color-hairline); }
+.drift-review__comparison h3 { overflow-wrap: anywhere; }
+.drift-review__table { overflow-x: auto; scrollbar-color: var(--color-text-dim) var(--color-panel); }
+.drift-review table { border-collapse: collapse; text-align: start; width: 100%; font-variant-numeric: tabular-nums; }
+.drift-review th, .drift-review td { padding: var(--space-sm); border-bottom: 1px solid var(--color-hairline); vertical-align: top; min-width: 9rem; }
+.drift-review th { font-weight: 600; text-align: start; }
+.drift-review td { font-family: var(--font-mono); }
+.drift-review caption { text-align: start; padding-block: var(--space-sm); }
+@media (max-width: 700px) {
+  .app.is-review .app__main { padding: var(--space-md); }
+  .drift-review__forms { grid-template-columns: minmax(0, 1fr); }
+  .drift-review__toolbar h1 { flex-basis: 70%; }
+}

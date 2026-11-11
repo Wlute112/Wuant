@@ -22,6 +22,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from quant.strategies.parameters import STRATEGY_ID
+from quant.optimize.selection import NO_QUALIFYING_CANDIDATE, qualifying_trial, annotate_holdout
 from quant.models.cross_asset import PriceHistory
 from quant.models.industry import industry_peers_for_symbol
 from quant.models.prediction_engine import PredictionConfig, PredictionEngine
@@ -97,8 +99,8 @@ def _json_safe(value):
         return int(value)
     if isinstance(value, np.floating):
         v = float(value)
-        return None if np.isnan(v) else v
-    if isinstance(value, float) and np.isnan(value):
+        return None if not np.isfinite(v) else v
+    if isinstance(value, float) and not np.isfinite(value):
         return None
     if isinstance(value, Decimal):
         return float(value)
@@ -487,6 +489,15 @@ def _write_artifact(run_id: str, artifact: dict) -> None:
         json.dump(_json_safe(artifact), fh, indent=2, default=str)
 
 
+def _drift_contract(engine, extended):
+    from quant.run.drift_evidence import review_contract
+    trader = getattr(engine, "trader", None)
+    strategies = trader.strategies() if trader is not None else []
+    if not strategies:
+        return None
+    return review_contract(strategies[0].config.dict(), extended=extended)
+
+
 def save_backtest_artifact(
     *,
     engine,
@@ -514,6 +525,7 @@ def save_backtest_artifact(
     regimes = regime_series_by_ticker(csv_path, tickers, overrides)
     artifact = {
         "run_id": run_id,
+        "review_contract": _drift_contract(engine, include_extended_hours),
         "name": run_name,
         "kind": "backtest",
         "started_at": _iso(started_at),
@@ -555,6 +567,46 @@ def save_backtest_artifact(
     return artifact
 
 
+def save_optimize_search_artifact(
+    *, study, csv_path, tickers, asset_class, starting_cash, seed,
+    n_trials_requested, train_frac, target_score, started_at, run_id=None,
+    run_name=None, structural_overrides=None, resumed_from=None,
+    include_extended_hours=False, dataset_provenance=None, validation_contract=None,
+):
+    """Retain rejected-trial evidence without constructing a winner or holdout."""
+    from quant.data.provenance import describe
+    run_id = run_id or f"opt_{int(started_at)}_{uuid.uuid4().hex[:8]}"
+    profile = get_asset_profile(asset_class)
+    artifact = {
+        "run_id": run_id, "name": run_name, "kind": "optimize",
+        "started_at": _iso(started_at), "finished_at": _iso(time.time()),
+        "strategy_id": STRATEGY_ID, "asset_class": asset_class, "asset_profile": profile,
+        "objective_metric": profile["scoring"]["metric"], "tickers": tickers,
+        "include_extended_hours": include_extended_hours,
+        "bar_interval_minutes": infer_bar_interval_minutes_from_csv(csv_path, tickers),
+        "market_session": "Regular + extended hours" if asset_class == "equity" and include_extended_hours else profile["market"]["session"],
+        "source_csv": csv_path, "dataset_provenance": dataset_provenance if dataset_provenance is not None else describe(csv_path),
+        "starting_cash": starting_cash, "seed": seed, "n_trials_requested": n_trials_requested,
+        "train_frac": train_frac, "target_score": target_score, "resumed_from": resumed_from,
+        **(structural_overrides or {}),
+        "selection_status": NO_QUALIFYING_CANDIDATE,
+        "resume_run_id": study.study_name, "can_resume": True,
+        "best_params": {}, "in_sample_value": None, "oos_score": None,
+        "oos_metrics": None, "oos_equity_curve": [], "ml_performance": {},
+        "trials": [{"number": trial.number, "state": trial.state.name,
+                    "value": trial.value, "params": trial.params, "user_attrs": trial.user_attrs}
+                   for trial in study.get_trials(deepcopy=False)],
+        "validation": {
+            **(validation_contract or {}),
+            "outer_holdout_status": "UNTOUCHED", "final_test": None,
+            "promotion_status": NO_QUALIFYING_CANDIDATE,
+            "compute_plan": study.user_attrs.get("compute_plan"),
+        },
+    }
+    _write_artifact(run_id, artifact)
+    return artifact
+
+
 def save_optimize_artifact(
     *,
     study,
@@ -590,7 +642,10 @@ def save_optimize_artifact(
         }
         for t in study.get_trials(deepcopy=False)
     ]
-    best_params = study.best_params
+    winner = qualifying_trial(study)
+    if winner is None:
+        raise ValueError("Cannot save a winning result without a qualifying candidate")
+    best_params = winner.params
     scoring_params = {**best_params, **(structural_overrides or {})}
     profile = get_asset_profile(asset_class)
     news_series = news_series_by_ticker(oos_path, tickers, scoring_params)
@@ -642,8 +697,9 @@ def save_optimize_artifact(
         # replay the complete winning contract, not only Optuna-tuned values.
         **(structural_overrides or {}),
         "trials": trials,
+        "strategy_id": STRATEGY_ID,
         "best_params": best_params,
-        "in_sample_value": study.best_value,
+        "in_sample_value": winner.value,
         "oos_score": oos_score,
         "oos_metrics": oos_metrics.as_dict(),
         "equity_simulation": simulation_report(oos_engine),
@@ -661,6 +717,7 @@ def save_optimize_artifact(
             "decision_source": "OFFLINE_WALK_FORWARD_RECONSTRUCTION",
         },
     }
+    annotate_holdout(artifact)
     _write_artifact(run_id, artifact)
     return artifact
 
@@ -670,6 +727,8 @@ def _run_summary(path: Path, version: tuple) -> dict:
     """Cache only the small summary, invalidating on writes or atomic replacement."""
     with path.open() as fh:
         data = json.load(fh)
+    if data.get("kind") == "optimize":
+        annotate_holdout(data)
     return {
         "run_id": data.get("run_id", path.stem),
         "name": data.get("name"),
@@ -680,6 +739,9 @@ def _run_summary(path: Path, version: tuple) -> dict:
         "objective_metric": data.get("objective_metric"),
         "tickers": data.get("tickers"),
         "metrics": data.get("metrics") or data.get("oos_metrics"),
+        "selection_status": data.get("selection_status"),
+        "allow_short_positions": data.get("allow_short_positions"),
+        "holdout_assessment": data.get("holdout_assessment"),
         "in_sample_value": data.get("in_sample_value"),
         "oos_score": data.get("oos_score"),
     }
@@ -707,7 +769,8 @@ def load_run(run_id: str) -> dict | None:
     if not path.exists():
         return None
     with open(path) as fh:
-        return json.load(fh)
+        data = json.load(fh)
+    return annotate_holdout(data) if isinstance(data, dict) and data.get("kind") == "optimize" else data
 
 
 def delete_run(run_id: str) -> bool:

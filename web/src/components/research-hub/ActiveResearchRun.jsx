@@ -52,7 +52,9 @@ export default function ActiveResearchRun({ job, onJobUpdated }) {
   const [cancelling, setCancelling] = useState(false);
   const [now, setNow] = useState(Date.now());
   const active = isJobActive(job);
-  const phases = PHASES[job?.kind] || [];
+  const noCandidate = progress.outcome === "NO_QUALIFYING_CANDIDATE";
+  const rejectedHoldout = progress.outcome === "REJECTED_OUTER_HOLDOUT";
+  const phases = (PHASES[job?.kind] || []).filter(([key]) => !noCandidate || key !== "holdout");
   const phaseKey = progress.phase === "complete" ? phases.at(-1)?.[0] : progress.phase;
   const phaseIndex = Math.max(0, phases.findIndex(([key]) => key === phaseKey));
 
@@ -145,7 +147,7 @@ export default function ActiveResearchRun({ job, onJobUpdated }) {
         ["Equity", progress.equity == null ? formatUsd(progress.starting_cash || config.cash) : formatUsd(progress.equity)],
         ["Net P&L", progress.net_pnl == null ? "—" : formatUsd(progress.net_pnl)],
         ["Max drawdown", progress.max_drawdown_pct == null ? "—" : formatPct(progress.max_drawdown_pct, 2)],
-        ["Trades", progress.trades ?? 0],
+        ["Filled orders", progress.trades ?? 0],
       ];
 
   return (
@@ -153,7 +155,7 @@ export default function ActiveResearchRun({ job, onJobUpdated }) {
       <header className="active-research__header">
         <div>
           <div className="active-research__tags">
-            <span className={active ? "is-live" : ""}>{active && <i aria-hidden="true" />}{active ? "LIVE COMPUTE" : jobStatusLabel(job.status).toUpperCase()}</span>
+            <span className={active ? "is-live" : ""}>{active && <i aria-hidden="true" />}{active ? "LIVE COMPUTE" : noCandidate ? "NO QUALIFYING CANDIDATE" : rejectedHoldout ? "OUTER HOLDOUT REJECTED" : jobStatusLabel(job.status).toUpperCase()}</span>
             <span>{job.kind.startsWith("campaign_") ? "VALIDATION CAMPAIGN" : job.kind === "optimize" ? "OPTUNA SWEEP" : "HISTORICAL REPLAY"}</span>
             <span>{String(config.asset_class || "crypto").toUpperCase()}</span>
           </div>
@@ -181,6 +183,20 @@ export default function ActiveResearchRun({ job, onJobUpdated }) {
         </div>
       </section>
 
+      {noCandidate && <section className="research-panel optimization-outcome" role="status" aria-label="Optimization outcome">
+        <div className="research-panel__body">
+          <h2>No qualifying candidate</h2>
+          <p>No saved parameters were replaced. The outer holdout was not evaluated.</p>
+          <p>Resume study <code>{progress.resume_run_id || job.run_id || job.id}</code> with the same data and validation settings to add development trials.</p>
+        </div>
+      </section>}
+      {rejectedHoldout && <section className="research-panel optimization-outcome" role="status" aria-label="Optimization outcome">
+        <div className="research-panel__body">
+          <h2>Outer holdout rejected</h2>
+          <p>The development candidate failed its holdout. It cannot be selected for execution, and this consumed study cannot resume tuning.</p>
+          <ul>{(progress.holdout_assessment?.reasons || []).map((reason) => <li key={reason}>{reason}</li>)}</ul>
+        </div>
+      </section>}
       {job.failure_reason && <div className="active-research__error" role="alert">{job.failure_reason}</div>}
       {error && <div className="active-research__error" role="alert">{error}</div>}
 
@@ -198,7 +214,7 @@ export default function ActiveResearchRun({ job, onJobUpdated }) {
             overlayColor="var(--color-text-primary)"
             overlayLabel="incumbent"
             currentValueLabel={progress.best_score == null ? "—" : formatNum(progress.best_score, 4)}
-            emptyMessage="The first walk-forward candidate is being evaluated"
+            emptyMessage={noCandidate ? "No completed candidates to score" : "The first walk-forward candidate is being evaluated"}
             tickFormat={(value) => formatNum(value, 3)}
             height={310}
           />

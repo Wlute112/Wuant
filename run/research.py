@@ -15,6 +15,8 @@ from urllib.request import Request, urlopen
 import numpy as np
 import pandas as pd
 
+from quant.optimize.selection import NO_QUALIFYING_CANDIDATE, is_qualifying_score
+
 FRED_SP500_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500"
 SP500_CACHE_PATH = Path(__file__).resolve().parents[1] / "data" / "benchmarks" / "sp500_fred.csv"
 
@@ -61,6 +63,10 @@ def _fred_sp500() -> pd.Series:
 def _benchmark_values(start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.Series, dict]:
     try:
         series = _fred_sp500().loc[start.floor("D"):end.floor("D")]
+        import exchange_calendars as xcals
+
+        calendar = xcals.get_calendar("XNYS", start=start.date(), end=end.date())
+        expected = pd.to_datetime(calendar.sessions_in_range(start.date(), end.date()), utc=True)
     except Exception as exc:  # network failure must not block local run review
         return pd.Series(dtype=float), {
             "status": "unavailable",
@@ -71,8 +77,18 @@ def _benchmark_values(start: pd.Timestamp, end: pd.Timestamp) -> tuple[pd.Series
             "status": "unavailable",
             "message": "S&P 500 comparator has insufficient overlap with this run.",
         }
+    missing = expected.difference(series.index)
+    partial = len(missing) > 0
     return series, {
-        "status": "ready",
+        "status": "partial" if partial else "ready",
+        "message": (
+            f"Partial S&P 500 coverage: {series.index[0].date()} through "
+            f"{series.index[-1].date()}; {len(missing)} exchange sessions missing. "
+            "Same-period benchmark comparisons are unavailable."
+        ) if partial else None,
+        "missing_sessions": len(missing),
+        "requested_start": start.isoformat(),
+        "requested_end": end.isoformat(),
         "symbol": "SP500",
         "label": "S&P 500 price index",
         "source": "Federal Reserve Bank of St. Louis (FRED)",
@@ -254,7 +270,7 @@ def _optimization_analysis(run: dict) -> dict | None:
     history = []
     for trial in sorted(trials, key=lambda item: int(item.get("number", 0))):
         value = trial.get("value")
-        if trial.get("state") == "COMPLETE" and isinstance(value, (int, float)):
+        if trial.get("state") == "COMPLETE" and is_qualifying_score(value):
             incumbent = max(incumbent, float(value))
         history.append({
             "number": int(trial.get("number", 0)),
@@ -263,11 +279,12 @@ def _optimization_analysis(run: dict) -> dict | None:
             "incumbent": _finite(incumbent) if incumbent > -math.inf else None,
         })
     importance = []
-    if len(complete) >= 3:
-        names = sorted({key for trial in complete for key in (trial.get("params") or {})})
-        target = pd.Series([float(trial["value"]) for trial in complete])
+    scored = [trial for trial in complete if is_qualifying_score(trial["value"])]
+    if len(scored) >= 3:
+        names = sorted({key for trial in scored for key in (trial.get("params") or {})})
+        target = pd.Series([float(trial["value"]) for trial in scored])
         for name in names:
-            raw = [(trial.get("params") or {}).get(name) for trial in complete]
+            raw = [(trial.get("params") or {}).get(name) for trial in scored]
             if all(isinstance(value, bool) for value in raw if value is not None):
                 values = pd.Series([float(bool(value)) for value in raw])
             elif all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in raw if value is not None):
@@ -277,7 +294,10 @@ def _optimization_analysis(run: dict) -> dict | None:
             score = abs(values.corr(target, method="spearman"))
             importance.append({"parameter": name, "importance": _finite(score, 4) or 0.0})
     importance.sort(key=lambda item: item["importance"], reverse=True)
-    best_trial = max(complete, key=lambda item: item["value"], default={})
+    eligible = [trial for trial in complete if is_qualifying_score(trial["value"])]
+    best_trial = max(eligible, key=lambda item: item["value"], default={})
+    if run.get("selection_status") == NO_QUALIFYING_CANDIDATE:
+        best_trial = {}
     folds = (best_trial.get("user_attrs") or {}).get("walk_forward_folds") or []
     in_sample = run.get("in_sample_value")
     out_of_sample = run.get("oos_score")
@@ -289,11 +309,12 @@ def _optimization_analysis(run: dict) -> dict | None:
         },
         "parameter_importance": importance,
         "best_trial_number": best_trial.get("number"),
-        "best_params": run.get("best_params") or best_trial.get("params") or {},
+        "selection_status": run.get("selection_status"),
+        "best_params": (run.get("best_params") or best_trial.get("params") or {}) if best_trial else {},
         "folds": folds,
         "validation": run.get("validation") or {},
         "generalization_gap": _finite(float(in_sample) - float(out_of_sample), 4)
-        if isinstance(in_sample, (int, float)) and isinstance(out_of_sample, (int, float))
+        if best_trial and isinstance(in_sample, (int, float)) and isinstance(out_of_sample, (int, float))
         else None,
     }
 
@@ -304,10 +325,15 @@ def analyze_run(run: dict) -> dict:
         return {
             "run_id": run.get("run_id"),
             "status": "insufficient_data",
-            "message": "This run has no recorded equity curve.",
+            "message": "No qualifying candidate. The outer holdout was not evaluated." if run.get("selection_status") == NO_QUALIFYING_CANDIDATE else "This run has no recorded equity curve.",
+            "optimization": _optimization_analysis(run),
         }
     strategy = _daily_values(equity_frame)
     benchmark, benchmark_meta = _benchmark_values(strategy.index[0], strategy.index[-1])
+    # A stale or gapped cache must not produce a shorter-period return beside
+    # the full strategy return, or a misleading independently rebased overlay.
+    if benchmark_meta["status"] != "ready":
+        benchmark = pd.Series(dtype=float)
     strategy_stats = _annualized_stats(strategy, 365 if run.get("asset_class") == "crypto" else 252)
     excess_basis = None
     daily_rf = None

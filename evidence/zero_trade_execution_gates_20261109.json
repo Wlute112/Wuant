@@ -1,0 +1,27 @@
+{
+  "basis": "Forensic gate trace with every order submission suppressed; no performance metrics or new qualification.",
+  "counts": {
+    "observed_holdout_bars": 567,
+    "trained_True": 567,
+    "execution_state_ACTIVE": 567,
+    "risk_state_ACTIVE": 567,
+    "signal_batches": 377,
+    "buffered_signals": 567,
+    "buy_forecasts": 314,
+    "entry_attempts": 556,
+    "orders_suppressed_for_diagnosis": 371
+  },
+  "examples": {
+    "entry": {
+      "instrument": "JPM.IBKR",
+      "price": 322.4,
+      "atr": 7.759999999999998,
+      "equity": 5000.0,
+      "prediction": 0.010452990693544415
+    },
+    "order": {
+      "instrument": "JPM.IBKR",
+      "qty": "1"
+    }
+  }
+}

@@ -1,0 +1,895 @@
+{
+  "status": "PASSED_TESTED_INVARIANTS_WITH_REMAINING_VALIDATION_LIMITS",
+  "recorded_at": "2026-11-11T06:07:55.445477+00:00",
+  "scope": "Native Nautilus execution/economics audit of the frozen synthetic three-stock candidate and targeted native regressions; no market strategy qualification",
+  "implementer": {
+    "mode": "cloud_direct",
+    "reason": "Coupled matching, accounting, daily risk and research/execution contract review; no local delegation or unexecuted local checks claimed"
+  },
+  "runtime": {
+    "python": "3.12.16 (main, Oct 25 2026, 18:24:37) [Clang 21.0.0 (clang-2100.3.34.2)]",
+    "nautilus_trader": "1.229.0",
+    "platform": "macOS-27.2-arm64-arm-64bit"
+  },
+  "why_counts_can_match": [
+    "Normal and stressed evaluations replay a frozen candidate with the same predictions and thresholds; the stressed pass does not retune the strategy.",
+    "Costs alter quotes, commissions, borrow/financing charges and equity. Small equity differences can change raw risk sizing without crossing a whole-share quantity boundary.",
+    "A cost change only changes a fill decision or risk action when a limit, liquidity, integer size or risk threshold is crossed. Equal aggregate counts do not imply identical orders or economics.",
+    "The legacy metric total_trades counts filled orders, not completed round trips or every individual partial fill. UI/CLI wording now says Filled orders."
+  ],
+  "fixed_findings": [
+    {
+      "id": "partial_fill_turnover",
+      "impact": "Turnover and optimizer turnover penalty overstated executed notional by preferring requested order quantity to filled quantity.",
+      "fix": "Prefer filled_qty, then last_qty, before quantity when reconstructing filled notional.",
+      "regression": "test_partial_fill_turnover_uses_executed_not_requested_notional: actual native partial fills compared with independent fill-event notional."
+    },
+    {
+      "id": "daily_risk_baseline_after_fees",
+      "impact": "At the first completed bar, resetting the daily baseline after executions/fees could hide those costs from the daily-loss check.",
+      "fix": "Set the session/day baseline at the synthetic opening before accrual, corporate actions, fills and commissions; use the associated completed bar date for midnight daily timestamps.",
+      "regression": "test_costs_cross_daily_loss_limit_before_day_baseline_can_reset at midnight and 21:00 UTC: $1 normal cost remains ACTIVE; $2 stressed cost crosses the $1.50 daily limit and becomes HALTED_DAILY.",
+      "execution_model_version": 3
+    },
+    {
+      "id": "implicit_short_policy_mismatch",
+      "impact": "Research implicitly permitted short entries while paper/live defaulted to long-only, so the strategy validated could differ from the strategy executed.",
+      "fix": "Default strategy and asset profiles to long-only. Make short policy explicit in research API, CLI, campaign UI, saved parameters and immutable validation contract; require a matching policy for selected execution results.",
+      "regression": "Default-policy native checks, API/campaign forwarding, unsupported crypto spot short rejection, replay metadata preservation, execution mismatch/missing-policy rejection and desktop/mobile browser selection tests."
+    },
+    {
+      "id": "dashboard_params_ignored_by_cli_replay",
+      "impact": "Direct CLI backtest replay of a dashboard run with best_params could silently omit tuned values.",
+      "fix": "Accept best_params alongside params and bare dictionaries; reject malformed nested payloads and identified optimizer payloads with unknown direction.",
+      "regression": "test_backtest_accepts_dashboard_winner_format_without_losing_tuned_values and unknown-direction tests for both runner loaders."
+    }
+  ],
+  "native_regressions": {
+    "fee_only": "Equal single-fill counts with higher native commission and lower equity.",
+    "marginal_limit": "A buy limit of $100.04 against $100 midpoint fills with 5 bps spread (ask $100.03), but not at double spread (ask $100.05).",
+    "partial_fills": "Independent actual executed notional drives turnover; cumulative per-order minimum commission is not repeated on each partial fill.",
+    "daily_loss_feedback": "Stressed commission crosses the daily-loss threshold and halts entries before the baseline can discard the loss.",
+    "existing_coverage": "The full suite also exercises next observed opening, multi-instrument ordering, full/streamed replay, zero-volume liquidity, partial fills, borrow, corporate actions, protections and liquidation."
+  },
+  "historical_85_order_comparison": {
+    "execution_model_version": 2,
+    "direction": "Implicit long/short baseline; historical version 2 only",
+    "synthetic_fixture": true,
+    "evaluations": [
+      {
+        "cost_multiplier": 1,
+        "metrics": {
+          "net_profit_usd": 557.67,
+          "sharpe_ratio": 29.53,
+          "sortino_ratio": 18874.98,
+          "max_drawdown_pct": -0.0,
+          "total_trades": 85,
+          "closed_positions": 41,
+          "wins": 41,
+          "losses": 0,
+          "win_loss_ratio": 41.0,
+          "win_rate_pct": 100.0,
+          "profit_factor": "inf",
+          "turnover_rate": 3.89,
+          "capacity_score": 0.0272,
+          "scoring_metric": "sharpe",
+          "primary_score": 29.5345,
+          "objective_score": 29.449531,
+          "trade_penalty": 0.001,
+          "activity_penalty": 0.085,
+          "periods_per_year": 252.0
+        },
+        "commission_usd": 85.0,
+        "filled_orders": 85,
+        "individual_fill_events": 85,
+        "native_equity": 5557.670000000001,
+        "independent_equity": 5557.67,
+        "equity_difference": -9.094947017729282e-13,
+        "rejected_orders": 0,
+        "open_positions": [
+          {
+            "instrument": "AMD.IBKR",
+            "signed_qty": 4.0,
+            "avg_px_open": 53.74,
+            "mark": 55.15
+          },
+          {
+            "instrument": "JPM.IBKR",
+            "signed_qty": 4.0,
+            "avg_px_open": 59.68,
+            "mark": 62.61
+          },
+          {
+            "instrument": "NVDA.IBKR",
+            "signed_qty": 5.0,
+            "avg_px_open": 47.79,
+            "mark": 48.26
+          }
+        ]
+      },
+      {
+        "cost_multiplier": 2,
+        "metrics": {
+          "net_profit_usd": 468.22,
+          "sharpe_ratio": 21.75,
+          "sortino_ratio": 73.85,
+          "max_drawdown_pct": 0.03,
+          "total_trades": 85,
+          "closed_positions": 41,
+          "wins": 37,
+          "losses": 4,
+          "win_loss_ratio": 9.25,
+          "win_rate_pct": 90.2,
+          "profit_factor": 220.6,
+          "turnover_rate": 3.92,
+          "capacity_score": 0.0228,
+          "scoring_metric": "sharpe",
+          "primary_score": 21.7451,
+          "objective_score": 21.660071,
+          "trade_penalty": 0.001,
+          "activity_penalty": 0.085,
+          "periods_per_year": 252.0
+        },
+        "commission_usd": 170.0,
+        "filled_orders": 85,
+        "individual_fill_events": 85,
+        "native_equity": 5468.220000000001,
+        "independent_equity": 5468.22,
+        "equity_difference": -9.094947017729282e-13,
+        "rejected_orders": 0,
+        "open_positions": [
+          {
+            "instrument": "AMD.IBKR",
+            "signed_qty": 4.0,
+            "avg_px_open": 53.74,
+            "mark": 55.15
+          },
+          {
+            "instrument": "JPM.IBKR",
+            "signed_qty": 4.0,
+            "avg_px_open": 59.68,
+            "mark": 62.61
+          },
+          {
+            "instrument": "NVDA.IBKR",
+            "signed_qty": 5.0,
+            "avg_px_open": 47.79,
+            "mark": 48.26
+          }
+        ]
+      }
+    ],
+    "comparison": {
+      "same_ordered_instruments_sides_types_and_quantities": true,
+      "different_fill_prices": 21,
+      "different_fill_times": 0,
+      "different_fill_commissions": 85,
+      "entry_sizing_observations": 44,
+      "different_raw_entry_quantities": 41,
+      "pnl_delta_usd": -89.45,
+      "price_cashflow_delta_usd": -1.09,
+      "additional_commissions_usd": 85.0,
+      "financing_cashflow_delta_usd": -3.36,
+      "pnl_delta_independently_explained": true,
+      "price_or_time_changes": [
+        {
+          "fill_index": 4,
+          "instrument": "JPM.IBKR",
+          "side": "BUY",
+          "changes": {
+            "price": {
+              "normal": 58.11,
+              "stressed": 58.12
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 9,
+          "instrument": "AMD.IBKR",
+          "side": "BUY",
+          "changes": {
+            "price": {
+              "normal": 52.26,
+              "stressed": 52.27
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 10,
+          "instrument": "NVDA.IBKR",
+          "side": "BUY",
+          "changes": {
+            "price": {
+              "normal": 46.6,
+              "stressed": 46.61
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 18,
+          "instrument": "JPM.IBKR",
+          "side": "SELL",
+          "changes": {
+            "price": {
+              "normal": 65.52,
+              "stressed": 65.5
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 21,
+          "instrument": "AMD.IBKR",
+          "side": "SELL",
+          "changes": {
+            "price": {
+              "normal": 59.07,
+              "stressed": 59.06
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 22,
+          "instrument": "NVDA.IBKR",
+          "side": "SELL",
+          "changes": {
+            "price": {
+              "normal": 52.43,
+              "stressed": 52.42
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 29,
+          "instrument": "JPM.IBKR",
+          "side": "BUY",
+          "changes": {
+            "price": {
+              "normal": 58.73,
+              "stressed": 58.74
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 33,
+          "instrument": "AMD.IBKR",
+          "side": "BUY",
+          "changes": {
+            "price": {
+              "normal": 52.81,
+              "stressed": 52.82
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 34,
+          "instrument": "NVDA.IBKR",
+          "side": "BUY",
+          "changes": {
+            "price": {
+              "normal": 47.1,
+              "stressed": 47.11
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 42,
+          "instrument": "JPM.IBKR",
+          "side": "SELL",
+          "changes": {
+            "price": {
+              "normal": 66.14,
+              "stressed": 66.12
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 45,
+          "instrument": "AMD.IBKR",
+          "side": "SELL",
+          "changes": {
+            "price": {
+              "normal": 59.65,
+              "stressed": 59.64
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 46,
+          "instrument": "NVDA.IBKR",
+          "side": "SELL",
+          "changes": {
+            "price": {
+              "normal": 52.93,
+              "stressed": 52.92
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 53,
+          "instrument": "JPM.IBKR",
+          "side": "BUY",
+          "changes": {
+            "price": {
+              "normal": 59.37,
+              "stressed": 59.38
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 57,
+          "instrument": "AMD.IBKR",
+          "side": "BUY",
+          "changes": {
+            "price": {
+              "normal": 53.37,
+              "stressed": 53.38
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 59,
+          "instrument": "NVDA.IBKR",
+          "side": "BUY",
+          "changes": {
+            "price": {
+              "normal": 47.41,
+              "stressed": 47.42
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 66,
+          "instrument": "JPM.IBKR",
+          "side": "SELL",
+          "changes": {
+            "price": {
+              "normal": 66.77,
+              "stressed": 66.75
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 69,
+          "instrument": "AMD.IBKR",
+          "side": "SELL",
+          "changes": {
+            "price": {
+              "normal": 60.23,
+              "stressed": 60.21
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 70,
+          "instrument": "NVDA.IBKR",
+          "side": "SELL",
+          "changes": {
+            "price": {
+              "normal": 53.43,
+              "stressed": 53.42
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 78,
+          "instrument": "JPM.IBKR",
+          "side": "BUY",
+          "changes": {
+            "price": {
+              "normal": 59.77,
+              "stressed": 59.78
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 80,
+          "instrument": "AMD.IBKR",
+          "side": "BUY",
+          "changes": {
+            "price": {
+              "normal": 53.94,
+              "stressed": 53.95
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 83,
+          "instrument": "NVDA.IBKR",
+          "side": "BUY",
+          "changes": {
+            "price": {
+              "normal": 47.9,
+              "stressed": 47.91
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        }
+      ]
+    },
+    "artifacts": [
+      "/Users/wynstonsu/Projects/Wuant/Wuant/.quant-runtime/execution_logic_audit/cost_1.json",
+      "/Users/wynstonsu/Projects/Wuant/Wuant/.quant-runtime/execution_logic_audit/cost_2.json"
+    ]
+  },
+  "corrected_fixed_candidate_comparison": {
+    "execution_model_version": 3,
+    "direction": "Explicit long-only default; same frozen synthetic parameters, no new optimization",
+    "synthetic_fixture": true,
+    "evaluations": [
+      {
+        "cost_multiplier": 1,
+        "metrics": {
+          "net_profit_usd": 264.55,
+          "sharpe_ratio": 11.38,
+          "sortino_ratio": 43.28,
+          "max_drawdown_pct": 0.06,
+          "total_trades": 39,
+          "closed_positions": 18,
+          "wins": 18,
+          "losses": 0,
+          "win_loss_ratio": 18.0,
+          "win_rate_pct": 100.0,
+          "profit_factor": "inf",
+          "turnover_rate": 1.86,
+          "capacity_score": 0.0277,
+          "scoring_metric": "sharpe",
+          "primary_score": 11.3756,
+          "objective_score": 11.336627,
+          "trade_penalty": 0.001,
+          "activity_penalty": 0.039,
+          "periods_per_year": 252.0
+        },
+        "commission_usd": 39.0,
+        "filled_orders": 39,
+        "individual_fill_events": 39,
+        "native_equity": 5264.55,
+        "independent_equity": 5264.55,
+        "equity_difference": 0.0,
+        "rejected_orders": 0,
+        "open_positions": [
+          {
+            "instrument": "AMD.IBKR",
+            "signed_qty": 4.0,
+            "avg_px_open": 53.88,
+            "mark": 55.15
+          },
+          {
+            "instrument": "JPM.IBKR",
+            "signed_qty": 4.0,
+            "avg_px_open": 59.7,
+            "mark": 62.61
+          },
+          {
+            "instrument": "NVDA.IBKR",
+            "signed_qty": 5.0,
+            "avg_px_open": 47.84,
+            "mark": 48.26
+          }
+        ]
+      },
+      {
+        "cost_multiplier": 2,
+        "metrics": {
+          "net_profit_usd": 221.92,
+          "sharpe_ratio": 9.9,
+          "sortino_ratio": 23.92,
+          "max_drawdown_pct": 0.13,
+          "total_trades": 39,
+          "closed_positions": 18,
+          "wins": 18,
+          "losses": 0,
+          "win_loss_ratio": 18.0,
+          "win_rate_pct": 100.0,
+          "profit_factor": "inf",
+          "turnover_rate": 1.87,
+          "capacity_score": 0.0233,
+          "scoring_metric": "sharpe",
+          "primary_score": 9.8971,
+          "objective_score": 9.858065,
+          "trade_penalty": 0.001,
+          "activity_penalty": 0.039,
+          "periods_per_year": 252.0
+        },
+        "commission_usd": 78.0,
+        "filled_orders": 39,
+        "individual_fill_events": 39,
+        "native_equity": 5221.920000000001,
+        "independent_equity": 5221.92,
+        "equity_difference": -9.094947017729282e-13,
+        "rejected_orders": 0,
+        "open_positions": [
+          {
+            "instrument": "AMD.IBKR",
+            "signed_qty": 4.0,
+            "avg_px_open": 53.88,
+            "mark": 55.15
+          },
+          {
+            "instrument": "JPM.IBKR",
+            "signed_qty": 4.0,
+            "avg_px_open": 59.7,
+            "mark": 62.61
+          },
+          {
+            "instrument": "NVDA.IBKR",
+            "signed_qty": 5.0,
+            "avg_px_open": 47.84,
+            "mark": 48.26
+          }
+        ]
+      }
+    ],
+    "comparison": {
+      "same_ordered_instruments_sides_types_and_quantities": true,
+      "different_fill_prices": 10,
+      "different_fill_times": 2,
+      "different_fill_commissions": 39,
+      "entry_sizing_observations": 21,
+      "different_raw_entry_quantities": 20,
+      "pnl_delta_usd": -42.63,
+      "price_cashflow_delta_usd": -3.63,
+      "additional_commissions_usd": 39.0,
+      "financing_cashflow_delta_usd": 0.0,
+      "pnl_delta_independently_explained": true,
+      "price_or_time_changes": [
+        {
+          "fill_index": 8,
+          "instrument": "JPM.IBKR",
+          "side": "SELL",
+          "changes": {
+            "price": {
+              "normal": 65.52,
+              "stressed": 65.5
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 10,
+          "instrument": "AMD.IBKR",
+          "side": "SELL",
+          "changes": {
+            "price": {
+              "normal": 59.07,
+              "stressed": 59.06
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 11,
+          "instrument": "NVDA.IBKR",
+          "side": "SELL",
+          "changes": {
+            "price": {
+              "normal": 52.43,
+              "stressed": 52.42
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 17,
+          "instrument": "AMD.IBKR",
+          "side": "SELL",
+          "changes": {
+            "ts": {
+              "normal": 1694203199999999988,
+              "stressed": 1694462399999999988
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 18,
+          "instrument": "AMD.IBKR",
+          "side": "BUY",
+          "changes": {
+            "ts": {
+              "normal": 1694462399999999982,
+              "stressed": 1694548799999999982
+            },
+            "price": {
+              "normal": 57.48,
+              "stressed": 58.25
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 20,
+          "instrument": "JPM.IBKR",
+          "side": "SELL",
+          "changes": {
+            "price": {
+              "normal": 66.14,
+              "stressed": 66.12
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 22,
+          "instrument": "AMD.IBKR",
+          "side": "SELL",
+          "changes": {
+            "price": {
+              "normal": 59.65,
+              "stressed": 59.64
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 23,
+          "instrument": "NVDA.IBKR",
+          "side": "SELL",
+          "changes": {
+            "price": {
+              "normal": 52.93,
+              "stressed": 52.92
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 32,
+          "instrument": "JPM.IBKR",
+          "side": "SELL",
+          "changes": {
+            "price": {
+              "normal": 66.77,
+              "stressed": 66.75
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 34,
+          "instrument": "AMD.IBKR",
+          "side": "SELL",
+          "changes": {
+            "price": {
+              "normal": 60.23,
+              "stressed": 60.21
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        },
+        {
+          "fill_index": 35,
+          "instrument": "NVDA.IBKR",
+          "side": "SELL",
+          "changes": {
+            "price": {
+              "normal": 53.43,
+              "stressed": 53.42
+            },
+            "commission": {
+              "normal": 1.0,
+              "stressed": 2.0
+            }
+          }
+        }
+      ]
+    },
+    "artifacts": [
+      "/Users/wynstonsu/Projects/Wuant/Wuant/.quant-runtime/execution_logic_audit_v3/cost_1.json",
+      "/Users/wynstonsu/Projects/Wuant/Wuant/.quant-runtime/execution_logic_audit_v3/cost_2.json"
+    ]
+  },
+  "accounting_check": "Independent equity = initial cash + signed cash flows from individual fills - individual commissions + marked open inventory + financing/dividend cashflows + unpaid receivables. Matched native equity within 1e-8 USD in all four replays.",
+  "validation": {
+    "python_suite": {
+      "passed": 658,
+      "subtests_passed": 6,
+      "warnings": 250,
+      "seconds": 41.87,
+      "log": "/Users/wynstonsu/Projects/Wuant/Wuant/.quant-runtime/execution_logic_pytest.log"
+    },
+    "browser_initial_suite": {
+      "passed": 56,
+      "failed": 2,
+      "failure": "New short-policy checkbox was missing an accessible checkbox name; fixed explicitly. No remaining failure in affected rerun.",
+      "log": "/Users/wynstonsu/Projects/Wuant/Wuant/.quant-runtime/execution_logic_e2e.log"
+    },
+    "browser_affected_rerun": {
+      "passed": 22,
+      "failed": 0,
+      "seconds": 11.1,
+      "coverage": [
+        "strategy selection",
+        "paper safety",
+        "campaign configuration",
+        "1440px and 390px short-policy state and keyboard focus"
+      ],
+      "log": "/Users/wynstonsu/Projects/Wuant/Wuant/.quant-runtime/execution_logic_e2e_followup.log"
+    },
+    "javascript_unit_tests": {
+      "passed": 26,
+      "failed": 0
+    },
+    "production_build": "PASSED",
+    "git_diff_check": "PASSED",
+    "ui_review": {
+      "skill": "Impeccable audit and polish of affected UI only",
+      "static_detector_findings": 0,
+      "detector_output": "/Users/wynstonsu/Projects/Wuant/Wuant/.quant-runtime/execution_logic_ui_audit.json",
+      "manual_render_review": [
+        "1440px desktop",
+        "390px mobile viewport",
+        "native control and focus visibility",
+        "short-policy state and error recovery",
+        "existing typography, tokens and layout retained"
+      ],
+      "screenshots": [
+        "/Users/wynstonsu/Projects/Wuant/Wuant/web/test-results/short-policy-1440.png",
+        "/Users/wynstonsu/Projects/Wuant/Wuant/web/test-results/short-policy-390.png"
+      ],
+      "limit": "Chromium desktop and emulated mobile viewport; no physical touch device or full WCAG certification."
+    }
+  },
+  "market_data_integrity": {
+    "published_market_params_sha256": "c65b406816ef941206d9570277e75b317ed096b656791e9fe3c1765d602949c8",
+    "published_market_params_unchanged": true,
+    "market_study": "optimize_36be2d0907",
+    "trials": 124,
+    "outer_holdout_status": "CONSUMED",
+    "run": "optimize_fccfe699fc",
+    "selection_status": "REJECTED_OUTER_HOLDOUT",
+    "new_market_holdout_or_broker_trades": false
+  },
+  "limits": [
+    "Synthetic cyclic fixtures deliberately exercise trading. Their profits, win rates and ratios are not evidence of expected market returns.",
+    "The original real holdout remains consumed and rejected; it was not reused for tuning or replacement performance evidence.",
+    "The earlier 20-trial smoke used execution version 2 and implicit short policy. It proves its recorded integration behavior, not version 3 economic correctness.",
+    "This follow-up ran fixed-candidate native normal/stressed replays and regression suites, not another 20-trial optimization.",
+    "OHLC auctions cannot reconstruct actual intrabar path, queue priority, hidden liquidity or broker latency. Default costs remain uncalibrated scenarios.",
+    "Global backtest risk is sampled at strategy risk callbacks/completed bars; protective orders use the synthetic intrabar auctions. Real broker/tick risk timing equivalence remains unvalidated.",
+    "Passing tests cover these demonstrated defects and tested contracts; they cannot establish absence of every logical error.",
+    "Corrected observed-market research and shadow/paper agreement remain required; P1-05 remains open and live-capital readiness was not promoted."
+  ],
+  "official_references": [
+    "https://nautilustrader.io/docs/latest/concepts/backtesting/fill-models/",
+    "https://nautilustrader.io/docs/latest/concepts/backtesting/fill-prices-and-matching/",
+    "https://nautilustrader.io/docs/latest/concepts/backtesting/execution-flow/",
+    "https://nautilustrader.io/docs/python-api-latest/analysis.html"
+  ],
+  "source_sha256": {
+    "run/equity_simulation.py": "b0427bb9e0ff4451c21c9732ea63bf6e322e2d948b9c8134147adb9c90852424",
+    "run/metrics.py": "51d1ccc9237763b44b11c2e8f0f0b2542d60937c3a03a564fa4e24e01225e37f",
+    "strategies/ml_strategy.py": "ba03fb4fc248924ff30765078f8d3091acb7aaa10b1e34457e87ac4a9b55d9e1",
+    "strategies/parameters.py": "2be135bdb122aa0061dd8da5b96ee6c60c9b400589a53bbcb1a751388cc0a6da",
+    "run/asset_profiles.py": "e87d9ca4df33fea1b4cb7ac2670855232a9a173ca89bbe4fee8f5a6cded466ad",
+    "run/run_backtest.py": "06308796f291940df2bf242651809c0688116cf16b0e30440f099955dfd161f0",
+    "run/run_live.py": "0a5da3da052b87193ccef27e4144cb3dfdf3f3f515c4dc05a33f2920d3ffdfbe",
+    "run/artifacts.py": "160233db8a3b6439449749cceed5ae63f681b033ba22cb582e2d48ed02c73008",
+    "api/schemas.py": "b97be396584c44492ac751fda54829a65895395c91bd29ef8fe425ede2da5682",
+    "api/jobs_routes.py": "e7b329bb3898075716c38b8a7608eaaa088fab3f17a19c7f7304ace6ae60208e",
+    "api/strategy_selection.py": "5e3944ee215153a67537d044cedc255a8e302a5eb0049583cd126e45afae88d1",
+    "optimize/optimize.py": "546bd5852f28d1355c2ee227e83b338cc882ff7b3e9d895fb854b4fbfc54614c",
+    "tests/test_execution_logic.py": "e4fce16ea28659d2e1edd350274686cf490744987b97328bb37b8479496a9e92",
+    "tests/test_equity_simulation.py": "570c3eb2b5a2a614d0860917739309a7d28882ed89b43563fc15de77c4fb873d",
+    "tests/test_strategy_selection.py": "98ae9dea0beb439daab1b8ba6ad6089fc4311465afc7b9ee6632d53ca1aa8780",
+    "tests/test_api_jobs.py": "250efad30d53c7e244c4568b05bf8427339b4eb85d876a5dfa76036df3dd3a56",
+    "web/src/components/bezel/ActionPanel.jsx": "4430ae3aa02b0a1316cd89a39eb97c062381c49b16207d62402ea0916824bf6f",
+    "web/src/components/research-hub/CampaignPanel.jsx": "8aedac0915edd389d178a64add8315427e5de51bcd53fee7527b4dfcb0f0fa37",
+    "web/src/components/research-hub/ResearchHub.jsx": "892b6fc7a0588fbb73fa86e570b1b0d7675b1ab8106ba41b593a3bea13eaee6e",
+    "web/src/components/research-hub/ActiveResearchRun.jsx": "257bdc5bef1a81dd911e4ddf3f90d4fe5c5b89c77720613e964f7710e9b17cb0",
+    "web/e2e/strategy-selection.spec.js": "1022fe1cefabf3b76d14a78bdb8ce7e1714d0660f57519d8126ddee3fec47dc6",
+    "web/e2e/safety.spec.js": "d32ed9a80531987e975ec2c5c215ac0cbc4fb85a90ea057258ee40c05bc0bfc5"
+  }
+}

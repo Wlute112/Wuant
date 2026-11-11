@@ -40,6 +40,40 @@ def test_analyze_run_builds_same_period_benchmark_and_relative_metrics(monkeypat
     assert result["monthly_returns"]
 
 
+def test_stale_benchmark_discloses_partial_coverage_without_comparing_different_periods(monkeypatch):
+    dates = pd.bdate_range("2024-01-02", periods=30, tz="UTC")
+    monkeypatch.setattr(research, "_fred_sp500", lambda: pd.Series(
+        np.linspace(100, 110, 20), index=dates[:20], name="SP500",
+    ))
+    result = research.analyze_run({
+        "run_id": "stale_benchmark", "asset_class": "equity",
+        "equity_curve": _equity_points(np.linspace(5000, 5500, 30)),
+    })
+    assert result["benchmark"]["status"] == "partial"
+    assert result["benchmark"]["missing_sessions"] > 0
+    assert "Same-period benchmark comparisons are unavailable" in result["benchmark"]["message"]
+    assert result["benchmark"]["coverage_end"] == dates[19].isoformat()
+    assert result["benchmark"]["metrics"] == {}
+    assert result["relative"] == {}
+    assert result["series"]["benchmark_index"] == []
+    assert len(result["series"]["strategy_index"]) == 30
+    assert result["strategy"]["total_return_pct"] == 10.0
+
+
+def test_benchmark_checks_internal_gaps_and_accepts_exchange_holidays(monkeypatch):
+    import exchange_calendars as xcals
+
+    dates = pd.to_datetime(xcals.get_calendar("XNYS").sessions_in_range("2024-01-02", "2024-02-01"), utc=True)
+    benchmark = pd.Series(np.linspace(100, 110, len(dates)), index=dates, name="SP500")
+    monkeypatch.setattr(research, "_fred_sp500", lambda: benchmark)
+    _, metadata = research._benchmark_values(dates[0], dates[-1])
+    assert metadata["status"] == "ready"
+    benchmark = benchmark.drop(dates[5])
+    _, metadata = research._benchmark_values(dates[0], dates[-1])
+    assert metadata["status"] == "partial"
+    assert metadata["missing_sessions"] == 1
+
+
 def test_analyze_optimize_run_exposes_trials_sensitivity_and_cost_folds(monkeypatch):
     dates = pd.bdate_range("2024-01-02", periods=90, tz="UTC")
     monkeypatch.setattr(

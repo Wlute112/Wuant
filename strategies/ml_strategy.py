@@ -28,6 +28,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 import json
+import hashlib
 import math
 from typing import NamedTuple
 
@@ -79,6 +80,8 @@ from quant.strategies.execution_state import (
     OrderRole,
 )
 from quant.strategies.risk import RiskConfig, RiskManager, TradingState
+from quant.strategies.parameters import STRUCTURAL_KEYS, TUNABLE_KEYS
+from quant.strategies.session_signals import SessionSignal
 from quant.strategies.sessions import (
     ExchangeSessionCalendar,
     SessionPhase,
@@ -238,9 +241,9 @@ class MLStrategyConfig(StrategyConfig, frozen=True):
     # strategy allocation. When enabled, risk uses starting_equity plus the
     # account PnL delta from startup, rather than sizing from the full account.
     use_allocated_equity: bool = False
-    # Spot crypto cannot open naked shorts at IBKR. Backtests retain their
-    # original long/short behavior; the live runner forces this off.
-    allow_short_positions: bool = True
+    # Research and execution share long-only defaults. Short-enabled equity
+    # research must explicitly record the same policy execution will use.
+    allow_short_positions: bool = False
     min_train_bars: int = 120
     warmup_bars: int = 150            # bars to collect before first prediction
     # Book-level leverage=1: cap TOTAL gross notional across all instruments at
@@ -364,6 +367,7 @@ class MLStrategy(Strategy):
         # is complete (all instruments reported, or the timestamp advances).
         self._pending: dict[InstrumentId, _PendingSignal] = {}
         self._pending_ts = None  # timestamp the current buffer belongs to
+        self._session_signals: dict[InstrumentId, SessionSignal] = {}
         self._n_instruments = 0  # set in on_start; == len(instrument_ids)
         self._equity_identities = {}
         self._identity_generation = ""
@@ -414,6 +418,7 @@ class MLStrategy(Strategy):
         self._last_mark: dict[InstrumentId, float] = {}
         self._entry_submitted_bar: dict[str, int] = {}
         self._pending_exits: dict[InstrumentId, str] = {}
+        self._backtest_exit_attempt_ns: dict[InstrumentId, int] = {}
         self._protection_ids: dict[InstrumentId, dict[str, str]] = {}
         self._startup_protection_pending: set[InstrumentId] = set()
         self._started_at = None
@@ -649,6 +654,7 @@ class MLStrategy(Strategy):
             self._execution_safety.freeze("Corporate action recorded: flatten, stop and restart for broker-confirmed recovery",
                                           ts_ns=self.clock.timestamp_ns())
             self._pending.clear()
+            getattr(self, "_session_signals", {}).clear()
             self._cancel_working_entry_orders(reason="corporate-action review requires restart")
         self._corporate_pending_ids = pending
 
@@ -869,6 +875,8 @@ class MLStrategy(Strategy):
                         self._operations.set_state(self._control_key("operator-freeze"), True)
                         self._operations_entries_frozen = True
                     self._pending.clear()
+                    if not command.payload.get("supervisor"):
+                        getattr(self, "_session_signals", {}).clear()
                     self._execution_safety.freeze(
                         command.reason,
                         ts_ns=self.clock.timestamp_ns(),
@@ -893,6 +901,8 @@ class MLStrategy(Strategy):
                     if allowed:
                         self._operations.set_state(self._control_key("operator-freeze"), False)
                         self._pending.clear()
+                        if not command.payload.get("supervisor"):
+                            getattr(self, "_session_signals", {}).clear()
                         self._operations_entries_frozen = False
                         self._execution_safety.resume(
                             command.reason,
@@ -909,6 +919,7 @@ class MLStrategy(Strategy):
                     self._operations.set_state(self._control_key("operator-freeze"), True)
                     self._operations_entries_frozen = True
                     self._pending.clear()
+                    getattr(self, "_session_signals", {}).clear()
                     self._execution_safety.freeze(command.reason, ts_ns=self.clock.timestamp_ns())
                     if self.cache.positions_open(strategy_id=self.id):
                         self._operations.complete_command(command.command_id, target, success=False,
@@ -1031,6 +1042,7 @@ class MLStrategy(Strategy):
             self._trained[peer] = False
             self._engines[peer] = PredictionEngine(self._engines[peer].cfg)
         self._pending.clear()
+        getattr(self, "_session_signals", {}).clear()
         reference = self._position_references.get(iid)
         if reference:
             for key in ("atr", "entry_price", "stop_loss", "take_profit"):
@@ -1111,6 +1123,12 @@ class MLStrategy(Strategy):
             ) from exc
 
     def _broker_position_state(self, iid: InstrumentId) -> tuple[float, float | None]:
+        # The simulated exchange publishes fills before updating its position
+        # cache. Our fill ledger already includes that execution, so callbacks
+        # must use it when sizing protection or the remaining liquidation.
+        if self.config.execution_mode == "backtest" and str(iid) in self._execution.positions:
+            position = self._execution.position(str(iid))
+            return float(position.quantity), float(position.average_entry_price) or None
         positions = self.cache.positions_open(
             instrument_id=iid,
             strategy_id=self.id,
@@ -1239,6 +1257,7 @@ class MLStrategy(Strategy):
         # cancellation or telemetry I/O; broker reconnection cannot undo this.
         self._reconciliation_state = "UNCERTAIN"
         self._pending.clear()
+        getattr(self, "_session_signals", {}).clear()
         self._execution_safety.mark_uncertain(
             f"Execution adapter connectivity lost: {event['event']}; restart for reconciliation.",
             ts_ns=self.clock.timestamp_ns(),
@@ -1382,6 +1401,11 @@ class MLStrategy(Strategy):
         if self._risk is None:
             return
         broker_mode = self.config.execution_mode in {"paper", "live"}
+        if not broker_mode:
+            # IOC exits may be partially filled or cancelled for lack of depth.
+            # Retry on later observations without resubmitting a working exit.
+            for iid in tuple(self._pending_exits):
+                self._continue_pending_exit(iid)
         if broker_mode:
             connection = broker_connectivity.snapshot(self.cache, self.config.account_id)
             if not connection["healthy"]:
@@ -1499,6 +1523,7 @@ class MLStrategy(Strategy):
             and self._risk.state == TradingState.ACTIVE
             and not self._operations_entries_frozen
             and not self._external_supervisor_unhealthy
+            and not self._pending_exits
             and (not broker_mode or not self._resume_blockers())
         ):
             self._execution_safety.resume(
@@ -1560,6 +1585,7 @@ class MLStrategy(Strategy):
         self._process_operations_control()
         self._supervise_risk(self.clock.utc_now())
         self._activate_startup_protection()
+        self._dispatch_session_signals(self.clock.utc_now())
         self._refresh_telemetry_state()
         self._operations_heartbeat()
 
@@ -1669,24 +1695,22 @@ class MLStrategy(Strategy):
         return out
 
     def _flatten_all(self, reason: str) -> None:
-        """Synchronous backtest-only liquidation path."""
-        self.log.warning(f"FLATTEN ALL -- {reason}")
+        """Cancel-confirm-exit, retaining exposure until fills confirm flat."""
+        if not self._pending_exits:
+            self.log.warning(f"FLATTEN ALL -- {reason}")
         for iid in self._bar_types:
-            self.cancel_all_orders(iid)
-            pos = self.portfolio.net_position(iid)
-            if pos is not None and pos != 0:
-                self.close_all_positions(iid)
-        # We are now flat: free every concurrency slot and reset committed gross
-        # notional so entries can resume (after a temporary daily halt) clean.
-        self._committed_notional.clear()
+            self._request_instrument_exit(iid, reason)
 
     def _begin_risk_exit(self, reason: str, *, permanent: bool) -> None:
         self._pending.clear()
+        getattr(self, "_session_signals", {}).clear()
         if permanent:
-            self._execution_safety.begin_emergency(
-                reason,
-                ts_ns=self.clock.timestamp_ns(),
-            )
+            self._risk.engage_kill_switch()
+            if self._execution_safety.state != ExecutionSafetyState.EMERGENCY:
+                self._execution_safety.begin_emergency(
+                    reason,
+                    ts_ns=self.clock.timestamp_ns(),
+                )
         else:
             self._execution_safety.freeze(reason, ts_ns=self.clock.timestamp_ns())
         if self.config.execution_mode in {"paper", "live"}:
@@ -1703,6 +1727,7 @@ class MLStrategy(Strategy):
         if self._staged_exit_active or self.is_exiting():
             return
         self._pending.clear()
+        getattr(self, "_session_signals", {}).clear()
         self._staged_exit_active = True
         self._staged_exit_started_at = self.clock.utc_now()
         if self._execution_safety.state not in {
@@ -1767,6 +1792,7 @@ class MLStrategy(Strategy):
 
     def on_market_exit(self) -> None:
         self._pending.clear()
+        getattr(self, "_session_signals", {}).clear()
         if self._execution_safety.state not in {
             ExecutionSafetyState.EMERGENCY,
             ExecutionSafetyState.FROZEN,
@@ -1951,6 +1977,7 @@ class MLStrategy(Strategy):
                         "remaining_quantity": float(record.remaining_quantity),
                         "average_fill_price": float(record.average_fill_price),
                         "rejection_reason": record.rejection_reason,
+                        "submitted_ts_ns": record.submitted_ts_ns,
                     }
                     for record in self._execution.orders.values()
                 ][-100:],
@@ -1986,6 +2013,10 @@ class MLStrategy(Strategy):
             next_open, next_close = calendar.next_open_close(now)
             last_data = calendar.last_market_data_at
             readings["session"] = {
+                "scheduled_signals": [
+                    {"instrument_id": str(iid), **signal.snapshot()}
+                    for iid, signal in self._session_signals.items()
+                ],
                 "policy": session_policy_payload(calendar.policy),
                 "entry_allowed": calendar.allows_new_entry(now)[0],
                 "entry_reason": calendar.allows_new_entry(now)[1],
@@ -2003,7 +2034,9 @@ class MLStrategy(Strategy):
         return readings
 
     def _telemetry_model(self) -> dict:
+        from quant.run.drift_evidence import review_contract
         return {
+            "review_contract": review_contract(self.config.dict(), extended=self.config.telemetry_include_extended_hours),
             "entry_threshold": self.config.entry_threshold,
             "horizon": self.config.horizon,
             "n_lags": self.config.n_lags,
@@ -2096,6 +2129,7 @@ class MLStrategy(Strategy):
             "predicted_price": predicted_price,
             "forecast": forecast,
             "predicted_return": yhat,
+            "feature_age_seconds": self._review_feature_age(iid, bar.ts_event),
             "signal": signal,
             "entry_threshold": self.config.entry_threshold,
             "atr": atr,
@@ -2120,6 +2154,17 @@ class MLStrategy(Strategy):
         except Exception as exc:  # noqa: BLE001 - telemetry must never stop trading
             self._telemetry_failed = True
             self.log.error(f"Live telemetry disabled after write failure: {exc}")
+
+    def _review_feature_age(self, iid, ts_ns):
+        """Age of the oldest required peer input at the decision instant."""
+        peers = self._engines[iid].cfg.required_peer_symbols
+        if not peers:
+            return 0.0
+        latest = {str(key).split(".", 1)[0].split("/", 1)[0]: value
+                  for key, value in self._last_bar_ns.items() if value > 0}
+        if any(peer not in latest for peer in peers):
+            return None
+        return max(0.0, (int(ts_ns) - min(latest[peer] for peer in peers)) / 1e9)
 
     def _append_bar(self, bar: Bar) -> bool:
         """Append a bar once, returning False for duplicates/out-of-order data."""
@@ -2413,6 +2458,13 @@ class MLStrategy(Strategy):
         (unlimited) simply opens every qualifying signal, order-independent.
         """
         pending, self._pending = self._pending, {}
+        if self._uses_session_signals():
+            self._schedule_session_signals(pending)
+            return
+        when = self.clock.utc_now() if self.config.execution_mode in {"paper", "live"} else self._pending_ts or self.clock.utc_now()
+        self._execute_signals(pending, when)
+
+    def _execute_signals(self, pending, when):
         if (
             not pending
             or not self._risk.can_open
@@ -2476,7 +2528,6 @@ class MLStrategy(Strategy):
                 continue
             if iid in self._pending_exits:
                 continue
-            when = self._pending_ts or self.clock.utc_now()
             session_allowed, session_reason = self._session_allows_entry(iid, when)
             if not session_allowed:
                 self.log.warning(f"Entry blocked for {iid}: {session_reason}")
@@ -2491,27 +2542,111 @@ class MLStrategy(Strategy):
                 continue
             self._enter(iid, side, sig.close, sig.atr, equity, sig.yhat)
 
+    def _uses_session_signals(self):
+        return (self.config.execution_mode in {"paper", "live"}
+                and self.config.asset_class == "equity"
+                and self.config.expected_bar_interval_secs >= 86_400)
+
+    def _signal_contract(self):
+        values = {key: getattr(self.config, key, None)
+                  for key in sorted(TUNABLE_KEYS | STRUCTURAL_KEYS | {
+                      "account_id", "instrument_ids", "execution_mode", "asset_class",
+                      "allow_short_positions", "expected_bar_interval_secs", "session_policy",
+                      "session_custom_windows", "opening_buffer_minutes", "closing_buffer_minutes",
+                      "no_new_entry_minutes_before_close", "participate_opening_auction", "participate_closing_auction",
+                  })}
+        return hashlib.sha256(json.dumps(values, sort_keys=True, default=str).encode()).hexdigest()
+
+    def _schedule_session_signals(self, pending):
+        now = self.clock.utc_now()
+        for iid, signal in pending.items():
+            previous = self._session_signals.get(iid)
+            source_ts = self._pending_ts or now
+            if previous is not None and previous.source_ts >= source_ts:
+                continue
+            calendar = self._session_calendars.get(iid)
+            completed_days = [day.session_date for day in calendar.days.values()
+                              if day.liquid and max(interval.end for interval in day.liquid) <= now] if calendar is not None else []
+            if completed_days and source_ts.astimezone(timezone.utc).date() < max(completed_days):
+                self._session_signals.pop(iid, None)
+                self._audit_event("SESSION_SIGNAL_EXPIRED", {"instrument_id": str(iid), "reason": "A newer exchange session has already completed"})
+                continue
+            window = calendar.next_entry_window(now) if calendar is not None else None
+            if window is None:
+                self._session_signals.pop(iid, None)
+                self._audit_event("SESSION_SIGNAL_UNSCHEDULED", {
+                    "instrument_id": str(iid), "reason": "No future eligible broker session is available",
+                }, severity="WARNING")
+                continue
+            self._session_signals[iid] = SessionSignal(
+                source_ts, window.start, window.end, signal.close, signal.atr, signal.yhat,
+            )
+            self._audit_event("SESSION_SIGNAL_SCHEDULED", {
+                "instrument_id": str(iid), **self._session_signals[iid].snapshot(),
+            })
+
+    def _dispatch_session_signals(self, when):
+        if not self._uses_session_signals():
+            return
+        for iid, signal in tuple(self._session_signals.items()):
+            if when >= signal.expires_at:
+                del self._session_signals[iid]
+                self._audit_event("SESSION_SIGNAL_EXPIRED", {"instrument_id": str(iid), "source_ts": signal.source_ts.isoformat()})
+        if (not self._risk.can_open or not self._execution_safety.entries_allowed
+                or self._staged_exit_active or self.is_exiting()):
+            return
+        batches = defaultdict(dict)
+        for iid, signal in tuple(self._session_signals.items()):
+            signal_prefix = f"{signal.source_ts.isoformat()}:"
+            if any(record.instrument_id == str(iid) and record.role == OrderRole.ENTRY
+                   and record.signal_version.startswith(signal_prefix)
+                   for record in self._execution.orders.values()):
+                del self._session_signals[iid]
+                self._audit_event("SESSION_SIGNAL_ALREADY_SUBMITTED", {"instrument_id": str(iid), "source_ts": signal.source_ts.isoformat()})
+                continue
+            if when < signal.not_before or not self._session_allows_entry(iid, when)[0]:
+                continue
+            mark = self._last_mark.get(iid)
+            if mark is None or not math.isfinite(mark) or mark <= 0:
+                continue
+            # Remove intent before submitting; execution ledger remains the
+            # authority for acknowledgement, cancellation and restart recovery.
+            del self._session_signals[iid]
+            batches[signal.source_ts][iid] = _PendingSignal(mark, signal.atr, signal.yhat)
+        previous_ts = self._pending_ts
+        try:
+            for source_ts, pending in sorted(batches.items()):
+                self._pending_ts = source_ts
+                self._execute_signals(pending, when)
+                self._audit_event("SESSION_SIGNALS_DISPATCHED", {
+                    "source_ts": source_ts.isoformat(), "instrument_ids": [str(iid) for iid in pending],
+                })
+        finally:
+            self._pending_ts = previous_ts
+
     def _request_instrument_exit(self, iid: InstrumentId, reason: str) -> None:
         reference = self._position_references.get(iid)
         if reference is not None:
             reference["protection_guaranteed"] = False
             reference["status"] = f"exit_pending:{reason}"
-        if iid not in self._pending_exits:
-            self._pending_exits[iid] = reason
-            self.log.warning(f"Safe exit requested for {iid}: {reason}")
-        if self.config.execution_mode == "backtest":
-            self.cancel_all_orders(iid)
-            self.close_all_positions(iid)
-            self._pending_exits.pop(iid, None)
-            self._committed_notional[iid] = 0.0
+        if iid in self._pending_exits:
+            # A repeated risk check must never cancel its own liquidation order.
+            self._continue_pending_exit(iid)
             return
-        for order in [
-            *self.cache.orders_open(instrument_id=iid, strategy_id=self.id),
-            *self.cache.orders_inflight(instrument_id=iid, strategy_id=self.id),
-        ]:
+        self._pending_exits[iid] = reason
+        self.log.warning(f"Safe exit requested for {iid}: {reason}")
+        working = {
+            str(order.client_order_id): order
+            for order in [
+                *self.cache.orders_open(instrument_id=iid, strategy_id=self.id),
+                *self.cache.orders_inflight(instrument_id=iid, strategy_id=self.id),
+            ]
+        }
+        for order in working.values():
             if not order.is_closed:
                 record = self._execution.orders.get(str(order.client_order_id))
-                self._cancel_order_safely(order, record, reason=reason)
+                if record is None or record.status != LifecycleStatus.PENDING_CANCEL:
+                    self._cancel_order_safely(order, record, reason=reason)
         self._continue_pending_exit(iid)
 
     def _continue_pending_exit(self, iid: InstrumentId) -> None:
@@ -2527,6 +2662,7 @@ class MLStrategy(Strategy):
         net, _ = self._broker_position_state(iid)
         if net == 0:
             self._pending_exits.pop(iid, None)
+            self._backtest_exit_attempt_ns.pop(iid, None)
             self._protection_ids.pop(iid, None)
             self._committed_notional[iid] = 0.0
             return
@@ -2538,6 +2674,17 @@ class MLStrategy(Strategy):
             )
             return
         side = OrderSide.SELL if net > 0 else OrderSide.BUY
+        if self.config.execution_mode == "backtest":
+            simulation = getattr(self, "_equity_simulation", None)
+            if simulation is not None and not simulation.can_submit_exit(iid, side):
+                # Zero-volume auctions and completed bars have no executable
+                # book. Retain the exit until an observed quote is available.
+                return
+            now_ns = self.clock.timestamp_ns()
+            if self._backtest_exit_attempt_ns.get(iid) == now_ns:
+                return
+            # Set before submission: order callbacks can be synchronous.
+            self._backtest_exit_attempt_ns[iid] = now_ns
         try:
             quantity = instrument.make_qty(abs(net))
         except ValueError:
@@ -2556,7 +2703,12 @@ class MLStrategy(Strategy):
         )
         self._register_and_submit_order(
             order,
-            role=OrderRole.SIGNAL_EXIT,
+            role=(
+                OrderRole.EMERGENCY_EXIT
+                if self._risk.state == TradingState.DISABLED_KILL
+                or self._execution_safety.state == ExecutionSafetyState.EMERGENCY
+                else OrderRole.SIGNAL_EXIT
+            ),
             signal_version=reason,
         )
 
@@ -2664,7 +2816,11 @@ class MLStrategy(Strategy):
             )
             return False
         try:
-            self.submit_order(order)
+            simulation = getattr(self, "_equity_simulation", None)
+            if simulation is not None:
+                simulation.submit_order(self, order)
+            else:
+                self.submit_order(order)
         except Exception as exc:
             self._execution.apply_order_state(
                 order_id,
@@ -2712,7 +2868,11 @@ class MLStrategy(Strategy):
         equity: float,
         yhat: float,
     ):
-        if not self._risk.can_open or not self._execution_safety.entries_allowed:
+        if (
+            not self._risk.can_open
+            or not self._execution_safety.entries_allowed
+            or iid in self._pending_exits
+        ):
             return
         stop_dist = self.config.atr_stop_mult * atr
         stop_price = price - stop_dist if side == OrderSide.BUY else price + stop_dist
@@ -2754,13 +2914,13 @@ class MLStrategy(Strategy):
         if instrument is None:
             self.log.error(f"Instrument {iid} not in cache.")
             return
-        # make_qty rounds the fractional risk-sized qty to the instrument's size
-        # precision (crypto allows fractional coins; equities round to whole
-        # shares). If it rounds to zero the position is too small to place --
+        # Floor risk-sized quantity to the instrument's size precision (crypto
+        # allows fractional coins; equities require whole shares). If it floors
+        # to zero the position is too small to place --
         # for a whole-unit instrument (e.g. equities) Nautilus RAISES rather
         # than returning a zero Quantity, so treat that the same as "too small".
         try:
-            target_qty = instrument.make_qty(raw_qty)
+            target_qty = instrument.make_qty(raw_qty, round_down=True)
         except ValueError:
             return
         if target_qty.as_double() <= 0:
@@ -2927,7 +3087,9 @@ class MLStrategy(Strategy):
             "side": "LONG" if direction > 0 else "SHORT",
             "signal": side.name,
             "entry_price": price,
-            "entry_ts": self._pending_ts.isoformat() if self._pending_ts is not None else None,
+            "entry_ts": (self.clock.utc_now().isoformat() if self.config.execution_mode in {"paper", "live"}
+                         else self._pending_ts.isoformat() if self._pending_ts is not None else None),
+            "signal_ts": self._pending_ts.isoformat() if self._pending_ts is not None else None,
             "stop_loss": stop_price,
             "take_profit": price
             + direction * stop_dist * self.config.telemetry_target_rr,
@@ -2944,18 +3106,21 @@ class MLStrategy(Strategy):
         )
 
     def _reconcile_committed_notional(self, iid: InstrumentId | None = None) -> None:
-        """Rebuild exposure commitments from reconciled positions/open orders."""
+        """Rebuild commitments from filled positions and open/inflight entries."""
         iids = [iid] if iid is not None else list(self._bar_types)
         for current in iids:
             notional = 0.0
             fallback_px = self._closes[current][-1] if self._closes[current] else 0.0
-            net = self.portfolio.net_position(current)
-            if net is not None:
-                notional += abs(float(net)) * fallback_px
-            for order in self.cache.orders_open(
-                instrument_id=current,
-                strategy_id=self.id,
-            ):
+            net, _ = self._broker_position_state(current)
+            notional += abs(net) * fallback_px
+            working = {
+                str(order.client_order_id): order
+                for order in [
+                    *self.cache.orders_open(instrument_id=current, strategy_id=self.id),
+                    *self.cache.orders_inflight(instrument_id=current, strategy_id=self.id),
+                ]
+            }
+            for order in working.values():
                 record = self._execution.orders.get(str(order.client_order_id))
                 if record is not None and record.role in {
                     OrderRole.STOP_LOSS,
@@ -3006,6 +3171,8 @@ class MLStrategy(Strategy):
 
     def _ensure_broker_protection(self, iid: InstrumentId) -> None:
         if getattr(self, "_research_adjusting", False):
+            return
+        if iid in self._pending_exits:
             return
         if not self.config.enable_broker_protection:
             return
@@ -3487,6 +3654,8 @@ class MLStrategy(Strategy):
             return {}
         payload = {
             "version": 9,
+            "session_signal_contract": self._signal_contract(),
+            "session_signals": {str(iid): signal.snapshot() for iid, signal in self._session_signals.items()},
             "instrument_identities": {str(identity.con_id): {**identity.as_dict(), "instrument_id": raw}
                                       for raw, identity in self._equity_identities.items()},
             "identity_generation": self._identity_generation,
@@ -3667,6 +3836,17 @@ class MLStrategy(Strategy):
                 self._short_control_breaches[iid] = min(observed, self.clock.utc_now())
             except (TypeError, ValueError):
                 self.log.warning(f"Ignoring invalid persisted short-control timestamp for {raw}")
+        if payload.get("session_signal_contract") == self._signal_contract():
+            for raw, values in payload.get("session_signals", {}).items():
+                iid = self._iid_by_raw.get(raw)
+                if iid is None:
+                    continue
+                try:
+                    signal = SessionSignal.restore(values)
+                    if signal.expires_at > self.clock.utc_now():
+                        self._session_signals[iid] = signal
+                except (TypeError, ValueError, KeyError):
+                    self.log.warning(f"Ignoring invalid scheduled signal for {raw}")
         if self._telemetry is not None:
             self._telemetry.restore_series(payload.get("telemetry_series", {}))
             if self._telemetry.points:
@@ -3685,6 +3865,7 @@ class MLStrategy(Strategy):
         # modes StrategyConfig.manage_stop runs Nautilus's cancel-confirm-
         # flatten-confirm market-exit sequence before this hook.
         self._pending.clear()
+        getattr(self, "_session_signals", {}).clear()
         if self._risk_timer_name in self.clock.timer_names:
             self.clock.cancel_timer(self._risk_timer_name)
         if self._staged_exit_timer_name in self.clock.timer_names:

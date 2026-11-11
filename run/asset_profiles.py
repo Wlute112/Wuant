@@ -145,6 +145,7 @@ def strategy_defaults_for_asset(
     )
     bars_per_session = max(1, regime_window // 20)
     return {
+        "allow_short_positions": bool(defaults.get("allow_shorts", False)),
         "regime_window": regime_window,
         "regime_bull_threshold": defaults["regime_bull_threshold"],
         "regime_bear_threshold": defaults["regime_bear_threshold"],

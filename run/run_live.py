@@ -124,6 +124,14 @@ def load_params(path: str | None) -> tuple[dict, int | None]:
         payload = json.load(fh)
     if not isinstance(payload, dict):
         raise ValueError("--params must contain a JSON object")
+    from quant.optimize.selection import holdout_assessment, REJECTED_OUTER_HOLDOUT, DEVELOPMENT_SELECTED
+    assessment = holdout_assessment(payload)
+    if payload.get("selection_status") == DEVELOPMENT_SELECTED:
+        raise ValueError("Selected development parameters have not passed their outer holdout")
+    if payload.get("selection_status") == REJECTED_OUTER_HOLDOUT or (assessment and assessment["status"] == REJECTED_OUTER_HOLDOUT):
+        raise ValueError("Selected parameters failed their outer holdout and cannot be used for execution")
+    if any(key in payload for key in ("strategy_id", "validation_scheme", "source_run_id")) and not isinstance(payload.get("allow_short_positions"), bool):
+        raise ValueError("Optimizer parameters must record their long/short policy; run a new sweep")
 
     from nautilus_trader.config import StrategyConfig
     from quant.strategies.ml_strategy import MLStrategyConfig
@@ -203,6 +211,7 @@ def load_params_metadata(path: str | None) -> dict:
             "include_extended_hours",
             "market_session",
             "bar_interval_minutes",
+            "allow_short_positions",
         )
         if key in payload
     }
@@ -244,6 +253,8 @@ def build_node(
 ):
     if is_live:
         assert_live_capital_enabled()
+    if "allow_short_positions" in (params or {}) and params["allow_short_positions"] != allow_short_positions:
+        raise ValueError("Long/short policy must match the selected Optuna parameters")
     if (params or {}).get("sector_evidence") is not None:
         from quant.run.sector_risk import validate_sector_evidence
         validate_sector_evidence(params["sector_evidence"], symbols=tickers)
@@ -622,6 +633,8 @@ def main() -> None:
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         raise SystemExit(f"Invalid --params file: {exc}") from exc
     params_asset_class = params_metadata.get("asset_class")
+    if "allow_short_positions" in params_metadata and params_metadata["allow_short_positions"] != args.allow_shorts:
+        raise SystemExit("Long/short policy must match the selected Optuna parameters")
     if params_asset_class and params_asset_class != args.asset_class:
         raise SystemExit(
             f"Params profile mismatch: file was optimized for {params_asset_class}, "

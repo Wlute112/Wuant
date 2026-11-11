@@ -1,0 +1,10 @@
+{
+  "basis": "Diagnostic order-event trace of the first 30 calendar days with unchanged locked parameters; no performance evaluation or optimization.",
+  "events": [
+    {
+      "event": "on_order_rejected",
+      "detail": "OrderRejected(instrument_id=JPM.IBKR, client_order_id=O-20260206-000000-001-000-1, account_id=IBKR-001, reason='no market with no fills for JPM.IBKR', due_post_only=False, ts_event=1770595199999999992)",
+      "reason": "no market with no fills for JPM.IBKR"
+    }
+  ]
+}

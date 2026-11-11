@@ -34,6 +34,8 @@ Usage:
 """
 from __future__ import annotations
 
+from quant.strategies.parameters import STRATEGY_ID, suggest_parameters, validate_fixed_overrides
+
 import argparse
 import hashlib
 import json
@@ -49,7 +51,12 @@ import numpy as np
 import optuna
 import pandas as pd
 
-from quant.run.artifacts import save_optimize_artifact
+from quant.run.artifacts import save_optimize_artifact, save_optimize_search_artifact
+from quant.optimize.selection import (
+    NO_QUALIFYING_CANDIDATE, NO_QUALIFYING_FOLDS_SCORE, qualifying_trial,
+    holdout_assessment, annotate_holdout, REJECTED_OUTER_HOLDOUT,
+    DEVELOPMENT_SELECTED,
+)
 from quant.run.asset_profiles import get_asset_profile, strategy_defaults_for_asset
 from quant.run.backtest_common import (
     ASSET_CLASSES,
@@ -66,12 +73,12 @@ from quant.run.scoring import (
 )
 from quant.run.metrics import compute_metrics
 from quant.run.compute import ComputePool, add_compute_arguments, resolve_compute_plan
+from quant.run.equity_simulation import EQUITY_EXECUTION_VERSION
 from quant.run.progress import ProgressWriter
 
 DEFAULT_TICKERS = ["BTC", "ETH", "SOL", "XRP", "DOGE"]  # crypto (24/7)
 EQUITY_DEFAULT_TICKERS = ["SPY", "QQQ", "DIA", "IWM"]  # liquid index ETFs
 
-NO_QUALIFYING_FOLDS_SCORE = -1_000_000.0
 
 
 def _file_sha256(path: str) -> str:
@@ -308,6 +315,7 @@ class FoldPerformance:
     ratio: float
     turnover: float
     trades: int
+    net_profit_usd: float | None = None
 
 
 def _engine_performance(
@@ -327,6 +335,7 @@ def _engine_performance(
         ratio=float(ratio),
         turnover=float(metrics.turnover_rate),
         trades=int(metrics.total_trades),
+        net_profit_usd=float(metrics.net_profit_usd),
     )
 
 
@@ -461,10 +470,7 @@ def make_objective(
     if seed is not None:
         # Backward-compatible alias for callers predating --evaluation-seed.
         evaluation_seed = seed
-    window_floor = max(warmup_bars, min_train_bars)
-    training_windows = tuple(
-        sorted({0, window_floor, window_floor * 2, window_floor * 4, window_floor * 8})
-    )
+    validate_fixed_overrides(structural_overrides)
 
     def objective(trial: optuna.Trial) -> float:
         if progress_callback:
@@ -475,68 +481,7 @@ def make_objective(
                 candidate_score=None,
             )
         overrides = dict(
-            n_lags=trial.suggest_int("n_lags", 3, 15),
-            horizon=trial.suggest_int("horizon", 1, 5),
-            entry_threshold=trial.suggest_float(
-                "entry_threshold", 1e-4, 5e-3, log=True
-            ),
-            atr_period=trial.suggest_int("atr_period", 7, 21),
-            atr_stop_mult=trial.suggest_float("atr_stop_mult", 1.0, 4.0),
-            use_limit_orders=trial.suggest_categorical(
-                "use_limit_orders", [True, False]
-            ),
-            # Maker passive offset: fill-probability vs price-improvement knob.
-            # Was fixed at 2 bps; now searched (only used when use_limit_orders).
-            limit_offset_bps=trial.suggest_float(
-                "limit_offset_bps", 0.5, 10.0, log=True
-            ),
-            # --- fractional-Kelly conviction sizing ---
-            # use_kelly_sizing gates it; kelly_fraction is the "percent of full
-            # Kelly" the user asked to optimize. kelly_fraction is always
-            # suggested (ignored when sizing is off) so the search space stays
-            # reproducible across trials.
-            use_kelly_sizing=trial.suggest_categorical(
-                "use_kelly_sizing", [True, False]
-            ),
-            kelly_fraction=trial.suggest_float("kelly_fraction", 0.05, 1.0),
-            # --- portfolio concentration ---
-            # Max concurrent positions across the ticker universe. Upper bound is
-            # the number of tickers (== unlimited relative to this run).
-            max_open_positions=trial.suggest_int(
-                "max_open_positions", 1, max(1, len(tickers))
-            ),
-            # --- cross-asset ARDL + spread features (models/prediction_engine.py) ---
-            # Lag depths only; the peer UNIVERSE (cross_asset_symbols) is
-            # structural, not searched -- it defaults to "every other ticker in
-            # this run" (see MLStrategy.on_start). 0 disables a block, so the
-            # search space naturally includes "cross-asset features off".
-            cross_asset_lags=trial.suggest_int("cross_asset_lags", 0, 5),
-            spread_lags=trial.suggest_int("spread_lags", 0, 5),
-            # --- Huber L2 penalty (models/prediction_engine.py) ---
-            # Was fixed at PredictionConfig's 1e-4 default for every trial. Log-
-            # uniform range spans from that default up to a strongly-regularized
-            # ridge-like fit, so Optuna can counteract whatever feature-count-vs-
-            # training-window ill-conditioning the OTHER tuned knobs (n_lags,
-            # cross_asset_lags, spread_lags) produce for a given run instead of
-            # always fighting it with one fixed, possibly-too-weak value.
-            huber_alpha=trial.suggest_float("huber_alpha", 1e-4, 10.0, log=True),
-            # --- Huber loss transition point (models/prediction_engine.py) ---
-            # Was fixed at PredictionConfig's own default (1.35, sklearn's
-            # ~95%-OLS-efficiency default) for every trial. Searched range
-            # stays comfortably above sklearn's epsilon > 1.0 requirement:
-            # near 1.05 the loss is almost fully linear (max robustness to
-            # fat-tailed crypto returns, least efficient on well-behaved
-            # residuals); near 3.0 it is nearly OLS (max efficiency, least
-            # robust to outliers/gaps). Linear, not log, scale -- the whole
-            # range spans less than one order of magnitude.
-            huber_epsilon=trial.suggest_float("huber_epsilon", 1.05, 3.0),
-            # Expanding history (0) competes directly against several rolling
-            # Huber fit windows. The same candidate is evaluated across every
-            # purged fold, so a short recent-regime fit must generalize rather
-            # than merely improving one period.
-            training_window_bars=trial.suggest_categorical(
-                "training_window_bars", training_windows
-            ),
+            **suggest_parameters(trial, tickers, warmup_bars, min_train_bars),
             # --- refit cadence (FIXED structural setting, NOT tuned) ---
             # Statically bound from the interactive terminal input; identical for
             # every trial. Deliberately NOT a trial.suggest_* call -- Optuna must
@@ -556,8 +501,8 @@ def make_objective(
             warmup_bars=warmup_bars,
             min_train_bars=min_train_bars,
         )
-        # Feature toggles + risk-rail overrides (dashboard-controlled, NOT
-        # searched by Optuna) applied identically to every trial -- same
+        # Strategy defaults and risk limits (not searched by Optuna)
+        # apply identically to every trial -- same
         # precedent as refit_every_n_bars/warmup_bars/min_train_bars above.
         if structural_overrides:
             overrides.update(structural_overrides)
@@ -662,16 +607,16 @@ def _make_target_callback(target_score: float):
 
     ``study.stop()`` requests a graceful stop after the current trial, so the
     search halts as soon as the goal is met instead of exhausting a trial count.
-    ``study.best_value`` raises until at least one trial has completed (all early
-    ones may be pruned), so that case is swallowed.
+    Only a finite qualifying candidate may meet the target. Rejected or
+    pruned trials cannot stop the search, including for very low targets.
     """
     def callback(study: optuna.Study, trial: optuna.trial.FrozenTrial) -> None:
-        try:
-            best = study.best_value
-        except ValueError:
-            return  # no completed trial yet
+        candidate = qualifying_trial(study)
+        if candidate is None:
+            return
+        best = candidate.value
         if best >= target_score:
-            print(f"\nTarget score {target_score} reached (best={best:.4f}); stopping.")
+            print(f"\nDevelopment target {target_score} reached (score={best:.4f}); stopping search. Outer holdout is still required.")
             study.stop()
 
     return callback
@@ -680,6 +625,8 @@ def _make_target_callback(target_score: float):
 def main(refit_every_n_bars: int | None = 1) -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--csv", default="quant/data/sample_bars.csv")
+    p.add_argument("--allow-shorts", action=argparse.BooleanOptionalAction, default=None,
+                   help="Explicit equity research direction; default is long-only.")
     p.add_argument(
         "--asset-class",
         choices=ASSET_CLASSES,
@@ -909,6 +856,8 @@ def main(refit_every_n_bars: int | None = 1) -> None:
         p.error("--refit-every-n-bars must be >= 1")
     if args.fetch_missing and args.replace_bars:
         p.error("--fetch-missing and --replace-bars are mutually exclusive")
+    if args.allow_shorts and args.asset_class != "equity":
+        p.error("Crypto spot research does not support short entries")
     if args.train_frac is not None:
         if not 0.5 < args.train_frac < 1.0:
             p.error("--train-frac must be between 0.5 and 1.0")
@@ -991,10 +940,16 @@ def main(refit_every_n_bars: int | None = 1) -> None:
     })
     if args.structural_json:
         with open(args.structural_json) as fh:
-            structural_overrides.update(json.load(fh))
+            fixed = json.load(fh)
+            validate_fixed_overrides(fixed)
+            structural_overrides.update(fixed)
         print(f"Structural feature/risk overrides from {args.structural_json}: {structural_overrides}")
     if structural_overrides.get("regime_window") == 20:
         structural_overrides["regime_window"] = 20 * bars_per_session
+    if args.allow_shorts is not None:
+        structural_overrides["allow_short_positions"] = args.allow_shorts
+    if args.asset_class != "equity" and structural_overrides.get("allow_short_positions"):
+        p.error("Crypto spot research does not support short entries")
     for key, sessions in {
         "industry_correlation_window_bars": 60,
         "industry_correlation_half_life_bars": 20,
@@ -1070,6 +1025,10 @@ def main(refit_every_n_bars: int | None = 1) -> None:
     )
     validation_contract = {
         "scheme": "purged_nested_walk_forward_v1",
+        "execution_model_version": (
+            EQUITY_EXECUTION_VERSION
+            if args.asset_class == "equity" else None
+        ),
         "source_csv": str(Path(args.csv).resolve()),
         "source_csv_sha256": _file_sha256(args.csv),
         "dataset_manifest_sha256": describe(args.csv)["manifest_sha256"],
@@ -1113,7 +1072,7 @@ def main(refit_every_n_bars: int | None = 1) -> None:
             f"study {study_name!r} has a different data/validation contract; "
             "start a new sweep"
         )
-    if study.user_attrs.get("final_test_evaluated"):
+    if study.user_attrs.get("final_test_evaluated") or study.user_attrs.get("outer_holdout_status") == "CONSUMED":
         raise ValueError(
             f"study {study_name!r} already consumed its outer test set and cannot "
             "accept more trials without contaminating that holdout"
@@ -1137,30 +1096,29 @@ def main(refit_every_n_bars: int | None = 1) -> None:
         n_trials = args.trials if args.trials is not None else 40
         print(f"Running {n_trials} trials.")
 
+    initial_trial_count = len(study.trials)
     progress_history = []
 
     def update_objective_progress(**values):
         current = values.get("trial_current", 0)
         fold_fraction = values.get("fold_current", 0) / max(1, values.get("fold_total", 1))
         percent = (
-            round(100 * (max(0, current - 1) + fold_fraction) / n_trials, 1)
+            round(100 * (max(0, current - initial_trial_count - 1) + fold_fraction) / n_trials, 1)
             if n_trials else None
         )
         progress.update(
             phase="search",
             phase_label="Evaluating walk-forward candidates",
             percent=percent,
-            trials_target=n_trials,
+            trials_target=initial_trial_count + n_trials if n_trials is not None else None,
             **values,
         )
 
     def record_trial_progress(study, trial):
         complete = len(study.get_trials(states=(optuna.trial.TrialState.COMPLETE,)))
         pruned = len(study.get_trials(states=(optuna.trial.TrialState.PRUNED,)))
-        try:
-            best = float(study.best_value)
-        except ValueError:
-            best = None
+        candidate = qualifying_trial(study)
+        best = float(candidate.value) if candidate is not None else None
         score = float(trial.value) if trial.value is not None and math.isfinite(trial.value) else None
         progress_history.append({
             "trial": trial.number + 1,
@@ -1171,9 +1129,9 @@ def main(refit_every_n_bars: int | None = 1) -> None:
         progress.update(
             phase="search",
             phase_label="Evaluating walk-forward candidates",
-            percent=round(100 * (trial.number + 1) / n_trials, 1) if n_trials else None,
+            percent=round(100 * (trial.number + 1 - initial_trial_count) / n_trials, 1) if n_trials else None,
             trial_current=trial.number + 1,
-            trials_target=n_trials,
+            trials_target=initial_trial_count + n_trials if n_trials is not None else None,
             trials_complete=complete,
             trials_pruned=pruned,
             best_score=best,
@@ -1207,24 +1165,56 @@ def main(refit_every_n_bars: int | None = 1) -> None:
             show_progress_bar=n_trials is not None,
         )
 
+    winner = qualifying_trial(study)
     n_pruned = len(study.get_trials(states=(optuna.trial.TrialState.PRUNED,)))
     n_complete = len(study.get_trials(states=(optuna.trial.TrialState.COMPLETE,)))
     print(f"\nTrials: {n_complete} complete, {n_pruned} pruned early "
           f"({n_complete + n_pruned} run)")
     if args.score is not None:
-        reached = n_complete > 0 and study.best_value >= args.score
-        best_txt = f"{study.best_value:.4f}" if n_complete > 0 else "n/a"
+        reached = winner is not None and winner.value >= args.score
+        best_txt = f"{winner.value:.4f}" if winner is not None else "no qualifying candidate"
         print(f"Target score {args.score}: "
               f"{'REACHED' if reached else 'NOT reached'} (best = {best_txt})")
 
-    print("\n=========== BEST (nested walk-forward) ===========")
-    print("value:", study.best_value)
-    print("params:", study.best_params)
+    if winner is None:
+        message = ("No qualifying candidate. Saved parameters were left unchanged; "
+                   "the outer holdout was not evaluated. "
+                   f"Resume study {study.study_name} to add development trials with the same validation contract.")
+        print(message)
+        study.set_user_attr("search_outcome", NO_QUALIFYING_CANDIDATE)
+        study.set_user_attr("optimization_complete", False)
+        study.set_user_attr("locked_candidate", None)
+        # final_test_evaluated remains unset and the study stays resumable.
+        artifact = save_optimize_search_artifact(
+            study=study, csv_path=args.csv, tickers=tickers, asset_class=args.asset_class,
+            starting_cash=args.cash, seed=seed, n_trials_requested=args.trials,
+            train_frac=nested_data.development_fraction, target_score=args.score,
+            started_at=started_at, run_id=args.run_id, run_name=args.run_name,
+            structural_overrides={**structural_overrides, "refit_every_n_bars": refit_every_n_bars,
+                                  "warmup_bars": warmup_bars, "min_train_bars": min_train_bars},
+            resumed_from=args.resume_run_id, include_extended_hours=args.include_extended_hours,
+            dataset_provenance=dataset_provenance, validation_contract=validation_contract,
+        )
+        progress.update(phase="complete", phase_label="No qualifying candidate", percent=100,
+                        outcome=NO_QUALIFYING_CANDIDATE, message=message, best_score=None,
+                        outer_holdout_status="UNTOUCHED", resume_run_id=study.study_name,
+                        can_resume=True, trials_complete=n_complete, trials_pruned=n_pruned,
+                        run_id=artifact["run_id"])
+        split_workspace.cleanup()
+        return
 
-    # Persist the winning params so run_backtest / live can load them directly.
+    study.set_user_attr("search_outcome", DEVELOPMENT_SELECTED)
+    print("\n=========== DEVELOPMENT CANDIDATE (holdout pending) ===========")
+    print("value:", winner.value)
+    print("params:", winner.params)
+
+    # Lock development parameters. Publish execution parameters only after the
+    # one-shot holdout demonstrates activity and positive net performance.
     payload = {
+        "selection_status": DEVELOPMENT_SELECTED,
         "compute_plan": compute_plan.as_dict(),
-        "params": study.best_params,
+        "strategy_id": STRATEGY_ID,
+        "params": winner.params,
         "asset_class": args.asset_class,
         "objective_metric": score_profile["metric"],
         "trade_penalty": score_profile["trade_penalty"],
@@ -1235,8 +1225,8 @@ def main(refit_every_n_bars: int | None = 1) -> None:
         ),
         "include_extended_hours": args.include_extended_hours,
         "bar_interval_minutes": infer_bar_interval_minutes_from_csv(args.csv, tickers),
-        "in_sample_value": study.best_value,
-        "selection_value": study.best_value,
+        "in_sample_value": winner.value,
+        "selection_value": winner.value,
         "seed": seed,
         "evaluation_seed": args.evaluation_seed,
         "trials": args.trials,
@@ -1248,7 +1238,7 @@ def main(refit_every_n_bars: int | None = 1) -> None:
         "walk_forward_folds": args.walk_forward_folds,
         "embargo_bars": args.embargo_bars,
         "effective_embargo_bars": max(
-            args.embargo_bars, int(study.best_params["horizon"])
+            args.embargo_bars, int(winner.params["horizon"])
         ),
         "stability_std_weight": args.stability_std_weight,
         "turnover_penalty_weight": args.turnover_penalty_weight,
@@ -1256,7 +1246,7 @@ def main(refit_every_n_bars: int | None = 1) -> None:
         "min_positive_fold_fraction": args.min_positive_fold_fraction,
         "normal_slippage_probability": args.normal_slippage_probability,
         "stress_cost_multiplier": args.stress_cost_multiplier,
-        "best_fold_results": study.best_trial.user_attrs.get(
+        "best_fold_results": winner.user_attrs.get(
             "walk_forward_folds", []
         ),
         "promotion_status": (
@@ -1279,11 +1269,10 @@ def main(refit_every_n_bars: int | None = 1) -> None:
         # run_live.py reads this to pick the same live bar width for paper/
         # live trading instead of assuming daily bars.
         payload["ibkr_bar_hours"] = args.ibkr_bar_hours
-    with open(args.out_params, "w") as fh:
-        json.dump(payload, fh, indent=2)
-    print(f"\nSaved best params -> {args.out_params}")
-
     if args.defer_final_test:
+        with open(args.out_params, "w") as fh:
+            json.dump(payload, fh, indent=2)
+        print(f"\nSaved development params -> {args.out_params}")
         study.set_user_attr("optimization_complete", True)
         study.set_user_attr("locked_candidate", payload)
         print("Outer holdout: UNTOUCHED (--defer-final-test)")
@@ -1293,12 +1282,12 @@ def main(refit_every_n_bars: int | None = 1) -> None:
 
     # Evaluate the locked winner on the untouched outer period. This data was
     # not loaded by any Optuna trial. Normal and stressed assumptions each run
-    # once; neither result can change study.best_params.
+    # once; neither result can change winner.params.
     print("\n=========== FINAL TEST (untouched outer holdout) ===========")
     progress.update(phase="holdout", phase_label="Evaluating untouched holdout", percent=100)
-    final_embargo = max(args.embargo_bars, int(study.best_params["horizon"]))
+    final_embargo = max(args.embargo_bars, int(winner.params["horizon"]))
     final_overrides = {
-        **study.best_params,
+        **winner.params,
         "refit_every_n_bars": refit_every_n_bars,
         "warmup_bars": warmup_bars,
         "min_train_bars": min_train_bars,
@@ -1365,10 +1354,25 @@ def main(refit_every_n_bars: int | None = 1) -> None:
         "stressed_ratio": final_stressed.ratio,
         "turnover": final_normal.turnover,
         "trades": final_normal.trades,
+        "stressed_trades": final_stressed.trades,
+        "normal_net_profit_usd": final_normal.net_profit_usd,
+        "stressed_net_profit_usd": final_stressed.net_profit_usd,
         "stability_adjusted_score": oos_score,
     }
-    with open(args.out_params, "w") as fh:
-        json.dump(payload, fh, indent=2)
+    assessment = holdout_assessment(payload)
+    annotate_holdout(payload)
+    study.set_user_attr("holdout_assessment", assessment)
+    study.set_user_attr("search_outcome", assessment["status"])
+    study.set_user_attr("locked_candidate", payload)
+    study.set_user_attr("optimization_complete", True)
+    rejected_holdout = assessment["status"] == REJECTED_OUTER_HOLDOUT
+    if rejected_holdout:
+        print("Outer holdout REJECTED: " + " ".join(assessment["reasons"]))
+        print("Saved parameters were left unchanged. This consumed study cannot accept further tuning.")
+    else:
+        with open(args.out_params, "w") as fh:
+            json.dump(payload, fh, indent=2)
+        print(f"\nSaved holdout-passed params -> {args.out_params}")
     print(
         f"final net {score_profile['metric']}: {final_normal.ratio:.4f}; "
         f"2x-cost stress: {final_stressed.ratio:.4f}; "
@@ -1397,7 +1401,12 @@ def main(refit_every_n_bars: int | None = 1) -> None:
             started_at=started_at,
             run_id=args.run_id,
             run_name=args.run_name,
-            structural_overrides=structural_overrides,
+            structural_overrides={
+                **structural_overrides,
+                "refit_every_n_bars": refit_every_n_bars,
+                "warmup_bars": warmup_bars,
+                "min_train_bars": min_train_bars,
+            },
             resumed_from=args.resume_run_id,
             ibkr_bar_hours=args.ibkr_bar_hours if args.replace_bars else None,
             include_extended_hours=args.include_extended_hours,
@@ -1414,15 +1423,19 @@ def main(refit_every_n_bars: int | None = 1) -> None:
                 "min_positive_fold_fraction": args.min_positive_fold_fraction,
                 "normal_slippage_probability": args.normal_slippage_probability,
                 "stress_cost_multiplier": args.stress_cost_multiplier,
-                "best_fold_results": study.best_trial.user_attrs.get(
+                "best_fold_results": winner.user_attrs.get(
                     "walk_forward_folds", []
                 ),
                 "final_test": payload["final_test"],
-                "promotion_status": "REQUIRES_SHADOW_AND_PAPER_AGREEMENT",
+                "promotion_status": payload["promotion_status"],
+                "holdout_assessment": assessment,
             },
         )
         print(f"Saved run artifact -> quant/runs/{artifact['run_id']}.json")
-        progress.update(phase="complete", phase_label="Research artifact ready", percent=100)
+        progress.update(phase="complete", percent=100,
+                        phase_label="Outer holdout rejected" if rejected_holdout else "Research artifact ready",
+                        outcome=assessment["status"], holdout_assessment=assessment,
+                        outer_holdout_status="CONSUMED", can_resume=False)
     except Exception as e:  # noqa: BLE001
         print(f"(run artifact unavailable: {e})")
 

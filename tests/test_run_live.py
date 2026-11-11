@@ -305,14 +305,14 @@ def test_live_helpers_reject_unknown_asset_class(helper):
             helper("future")
 
 
-def test_live_dashboard_request_accepts_inline_params():
+def test_live_dashboard_request_selects_saved_optuna_result():
     request = LiveJobRequest(
         tickers=["BTC"],
         port=4001,
         confirm="I UNDERSTAND THIS DEPLOYS REAL CAPITAL",
-        params={"entry_threshold": 0.002},
+        source_run_id="optuna_fixture",
     )
-    assert request.params == {"entry_threshold": 0.002}
+    assert request.source_run_id == "optuna_fixture"
 
 
 def test_zerohash_fractional_base_quantity_is_not_converted_to_cash():

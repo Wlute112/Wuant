@@ -116,7 +116,7 @@ def test_crypto_subscription_uses_zero_hash_midpoint_and_calendar_hours():
     )
 
     request = probe.bar_requests[-1]
-    assert request[2:] == ("", "1 Y", "1 day", "MIDPOINT", 0, 2, True, [])
+    assert request[2:] == ("", "1 Y", "1 day", "MIDPOINT", 0, 2, False, [])
 
 
 def test_daily_bar_preserves_exchange_session_date_without_local_timezone_shift():
@@ -158,3 +158,107 @@ def test_crypto_rejects_equity_extended_hours_setting():
             bar_hours=1,
             include_extended_hours=True,
         )
+
+
+def _daily_subscription():
+    monitor, probe = _connected_monitor()
+    monitor.subscribe_bars("QQQ", asset_class="equity", bar_hours=24)
+    _qualify_latest(monitor, probe, symbol="QQQ", security_type="STK", exchange="SMART")
+    return monitor, probe, probe.bar_requests[-1][0]
+
+
+def test_daily_chart_requests_history_without_live_updates():
+    monitor, probe, request_id = _daily_subscription()
+    assert probe.bar_requests[-1][8] is False
+    monitor.receive_historical_bar(request_id, _bar("20260821"), forming=False)
+    monitor.complete_historical_backfill(request_id)
+    snapshot = monitor.bar_snapshot("QQQ", asset_class="equity", bar_hours=24)
+    assert snapshot["status"] == "historical"
+    assert snapshot["update_mode"] == "historical_snapshot"
+    assert snapshot["refresh_interval_seconds"] == 300
+    assert snapshot["error"] is None and len(snapshot["bars"]) == 1
+    assert request_id not in monitor._bar_requests
+
+
+def test_subscription_warning_preserves_later_historical_callbacks():
+    monitor, probe, request_id = _daily_subscription()
+    assert monitor.set_request_error(request_id, 2188, "Up-to-the-second data requires a subscription")
+    assert request_id in monitor._bar_requests
+    monitor.receive_historical_bar(request_id, _bar("20260821"), forming=False)
+    monitor.complete_historical_backfill(request_id)
+    snapshot = monitor.bar_snapshot("QQQ", asset_class="equity", bar_hours=24)
+    assert snapshot["status"] == "historical"
+    assert snapshot["warning"] and snapshot["error"] is None
+    assert len(snapshot["bars"]) == 1
+
+
+def test_intraday_live_denial_falls_back_once_without_discarding_cached_history():
+    monitor, probe = _connected_monitor()
+    monitor.subscribe_bars("SPY", asset_class="equity", bar_hours=1)
+    _qualify_latest(monitor, probe, symbol="SPY", security_type="STK", exchange="SMART")
+    first = probe.bar_requests[-1][0]
+    monitor.receive_historical_bar(first, _bar(1_787_900_400), forming=False)
+    monitor.set_request_error(first, 354, "Not subscribed")
+    fallback = probe.bar_requests[-1]
+    assert first in probe.cancelled
+    assert fallback[0] != first and fallback[8] is False
+    assert len(probe.bar_requests) == 2
+    monitor.complete_historical_backfill(fallback[0])
+    snapshot = monitor.bar_snapshot("SPY", asset_class="equity", bar_hours=1)
+    assert len(snapshot["bars"]) == 1 and snapshot["update_mode"] == "historical_snapshot"
+
+
+def test_streaming_warning_retains_backfill_then_cancels_continuous_updates():
+    monitor, probe = _connected_monitor()
+    monitor.subscribe_bars("SPY", asset_class="equity", bar_hours=1)
+    _qualify_latest(monitor, probe, symbol="SPY", security_type="STK", exchange="SMART")
+    request_id = probe.bar_requests[-1][0]
+    monitor.set_request_error(request_id, 2188, "No up-to-the-second subscription")
+    monitor.receive_historical_bar(request_id, _bar(1_787_900_400), forming=False)
+    monitor.complete_historical_backfill(request_id)
+    assert request_id in probe.cancelled
+    assert monitor.bar_snapshot("SPY", asset_class="equity", bar_hours=1)["status"] == "historical"
+
+
+def test_historical_refresh_is_paced_and_polling_cannot_duplicate_requests(monkeypatch):
+    from quant.api import broker_monitor
+    now = [100.0]
+    monkeypatch.setattr(broker_monitor.time, "monotonic", lambda: now[0])
+    monitor, probe, request_id = _daily_subscription()
+    monitor.receive_historical_bar(request_id, _bar("20260821"), forming=False)
+    monitor.complete_historical_backfill(request_id)
+    for _ in range(5):
+        monitor.bar_snapshot("QQQ", asset_class="equity", bar_hours=24)
+    assert len(probe.bar_requests) == 1
+    now[0] = 401
+    for _ in range(5):
+        monitor.bar_snapshot("QQQ", asset_class="equity", bar_hours=24)
+    assert len(probe.bar_requests) == 2
+    refresh = probe.bar_requests[-1]
+    assert refresh[3] == "2 D" and refresh[8] is False
+    monitor.receive_historical_bar(refresh[0], _bar("20260821", close=103), forming=False)
+    monitor.complete_historical_backfill(refresh[0])
+    snapshot = monitor.bar_snapshot("QQQ", asset_class="equity", bar_hours=24)
+    assert len(snapshot["bars"]) == 1 and snapshot["bars"][0]["close"] == 103
+
+
+def test_fatal_history_denial_is_not_retried_as_an_entitlement_bypass():
+    monitor, probe, request_id = _daily_subscription()
+    monitor.set_request_error(request_id, 162, "Historical data not subscribed")
+    snapshot = monitor.bar_snapshot("QQQ", asset_class="equity", bar_hours=24)
+    assert snapshot["status"] == "error" and "162" in snapshot["error"]
+    assert len(probe.bar_requests) == 1
+
+
+def test_history_timeout_retains_cached_bars_and_received_timestamp(monkeypatch):
+    from quant.api import broker_monitor
+    now = [100.0]
+    monkeypatch.setattr(broker_monitor.time, "monotonic", lambda: now[0])
+    monitor, probe, request_id = _daily_subscription()
+    monitor.receive_historical_bar(request_id, _bar("20260821"), forming=False)
+    received = monitor.bar_snapshot("QQQ", asset_class="equity", bar_hours=24)["as_of"]
+    now[0] = 221
+    snapshot = monitor.bar_snapshot("QQQ", asset_class="equity", bar_hours=24)
+    assert snapshot["status"] == "error" and "timed out" in snapshot["error"]
+    assert snapshot["as_of"] == received and len(snapshot["bars"]) == 1
+    assert request_id in probe.cancelled

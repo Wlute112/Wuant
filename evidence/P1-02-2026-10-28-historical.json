@@ -1,0 +1,82 @@
+{
+  "verified_at": "2026-10-29T03:22:43.139368+00:00",
+  "scope": "Observed equity historical bars; CLI AAPL/BRK-B checks and dashboard 20-company repair",
+  "environment": {
+    "python": "3.12.16",
+    "nautilus_trader": "1.229.0",
+    "nautilus_ibapi": "10.45.1",
+    "gateway": "IB Gateway 10.50 / API server protocol 223",
+    "host": "127.0.0.1",
+    "port": 4002,
+    "mode": "paper"
+  },
+  "job_id": "data_repair_d9a7906463",
+  "elapsed_seconds": 22.326728,
+  "csv": "jobs/uploads/sp500_top20_ibkr_daily_5y-a35f64036a.csv",
+  "sha256": "e8b64e5bdcb5a315b555d9e408d51f839368ed0c3a8d694d6ec3231af20025a6",
+  "rows": 25160,
+  "tickers": [
+    "NVDA",
+    "AAPL",
+    "MSFT",
+    "GOOGL",
+    "AMZN",
+    "AVGO",
+    "TSLA",
+    "META",
+    "BRK-B",
+    "LLY",
+    "MU",
+    "WMT",
+    "AMD",
+    "JPM",
+    "XOM",
+    "V",
+    "JNJ",
+    "MA",
+    "ABBV",
+    "INTC"
+  ],
+  "bars_per_ticker": {
+    "AAPL": 1258,
+    "ABBV": 1258,
+    "AMD": 1258,
+    "AMZN": 1258,
+    "AVGO": 1258,
+    "BRK-B": 1258,
+    "GOOGL": 1258,
+    "INTC": 1258,
+    "JNJ": 1258,
+    "JPM": 1258,
+    "LLY": 1258,
+    "MA": 1258,
+    "META": 1258,
+    "MSFT": 1258,
+    "MU": 1258,
+    "NVDA": 1258,
+    "TSLA": 1258,
+    "V": 1258,
+    "WMT": 1258,
+    "XOM": 1258
+  },
+  "start": "2021-10-25",
+  "end": "2026-10-28",
+  "bar_hours": 24,
+  "source": "IBKR_TRADES",
+  "session": "RTH",
+  "preflight": {
+    "execution_eligible": true,
+    "errors": [],
+    "warnings": []
+  },
+  "fixes": [
+    "Preserve reqHistoricalData after warning 2188 while retaining real-error/timeout handling",
+    "Qualify contracts and request by resolved instrument ID; normalize equity share classes on the IBKR wire",
+    "Use explicit UTC wall-clock inputs for the pinned adapter"
+  ],
+  "tests": "83 relevant pytest tests passed; includes entitlement-warning, genuine-error, UTC, and share-class regressions",
+  "limitations": [
+    "Historical equity data only; does not validate up-to-the-second entitlement, intraday/extended-hours feeds, or execution",
+    "Data source declarations and observation snapshots do not certify historical universe membership or point-in-time vendor availability"
+  ]
+}

@@ -11,7 +11,7 @@ import {
   jobStatusLabel,
   supervisorFor,
 } from "../../lib/jobs.js";
-import ModelDecisionTape from "../model-tape/ModelDecisionTape.jsx";
+import LiveChart from "../live-chart/LiveChart.jsx";
 import NewsTape from "../news-tape/NewsTape.jsx";
 import SafetyControls from "./SafetyControls.jsx";
 import RecoveryControls from "./RecoveryControls.jsx";
@@ -22,6 +22,12 @@ import "./live-panel.css";
 
 const TICKER_PATTERN = /^[A-Z0-9][A-Z0-9.-]{0,14}$/;
 const BAR_HOURS = [1, 2, 3, 4, 8, 24];
+function savedSelection(mode, assetClass) {
+  try { return JSON.parse(localStorage.getItem(`quant.chart.selection.v1.${mode}.${assetClass}`)) || {}; } catch { return {}; }
+}
+function saveSelection(mode, assetClass, values) {
+  try { localStorage.setItem(`quant.chart.selection.v1.${mode}.${assetClass}`, JSON.stringify({ ...savedSelection(mode, assetClass), ...values })); } catch { /* Storage is optional. */ }
+}
 
 function normalizeTicker(value) {
   return String(value || "").trim().toUpperCase();
@@ -124,12 +130,14 @@ export default function LivePanel({
 
   useEffect(() => {
     setTelemetry(null);
-    setTicker(null);
-    setSymbolInput("");
+    const saved = savedSelection(mode, assetClass);
+    const symbol = TICKER_PATTERN.test(saved.ticker || '') ? saved.ticker : null;
+    setTicker(symbol);
+    setSymbolInput(symbol || "");
     setMarketFeed(null);
     setMarketError(null);
-    setBarHours(24);
-    barPeriodInitializedRef.current = false;
+    setBarHours(BAR_HOURS.includes(saved.barHours) ? saved.barHours : 24);
+    barPeriodInitializedRef.current = BAR_HOURS.includes(saved.barHours);
     setFeedStatus("loading");
     refreshTelemetry();
   }, [assetClass, mode]);
@@ -308,6 +316,7 @@ export default function LivePanel({
   function selectTicker(symbol) {
     const normalized = normalizeTicker(symbol);
     setTicker(normalized);
+    saveSelection(mode, assetClass, { ticker: normalized });
     setSymbolInput(normalized);
     setMarketError(null);
   }
@@ -384,7 +393,7 @@ export default function LivePanel({
   const modelOverlayActive = chartMock
     || (realModelPoints.length > 0 && (!marketBars.length || timeframeMatches));
   const chartSource = marketBars.length
-    ? "IB Gateway"
+    ? (marketFeed?.update_mode === "historical_snapshot" ? "IB Gateway · historical snapshot" : "IB Gateway")
     : chartMock
       ? "demonstration"
       : "strategy telemetry";
@@ -433,12 +442,25 @@ export default function LivePanel({
       minH: 4,
       content: (
         <div className="live-panel__chart-module">
-          <div className="live-panel__market-console">
+
+          {marketFeed?.update_mode === "historical_snapshot" && (
+            <div className="live-panel__market-note" role="status">
+              Historical snapshot · refreshes every five minutes · received {marketFeed.as_of ? new Date(marketFeed.as_of).toLocaleString() : "pending"}.
+              {marketFeed.warning && <span> {marketFeed.warning}</span>}
+            </div>
+          )}
+          {marketError && <div className="live-panel__market-error" role="alert">{marketError}</div>}
+          <LiveChart
+            key={`${mode}.${assetClass}`}
+            mode={mode}
+            marketControls={
+<div className="live-panel__market-console">
             <form className="live-panel__symbol-search" onSubmit={submitTicker}>
               <label htmlFor={`live-chart-symbol-${mode}`}>
                 <span className="label">Symbol</span>
                 <input
                   id={`live-chart-symbol-${mode}`}
+                  aria-label="Symbol"
                   value={symbolInput}
                   list={`known-live-symbols-${mode}`}
                   maxLength={15}
@@ -456,8 +478,9 @@ export default function LivePanel({
                 <span className="label">Bars</span>
                 <select
                   id={`live-chart-period-${mode}`}
+                  aria-label="Bars"
                   value={barHours}
-                  onChange={(event) => setBarHours(Number(event.target.value))}
+                  onChange={(event) => { const hours = Number(event.target.value); setBarHours(hours); saveSelection(mode, assetClass, { barHours: hours }); }}
                 >
                   {BAR_HOURS.map((hours) => (
                     <option key={hours} value={hours}>
@@ -482,8 +505,14 @@ export default function LivePanel({
               ))}
             </div>
           </div>
-          {marketError && <div className="live-panel__market-error" role="alert">{marketError}</div>}
-          <ModelDecisionTape
+
+            }
+            barHours={barHours}
+            onStrategyInterval={() => { setBarHours(strategyBarHours); saveSelection(mode, assetClass, { barHours: strategyBarHours }); }}
+            feedStatus={feedStatus}
+            marketAsOf={marketFeed?.as_of}
+            marketStatus={marketFeed?.status}
+            modelAsOf={telemetry?.as_of}
             points={points}
             ticker={ticker || knownTickers[0] || "—"}
             model={model}
@@ -493,6 +522,7 @@ export default function LivePanel({
             mock={chartMock}
             marketOnly={marketOnly}
             marketSource={chartSource}
+            marketUpdateMode={marketFeed?.update_mode}
             modelOverlayActive={modelOverlayActive}
             modelBarHours={strategyBarHours}
           />
@@ -748,6 +778,10 @@ function TelemetryReadout({
         <AuthorityItem label="Data age" value={formatAge(session.data_age_seconds)} unsafe={!isDemo && !Number.isFinite(session.data_age_seconds)} />
         <AuthorityItem label="Entry policy" value={session.policy?.mode || "UNKNOWN"} />
         <AuthorityItem label="Session entries" value={session.entry_reason || "UNKNOWN"} />
+        <AuthorityItem label="Scheduled daily signals" value={executionCurrent ? String(session.scheduled_signals?.length || 0) : "UNKNOWN"} />
+        {executionCurrent && session.scheduled_signals?.length > 0 && (
+          <AuthorityItem label="Next signal window" value={new Date(Math.min(...session.scheduled_signals.map(signal => Date.parse(signal.not_before)))).toLocaleString()} />
+        )}
         <AuthorityItem label="Risk session" value={session.session_key || "UNKNOWN"} />
         <AuthorityItem label="Overnight PnL" value={session.policy?.overnight_pnl_assignment || "UNKNOWN"} />
         <AuthorityItem label="Next open" value={formatTime(session.next_open)} unsafe={!isDemo && !session.next_open} />

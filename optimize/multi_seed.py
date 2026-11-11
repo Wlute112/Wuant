@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 import optuna
+from quant.optimize.selection import NO_QUALIFYING_CANDIDATE
 from optuna.trial import TrialState
 from quant.run.compute import add_compute_arguments, resolve_compute_plan
 
@@ -242,6 +243,10 @@ def main() -> None:
         if result.returncode == 0:
             study = optuna.load_study(study_name=study_name, storage=args.storage)
             contract = study.user_attrs.get("validation_contract")
+            if study.user_attrs.get("search_outcome") == NO_QUALIFYING_CANDIDATE:
+                record["status"] = NO_QUALIFYING_CANDIDATE
+                record["error"] = "No qualifying development candidate; no parameter file was written and the holdout remains untouched."
+                failures.append(study_name)
             if contract is None:
                 record["status"] = "FAILED"
                 record["error"] = "study did not persist a validation contract"

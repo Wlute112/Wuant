@@ -1,12 +1,14 @@
 // THESIS: Review source evidence before committing research compute.
 // OWN-WORLD: Existing Strip Recorder typography, neutral panels and hairlines.
 // STORY: Inspect coverage, repair/import unusable bars, then launch research.
-// FIRST VIEWPORT: Compact verdict followed by per-ticker evidence and recovery.
+// FIRST VIEWPORT: Optimization checks at a glance; evidence and tools on demand.
 // FORM: Local extension of the existing research configuration form.
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api.js";
 import { isJobActive, jobStatusLabel } from "../../lib/jobs.js";
+import { dataGuidance } from "../../lib/researchData.js";
 import DataReport from "./DataReport.jsx";
+import DataCheckSummary from "./DataCheckSummary.jsx";
 import ActiveResearchRun from "./ActiveResearchRun.jsx";
 import SyntheticFixture from "./SyntheticFixture.jsx";
 
@@ -38,7 +40,7 @@ export function useDataPreflight(request, jobs = [], enabled = true) {
 }
 
 
-export default function DataPreflight({ state, request, jobs = [], onJobStarted, onFixtureStarted, onSelectCsv, repairOptions }) {
+export default function DataPreflight({ state, request, jobs = [], onJobStarted, onFixtureStarted, onSelectCsv, repairOptions, compact = false }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(null);
   const [repairEdits, setRepairEdits] = useState({});
@@ -46,6 +48,8 @@ export default function DataPreflight({ state, request, jobs = [], onJobStarted,
   const editRepair = (key, value) => setRepairEdits((current) => ({ ...current, [key]: value }));
   const repairJob = jobs.find((job) => job.kind === "data_repair" && job.config?.csv === request.csv);
   const active = isJobActive(repairJob);
+  const guidance = dataGuidance(state.report?.tickers);
+  const hasLimitations = !!state.report?.warnings?.length || Object.values(guidance).some((rows) => rows.length > 0);
   async function repair() {
     setPending(true); setError(null);
     try {
@@ -60,15 +64,8 @@ export default function DataPreflight({ state, request, jobs = [], onJobStarted,
     catch (cause) { setError(cause.message); }
     finally { setPending(false); }
   }
-  return <section className="data-preflight" aria-label="Research data preflight" aria-busy={state.busy}>
-    <div className="data-preflight__heading">
-      <strong role="status">{state.busy ? "Checking research data…" : state.error ? "Data status unavailable" : state.eligible ? "Data checks passed" : "Execution research blocked"}</strong>
-      <button type="button" disabled={state.busy || pending || active} onClick={state.refresh}>Recheck data</button>
-    </div>
-    {state.error && <p role="alert">{state.error}. Recheck before launching research.</p>}
-    {state.eligible && <p>CSV and session checks passed. Model warmup and evaluation sample size still depend on the run configuration.</p>}
-    <SyntheticFixture request={request} jobs={jobs} onJobStarted={onFixtureStarted || onJobStarted} onSelectCsv={onSelectCsv} />
-    <DataReport report={state.report} />
+  const fixture = <SyntheticFixture request={request} jobs={jobs} onJobStarted={onFixtureStarted || onJobStarted} onSelectCsv={onSelectCsv} />;
+  const tools = <>
     <details><summary>Import provenance and historical universe declarations</summary>
       <p>The Data CSV picker accepts optional columns: source, retrieved_at (ISO UTC), session, price_basis, volume_basis, con_id, symbol_alias, membership_start, membership_end and membership_source. Supply dated evidence from your vendor; leave unknown values empty. Keep historical and delisted symbols in the file when available.</p>
       <p>These declarations are retained for review. Research still uses the selected fixed ticker universe. Local archive dates do not establish historical availability or remove survivorship bias.</p>
@@ -82,12 +79,36 @@ export default function DataPreflight({ state, request, jobs = [], onJobStarted,
         <label>Client ID<input type="number" min="0" value={repairSettings.ibkr_client_id ?? 71} onChange={(event) => editRepair("ibkr_client_id", Number(event.target.value))} /></label>
         <label>Years<input type="number" min="1" value={repairSettings.ibkr_years || 5} onChange={(event) => editRepair("ibkr_years", Number(event.target.value))} /></label>
         <label>Bar width<select value={repairSettings.ibkr_bar_hours || 4} onChange={(event) => editRepair("ibkr_bar_hours", Number(event.target.value))}>{[1, 2, 3, 4, 8, 24].map((hours) => <option key={hours} value={hours}>{hours === 24 ? "Daily" : `${hours} hours`}</option>)}</select></label>
-        <label>Session<select value={repairSettings.include_extended_hours ? "extended" : "rth"} onChange={(event) => editRepair("include_extended_hours", event.target.value === "extended")}><option value="rth">Regular trading hours</option><option value="extended">Include extended hours</option></select></label>
+        {request.asset_class === "equity" ? <label>Session<select value={repairSettings.include_extended_hours ? "extended" : "rth"} onChange={(event) => editRepair("include_extended_hours", event.target.value === "extended")}><option value="rth">Regular trading hours</option><option value="extended">Include extended hours</option></select></label> : <p>Crypto trade bars use all available hours (24/7).</p>}
       </div>
       <button type="button" disabled={pending || active} onClick={repair}>{pending ? "Submitting…" : "Fetch observed replacement"}</button>
       {active && <button type="button" disabled={pending || repairJob.status === "cancelling"} onClick={cancel}>Cancel data fetch</button>}
     </details>}
     {repairJob && <details><summary>Latest data repair: {jobStatusLabel(repairJob.status)} · progress, results & logs</summary><ActiveResearchRun job={repairJob} /></details>}
+  </>;
+  return <section className={`data-preflight${compact ? " data-preflight--compact" : ""}`} aria-label="Research data preflight" aria-busy={state.busy}>
+    <div className="data-preflight__heading">
+      <strong role="status" className={compact && state.eligible && !hasLimitations && !state.busy && !state.error ? "data-checks__passed" : undefined}>
+        {state.busy ? "Checking research data…" : state.error ? "Data status unavailable" : state.eligible ? hasLimitations ? "Data usable with limitations" : "Data checks passed" : "Execution research blocked"}
+      </strong>
+      <button type="button" disabled={state.busy || pending || active} onClick={state.refresh}>Recheck data</button>
+    </div>
+    {state.error && <p role="alert">{state.error}. Recheck before launching research.</p>}
+    {compact ? <>
+      {!state.busy && !state.error && <DataCheckSummary report={state.report} request={request} />}
+      {state.report && <details className="data-preflight__disclosure">
+        <summary>View data details{state.report.warnings?.length > 0 && <span className="data-checks__warning"> · {state.report.warnings.length} {state.report.warnings.length === 1 ? "warning" : "warnings"}</span>}</summary>
+        <p>Data checks only. Model warmup and evaluation size depend on the run settings.</p>
+        <DataReport report={state.report} />
+      </details>}
+      <details className="data-preflight__disclosure data-preflight__tools">
+        <summary>Data tools & import options</summary>
+        {fixture}{tools}
+      </details>
+    </> : <>
+      {state.eligible && <p>CSV and session checks passed. Model warmup and evaluation sample size still depend on the run configuration.</p>}
+      {fixture}<DataReport report={state.report} />{tools}
+    </>}
     {error && <p role="alert">{error}</p>}
   </section>;
 }

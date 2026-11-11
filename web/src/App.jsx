@@ -7,6 +7,7 @@ import WorkflowDrawer from "./components/bezel/WorkflowDrawer.jsx";
 import AssetProfileSwitch from "./components/asset-profile/AssetProfileSwitch.jsx";
 import LivePanel from "./components/live-panel/LivePanel.jsx";
 import ResearchHub from "./components/research-hub/ResearchHub.jsx";
+import DriftReview from "./components/drift-review/DriftReview.jsx";
 import { useInterval } from "./hooks/useInterval.js";
 import { api } from "./lib/api.js";
 import { FALLBACK_ASSET_PROFILES, assetProfile, profileMap } from "./lib/assetProfiles.js";
@@ -25,7 +26,7 @@ function initialAssetClass() {
   }
 }
 
-const WORKFLOW_KEYS = new Set(["backtest", "optimize", "paper", "live"]);
+const WORKFLOW_KEYS = new Set(["backtest", "optimize", "paper", "live", "review"]);
 
 function initialWorkflow() {
   const requested = new URLSearchParams(window.location.search).get("workflow");
@@ -58,6 +59,7 @@ export default function App() {
   const [compareRun, setCompareRun] = useState(null);
   const [ticker, setTicker] = useState(null);
   const [workflowTab, setWorkflowTab] = useState(initialWorkflow);
+  const [launchedResearchJobId, setLaunchedResearchJobId] = useState(null);
   const [workflowMenuOpen, setWorkflowMenuOpen] = useState(false);
   const [controlDrawerOpen, setControlDrawerOpen] = useState(false);
   const [assetClass, setAssetClass] = useState(initialAssetClass);
@@ -70,6 +72,7 @@ export default function App() {
   }, [theme]);
 
   const workflowCopy = {
+    review: { label: "Drift review" },
     backtest: {
       label: "Backtest",
       title: "Run control & signal review",
@@ -260,6 +263,8 @@ export default function App() {
   }, [tickers, ticker]);
 
   function handleJobStarted(job) {
+    if (["backtest", "optimize"].includes(job.kind)) setLaunchedResearchJobId(job.id);
+    if (job.kind === "optimize" && workflowTab === "backtest") setWorkflowTab("optimize");
     setJobs((prev) => [job, ...prev]);
     if (job.run_id) {
       // Backtest/optimize jobs write a run artifact once they finish; keep
@@ -340,7 +345,7 @@ export default function App() {
   );
 
   return (
-    <div className={`app ${isResearchTab ? "is-research" : ""} ${workflowTab === "live" ? "is-live" : ""}`}>
+    <div className={`app ${isResearchTab ? "is-research" : ""} ${workflowTab === "review" ? "is-review" : ""} ${workflowTab === "live" ? "is-live" : ""}`}>
       <a className="skip-link" href="#dashboard-main">Skip to dashboard</a>
       <WorkflowDrawer
         open={workflowMenuOpen}
@@ -359,6 +364,7 @@ export default function App() {
         {isResearchTab ? (
           <ResearchHub
             key={workflowTab}
+            initialJobId={jobs.find((job) => job.id === launchedResearchJobId && job.kind === workflowTab && (job.config?.asset_class || "crypto") === assetClass)?.id || null}
             workflow={workflowTab}
             profile={selectedProfile}
             assetProfiles={profiles}
@@ -386,6 +392,8 @@ export default function App() {
             ticker={ticker}
             onTickerChange={setTicker}
           />
+        ) : workflowTab === "review" ? (
+          <DriftReview runs={runs} jobs={jobs} navigation={workspaceNavigation} brokerStatus={workspaceBrokerStatus} theme={theme} onThemeChange={setTheme} />
         ) : (
           <LivePanel
             mode={workflowTab}
@@ -405,7 +413,7 @@ export default function App() {
           />
         )}
       </main>
-      {!isResearchTab && (
+      {!isResearchTab && workflowTab !== "review" && (
         <ControlDrawer open={controlDrawerOpen} title={`${workflowCopy.label} controls`} onClose={() => setControlDrawerOpen(false)}>
           {actionPanel}
         </ControlDrawer>

@@ -60,19 +60,20 @@ import argparse
 import asyncio
 import hashlib
 import os
+import re
 import tempfile
 import datetime as dt
 from pathlib import Path
 
 import pandas as pd
 
-from quant.data.ib_compat import CRYPTO_VENUE, register_zerohash_crypto
+from quant.data.ib_compat import CRYPTO_VENUE, register_ibkr_historical_fixes, register_zerohash_crypto
 
 # Natively supported IBKR hourly bar sizes (see bar_spec_to_bar_size in nautilus).
 _NATIVE_HOUR_STEPS = (8, 4, 3, 2, 1)  # descending, for "largest divisor" search
 
-# ibapi MarketDataTypeEnum values (int). DELAYED_FROZEN is the documented option
-# for accounts WITHOUT a live data subscription (nautilus IB config docs).
+# ibapi MarketDataTypeEnum values (int). Streaming quote policy is separate
+# from historical-data permissions; warning 2188 alone does not reject bars.
 _MARKET_DATA_TYPES = {
     "REALTIME": 1,
     "FROZEN": 2,
@@ -88,6 +89,11 @@ _DAYS_PER_YEAR = 366
 # newer Zero Hash listings simply have no history that far back. We flag it so a
 # short series reads as "IBKR has no earlier data" instead of "fetch is broken".
 _HORIZON_SHORTFALL_DAYS = 5
+
+
+def _equity_ib_symbol(symbol: str) -> str:
+    """IBKR uses a space for share classes (BRK B), CSVs may use BRK-B/BRK.B."""
+    return re.sub(r"[.-]([A-Z])$", r" \1", symbol)
 
 
 def _plan_bars(bar_hours: int, price_type: str) -> tuple[str, int | None]:
@@ -143,6 +149,7 @@ async def _fetch(
 ):
     is_equity = asset_class == "equity"
     price_type = price_type or ("LAST" if is_equity else "MID")
+    register_ibkr_historical_fixes()
     if not is_equity:
         # Patch the nautilus 1.229 IB adapter to treat ZEROHASH as a crypto
         # venue. Must run before the adapter builds instruments from our
@@ -160,9 +167,8 @@ async def _fetch(
     bar_spec, resample_hours = _plan_bars(bar_hours, price_type)
     print(f"Requesting {bar_spec} bars" + (f", resampling to {bar_hours}h" if resample_hours else ""))
 
-    # market_data_type is issued via reqMarketDataType on connect. DELAYED_FROZEN
-    # lets accounts without a crypto data subscription still pull bars (if IBKR
-    # offers delayed crypto data); REALTIME requires the paid subscription.
+    # Issued via reqMarketDataType on connect. Historical availability is
+    # determined separately by IBKR; changing this is not an entitlement fix.
     client = HistoricInteractiveBrokersClient(
         host=host,
         port=port,
@@ -171,7 +177,9 @@ async def _fetch(
     )
     await client.connect()
 
-    end = dt.datetime.now()  # naive; nautilus localizes via tz_name
+    # The adapter localizes naive inputs using tz_name. Explicit UTC avoids
+    # interpreting this Mac's Pacific wall clock as New York time.
+    end = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
     start = end - dt.timedelta(days=int(years * _DAYS_PER_YEAR))
 
     rows = []
@@ -183,7 +191,7 @@ async def _fetch(
             # "ARCA"/"NASDAQ") if a symbol needs disambiguation.
             contract = IBContract(
                 secType="STK",
-                symbol=sym,
+                symbol=_equity_ib_symbol(sym),
                 exchange="SMART",
                 currency="USD",
                 primaryExchange=primary_exchange or None,
@@ -201,12 +209,18 @@ async def _fetch(
         # Equities have real market hours (use_rth=True); crypto is 24/7 (there
         # are no "regular trading hours" to restrict to).
         try:
+            # Keep the qualified instrument's primary venue and symbology.
+            # An unresolved BRK B/SMART contract otherwise requests bars for
+            # BRK-B.SMART while the provider caches only BRK-B.NYSE.
+            instruments = await client.request_instruments(contracts=[contract])
+            if len(instruments) != 1:
+                raise ValueError(f"Expected one qualified instrument for {sym}, got {len(instruments)}")
             bars = await client.request_bars(
                 bar_specifications=[bar_spec],
-                contracts=[contract],
+                instrument_ids=[instruments[0].id],
                 start_date_time=start,
                 end_date_time=end,
-                tz_name="America/New_York",  # required by nautilus 1.229
+                tz_name="UTC",
                 use_rth=is_equity and not include_extended_hours,
                 # Per-segment timeout. nautilus walks the window year-by-year; a
                 # segment before a coin's Zero Hash feed-start returns IBKR error
@@ -243,7 +257,7 @@ async def _fetch(
         if not bar_times:
             print(
                 f"{sym}: 0 bars -- contract qualified but IBKR returned no data for "
-                f"the window (check crypto data permissions / --market-data-type)"
+                f"the window (check the broker's request and entitlement diagnostics)"
             )
             continue
 
@@ -253,14 +267,21 @@ async def _fetch(
         if shortfall > _HORIZON_SHORTFALL_DAYS:
             note = (
                 f"  [!] earliest IBKR bar is {first}, {shortfall} days after the "
-                f"requested {start.date()} -- IBKR/Zero Hash has no {sym} history "
-                f"before {first} (newer listings have shorter horizons; not a fetch error)"
+                f"requested {start.date()} -- coverage is partial; verify listing "
+                "history and source availability"
             )
         print(f"{sym}: {len(bar_times)} raw bars  {first} -> {last}{note}")
 
     # NOTE: HistoricInteractiveBrokersClient (1.229) has no disconnect();
     # the connection closes with the event loop.
     if not rows:
+        if is_equity:
+            raise SystemExit(
+                "No bars returned for any equity ticker. Check the reported IBKR "
+                "errors, stock contract qualification, and historical-data permissions. "
+                "Warning 2188 alone does not reject historical bars. LAST/TRADES is "
+                "required for observed execution volume; MID is price-only diagnostics."
+            )
         raise SystemExit(
             "No bars returned for any ticker. If you saw IBKR error 162 'No market "
             "data permissions for ZEROHASH CRYPTO', your account lacks a crypto data "
@@ -281,7 +302,8 @@ async def _fetch(
     out["timestamp"] = out["timestamp"].dt.strftime(fmt)
     out["source"] = "IBKR_TRADES" if is_equity and price_type == "LAST" else "IBKR_" + price_type
     out["session"] = "RTH" if is_equity and not include_extended_hours else ("extended" if is_equity else "24/7")
-    out["price_basis"] = "split_adjusted" if is_equity and price_type == "LAST" else "unknown"
+    # Declare the requested price basis; crypto LAST maps to AGGTRADES.
+    out["price_basis"] = "midpoint" if price_type == "MID" else ("split_adjusted" if is_equity else "trade_prices")
     out["volume_basis"] = "traded_shares" if is_equity and price_type == "LAST" else ("unavailable_midpoint" if price_type == "MID" else "traded_units")
     out["retrieved_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
     out["requested_bar_hours"] = bar_hours
@@ -528,7 +550,7 @@ def main() -> None:
         "--market-data-type",
         choices=tuple(_MARKET_DATA_TYPES),
         default="REALTIME",
-        help="REALTIME needs a paid data subscription; DELAYED_FROZEN works without one.",
+        help="Streaming market-data mode issued on connection; historical-data permissions are checked separately by IBKR.",
     )
     p.add_argument(
         "--request-timeout",

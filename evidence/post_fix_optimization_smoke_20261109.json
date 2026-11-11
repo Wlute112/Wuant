@@ -1,0 +1,146 @@
+{
+  "status": "PASSED",
+  "run_id": "post_fix_smoke_20261109",
+  "validation_type": "Synthetic integration smoke; not observed-market strategy validation",
+  "fixture": {
+    "run_id": "post_fix_smoke_20261109",
+    "dataset": "Deterministic cyclic synthetic XNYS fixture; no observed market data",
+    "fixture_formula": "close=(40+5*ticker_index)*exp(0.0004*t+0.06*sin(0.25*t+0.4*ticker_index)); high/low add 1.5% envelopes",
+    "tickers": [
+      "NVDA",
+      "AMD",
+      "JPM"
+    ],
+    "sessions_per_ticker": 600,
+    "trials": 20,
+    "dataset_sha256": "42cff3017f7896b79c501720bfbbb9bde0d47bbce12dfc2c1e0f4ea3beac42ac",
+    "started_at": "2026-11-10T07:16:20.654522+00:00",
+    "published_params_sha256_before": "c65b406816ef941206d9570277e75b317ed096b656791e9fe3c1765d602949c8",
+    "original_market_study": "optimize_36be2d0907",
+    "original_market_run": "optimize_fccfe699fc",
+    "setup_error": "First attempt stopped before study/trials because structural config path was missing; corrected by copying the original goal-mode job config."
+  },
+  "finished_at": "2026-11-10T07:32:31.332486+00:00",
+  "optimizer_return_code": 0,
+  "trial_states": {
+    "COMPLETE": 9,
+    "PRUNED": 11
+  },
+  "native_engine_evaluations": 202,
+  "filled_order_report_rows_by_instrument": {
+    "AMD.IBKR": 1830,
+    "JPM.IBKR": 2448,
+    "NVDA.IBKR": 1964
+  },
+  "rejected_orders": [],
+  "market_order_trials_with_fills": [
+    {
+      "trial": 2,
+      "state": "COMPLETE",
+      "development_fills": 86
+    },
+    {
+      "trial": 3,
+      "state": "COMPLETE",
+      "development_fills": 181
+    },
+    {
+      "trial": 4,
+      "state": "COMPLETE",
+      "development_fills": 179
+    },
+    {
+      "trial": 16,
+      "state": "COMPLETE",
+      "development_fills": 159
+    }
+  ],
+  "holdout_evaluations": [
+    {
+      "csv": "/var/folders/86/7t3tcgws0z1c8sjkqh3g_2xc0000gn/T/quant_nested_wf_w1yl5pdi/final_context.csv",
+      "cost_multiplier": 1.0,
+      "fills_by_instrument": {
+        "AMD.IBKR": 29,
+        "NVDA.IBKR": 29,
+        "JPM.IBKR": 27
+      },
+      "rejected_orders": [],
+      "trades": 85,
+      "ratio": 29.534530710060157,
+      "net_profit_usd": 557.67,
+      "fit_end_ns": 1688403600000000000,
+      "trade_start_ns": 1689019200000000000
+    },
+    {
+      "csv": "/var/folders/86/7t3tcgws0z1c8sjkqh3g_2xc0000gn/T/quant_nested_wf_w1yl5pdi/final_context.csv",
+      "cost_multiplier": 2.0,
+      "fills_by_instrument": {
+        "AMD.IBKR": 29,
+        "NVDA.IBKR": 29,
+        "JPM.IBKR": 27
+      },
+      "rejected_orders": [],
+      "trades": 85,
+      "ratio": 21.74507143072359,
+      "net_profit_usd": 468.22,
+      "fit_end_ns": 1688403600000000000,
+      "trade_start_ns": 1689019200000000000
+    }
+  ],
+  "holdout_outcome": "PASSED_OUTER_HOLDOUT",
+  "execution_model_version": 2,
+  "convergence_warning_count": 12,
+  "traceback_count": 0,
+  "setup_attempt": "Initial missing-config launch failed before creating trials; corrected, then the recorded 20-trial run exited successfully.",
+  "checks": {
+    "all_three_instruments_traded": true,
+    "later_in_stream_jpm_traded": true,
+    "no_order_rejections": true,
+    "active_profitable_normal_and_stress_holdouts": true,
+    "published_market_params_byte_unchanged": true,
+    "original_market_study_still_124_trials_and_consumed_rejected": true,
+    "production_source_matches_fix_fingerprints": true,
+    "all_smoke_coordinator_and_workers_reaped": true,
+    "synthetic_artifact_removed_from_production_run_library": true
+  },
+  "automated_regression_checks": {
+    "command": "PYTHONPATH=.quant-runtime OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 .quant312/bin/python -m pytest -q tests/test_equity_simulation.py -k \"own_next_open or later_instrument\" --disable-warnings",
+    "passed": 6,
+    "seconds": 1.83,
+    "coverage": [
+      "Target book before/after unrelated instrument; full and streamed replay",
+      "Actual MLStrategy order routing and rejection safety, both symbol orders"
+    ]
+  },
+  "artifacts": {
+    "run": "/Users/wynstonsu/Projects/Wuant/Wuant/.quant-runtime/post_fix_smoke_20261109/runs/post_fix_smoke_20261109.json",
+    "parameters": "/Users/wynstonsu/Projects/Wuant/Wuant/.quant-runtime/post_fix_smoke_20261109/selected_params.json",
+    "optimizer_log": "/Users/wynstonsu/Projects/Wuant/Wuant/.quant-runtime/post_fix_smoke_20261109/optimizer.log",
+    "native_engine_observations": "/Users/wynstonsu/Projects/Wuant/Wuant/.quant-runtime/post_fix_smoke_20261109/engine_observations"
+  },
+  "runtime": {
+    "python": "3.12.16 (main, Oct 25 2026, 18:24:37) [Clang 21.0.0 (clang-2100.3.34.2)]",
+    "nautilus_trader": "1.229.0",
+    "platform": "macOS-27.2-arm64-arm-64bit"
+  },
+  "limits": [
+    "Synthetic cyclic prices deliberately make trading and positive returns easy to exercise; these returns are not market-performance evidence.",
+    "Twelve Huber convergence warnings remained on this deterministic fixture; no exceptions or execution rejections occurred.",
+    "These tests cover the reproduced failure and tested configurations, not a guarantee against every future failure."
+  ],
+  "optimizer_controls": {
+    "sampler_seed": 42,
+    "evaluation_seed": 1729,
+    "workers": 6,
+    "walk_forward_folds": 5,
+    "final_test_frac": 0.15,
+    "starting_cash": 5000,
+    "structural_config": "/Users/wynstonsu/Projects/Wuant/Wuant/.quant-runtime/post_fix_smoke_20261109/structural.json",
+    "study_database": "/Users/wynstonsu/Projects/Wuant/Wuant/.quant-runtime/post_fix_smoke_20261109/study.db"
+  },
+  "follow_up_execution_audit": {
+    "evidence": "evidence/execution_logic_audit_20261110.json",
+    "historical_scope": "The recorded version-2 smoke remains historical integration evidence. Subsequent audit found daily-risk baseline and short-policy defects; use version-3 follow-up evidence for those tested economic invariants.",
+    "new_default": "Research is now explicitly long-only; historical 85-order synthetic results used implicit long/short policy and are not corrected long-only performance evidence."
+  }
+}

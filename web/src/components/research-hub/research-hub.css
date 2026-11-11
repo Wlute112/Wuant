@@ -794,3 +794,9 @@
   .research-controls__backdrop,
   .research-controls__drawer { transition: none; }
 }
+
+
+.optimization-outcome code {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}

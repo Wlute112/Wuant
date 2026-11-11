@@ -1,0 +1,37 @@
+{
+  "basis": "Forensic frozen-alpha reconstruction, not an order-engine replay or a new performance evaluation.",
+  "fit_end": "2026-02-04T00:00:00+00:00",
+  "entry_threshold": 0.00019173652087678736,
+  "symbols": {
+    "NVDA": {
+      "bars": 189,
+      "buy_forecasts": 112,
+      "sell_forecasts": 74,
+      "hold_forecasts": 3,
+      "buy_forecasts_with_whole_share_qty": 108,
+      "buy_forecasts_with_quantity_below_one": 110,
+      "prediction_min": -0.023917626499420586,
+      "prediction_max": 0.036752174355429414
+    },
+    "AMD": {
+      "bars": 189,
+      "buy_forecasts": 73,
+      "sell_forecasts": 113,
+      "hold_forecasts": 3,
+      "buy_forecasts_with_whole_share_qty": 9,
+      "buy_forecasts_with_quantity_below_one": 73,
+      "prediction_min": -0.03860007073560944,
+      "prediction_max": 0.0428708741850012
+    },
+    "JPM": {
+      "bars": 189,
+      "buy_forecasts": 129,
+      "sell_forecasts": 55,
+      "hold_forecasts": 5,
+      "buy_forecasts_with_whole_share_qty": 124,
+      "buy_forecasts_with_quantity_below_one": 129,
+      "prediction_min": -0.009342808233259163,
+      "prediction_max": 0.0155309105212602
+    }
+  }
+}

@@ -2,15 +2,12 @@ import { cloneElement, isValidElement, useEffect, useId, useRef, useState } from
 
 import { api } from "../../lib/api.js";
 import { settledCashLabel } from "../../lib/accountEvidence.js";
-import { executionParamsWithRisk } from "../../lib/sectorRisk.js";
-import { regimeWindowForBarHours } from "../../lib/assetProfiles.js";
 import { formatTime } from "../../lib/format.js";
 import { isJobActive } from "../../lib/jobs.js";
 import { DEFAULT_SESSION_POLICY, sessionPolicyPayload } from "../../lib/sessionPolicy.js";
 import DataPreflight, { useDataPreflight } from "../research-hub/DataPreflight.jsx";
 import SessionPolicyEditor from "./SessionPolicyEditor.jsx";
 import SectorEvidenceEditor from "./SectorEvidenceEditor.jsx";
-import FeaturePanel, { DEFAULT_FEATURES, DEFAULT_SEARCH_MODES } from "../features/FeaturePanel.jsx";
 import RiskPanel, { DEFAULT_RISK, toRiskOverrides } from "../features/RiskPanel.jsx";
 import EquitySimulationEditor, { DEFAULT_SIMULATION } from "./EquitySimulationEditor.jsx";
 import "./action-panel.css";
@@ -108,14 +105,17 @@ export default function ActionPanel({
   const [host, setHost] = useState(persisted.host ?? "127.0.0.1");
   const [port, setPort] = useState(persisted.port ?? 7497);
   const [livePort, setLivePort] = useState(persisted.livePort ?? "");
+  const paperConnectionEdited = useRef(false);
+  useEffect(() => {
+    const connected = brokerStatus.config;
+    if (tab !== "paper" || paperConnectionEdited.current || brokerStatus.status !== "connected"
+        || !PAPER_PORTS.has(Number(connected?.port))) return;
+    setPort(Number(connected.port));
+    if (connected.host) setHost(connected.host);
+  }, [tab, brokerStatus.status, brokerStatus.config?.host, brokerStatus.config?.port]);
   const [clientId, setClientId] = useState(persisted.clientId ?? 1);
   const [accountId, setAccountId] = useState(persisted.accountId ?? "");
-  const [tradingParams, setTradingParams] = useState(persisted.tradingParams ?? null);
   const [sectorEvidence, setSectorEvidence] = useState(persisted.sectorEvidence ?? null);
-  const [tradingParamsName, setTradingParamsName] = useState(
-    persisted.tradingParamsName ?? "",
-  );
-  const tradingParamsInput = useRef(null);
   const [primaryExchange, setPrimaryExchange] = useState(persisted.primaryExchange ?? "");
   const [allowShorts, setAllowShorts] = useState(false);
   const [shortControlClientId, setShortControlClientId] = useState(persisted.shortControlClientId ?? 29);
@@ -144,14 +144,6 @@ export default function ActionPanel({
     loading: true,
   });
 
-  const [features, setFeatures] = useState({
-    ...DEFAULT_FEATURES,
-    ...(persisted.features || {}),
-  });
-  const [searchModes, setSearchModes] = useState({
-    ...DEFAULT_SEARCH_MODES,
-    ...(persisted.searchModes || {}),
-  });
   const [risk, setRisk] = useState({ ...DEFAULT_RISK, ...(persisted.risk || {}) });
   const [equitySimulation, setEquitySimulation] = useState({ ...DEFAULT_SIMULATION, ...persisted.equitySimulation });
   const [dataFetchMode, setDataFetchMode] = useState(
@@ -165,11 +157,12 @@ export default function ActionPanel({
       : 4,
   );
 
-  const [sourceRunId, setSourceRunId] = useState(persisted.sourceRunId ?? "");
-  const [loadedParams, setLoadedParams] = useState(persisted.loadedParams ?? null);
+  const [sourceRunId, setSourceRunId] = useState("");
+  const [loadedParams, setLoadedParams] = useState(null);
   const [loadingParams, setLoadingParams] = useState(false);
+  const selectionVersion = useRef(0);
   const [resumeRunId, setResumeRunId] = useState(persisted.resumeRunId ?? "");
-  const optimizeRuns = runs.filter((r) => r.kind === "optimize" && (r.asset_class || "crypto") === assetClass);
+  const optimizeRuns = runs.filter((r) => r.kind === "optimize" && typeof r.allow_short_positions === "boolean" && !["NO_QUALIFYING_CANDIDATE", "REJECTED_OUTER_HOLDOUT", "DEVELOPMENT_SELECTED"].includes(r.selection_status) && (r.asset_class || "crypto") === assetClass);
   const paperJob = jobs.find(
     (job) => job.kind === "paper"
       && !job.parent_job_id
@@ -194,18 +187,11 @@ export default function ActionPanel({
     setAllowShorts(false);
     setIncludeExtendedHours(false);
     setSessionPolicy({ ...DEFAULT_SESSION_POLICY });
+    selectionVersion.current += 1;
+    setLoadingParams(false);
     setSourceRunId("");
     setLoadedParams(null);
     setResumeRunId("");
-    setTradingParams(null);
-    setTradingParamsName("");
-    if (tradingParamsInput.current) tradingParamsInput.current.value = "";
-    setFeatures((current) => ({
-      ...current,
-      regime_window: next.defaults.regime_window,
-      regime_bull_threshold: next.defaults.regime_bull_threshold,
-      regime_bear_threshold: next.defaults.regime_bear_threshold,
-    }));
   }
 
   function changeAssetClass(nextAssetClass) {
@@ -280,9 +266,7 @@ export default function ActionPanel({
           livePort,
           clientId,
           accountId,
-          tradingParams,
           sectorEvidence,
-          tradingParamsName,
           primaryExchange,
           shortControlClientId,
           shortBorrowApiUrl,
@@ -294,8 +278,6 @@ export default function ActionPanel({
           barHours,
           includeExtendedHours,
           sessionPolicy,
-          features,
-          searchModes,
           risk,
           equitySimulation,
           dataFetchMode,
@@ -303,7 +285,6 @@ export default function ActionPanel({
           ibkrYears,
           ibkrBarHours,
           sourceRunId,
-          loadedParams,
           resumeRunId,
         }),
       );
@@ -328,9 +309,7 @@ export default function ActionPanel({
     livePort,
     clientId,
     accountId,
-    tradingParams,
     sectorEvidence,
-    tradingParamsName,
     primaryExchange,
     shortControlClientId,
     shortBorrowApiUrl,
@@ -342,8 +321,6 @@ export default function ActionPanel({
     barHours,
     includeExtendedHours,
     sessionPolicy,
-    features,
-    searchModes,
     risk,
     equitySimulation,
     dataFetchMode,
@@ -351,56 +328,8 @@ export default function ActionPanel({
     ibkrYears,
     ibkrBarHours,
     sourceRunId,
-    loadedParams,
     resumeRunId,
   ]);
-
-  async function handleTradingParamsFile(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setError(null);
-    try {
-      const parsed = JSON.parse(await file.text());
-      if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
-        throw new Error("the file must contain a JSON object");
-      }
-      if (parsed.asset_class && parsed.asset_class !== assetClass) {
-        throw new Error(
-          `profile mismatch: this file was optimized for ${parsed.asset_class}, but ${assetClass} is selected`,
-        );
-      }
-      if (parsed.bar_interval_minutes != null) {
-        const trainedMinutes = Number(parsed.bar_interval_minutes);
-        const trainedHours = trainedMinutes / 60;
-        if (![1, 2, 3, 4, 8, 24].includes(trainedHours)) {
-          throw new Error(
-            `the file was trained on ${trainedMinutes}-minute bars, which IBKR cannot stream continuously; retrain on 1/2/3/4/8-hour or daily bars`,
-          );
-        }
-        setBarHours(trainedHours);
-      } else if (parsed.ibkr_bar_hours) {
-        setBarHours(Number(parsed.ibkr_bar_hours));
-      }
-      if (parsed.include_extended_hours != null) {
-        setIncludeExtendedHours(Boolean(parsed.include_extended_hours));
-      }
-      const embeddedSectorEvidence = (parsed.params || parsed.best_params || parsed).sector_evidence ?? parsed.sector_evidence;
-      if (embeddedSectorEvidence) {
-        const validated = await api.validateSectorEvidence(embeddedSectorEvidence, parseTickers(tickers) || []);
-        setSectorEvidence(validated.evidence);
-      }
-      delete parsed.sector_evidence;
-      if (parsed.params) delete parsed.params.sector_evidence;
-      if (parsed.best_params) delete parsed.best_params.sector_evidence;
-      setTradingParams(parsed);
-      setTradingParamsName(file.name);
-    } catch (err) {
-      setTradingParams(null);
-      setTradingParamsName("");
-      event.target.value = "";
-      setError(`Invalid strategy params file: ${err.message}`);
-    }
-  }
 
   async function handleCsvFile(event) {
     const file = event.target.files?.[0];
@@ -426,63 +355,53 @@ export default function ActionPanel({
     if (csvInput.current) csvInput.current.value = "";
   }
 
-  function clearTradingParams() {
-    setTradingParams(null);
-    setTradingParamsName("");
-    if (tradingParamsInput.current) tradingParamsInput.current.value = "";
-  }
-
-  // Loads an Optuna run's tuned hyperparameters (n_lags, horizon,
-  // entry_threshold, atr_period, huber_alpha, ... -- study.best_params) as
-  // the BASE params for a backtest job, so you can re-run a backtest with
-  // exactly what a sweep achieved. n_lags/cross_asset_lags/spread_lags are
-  // ALSO synced into the FeaturePanel's manual value here -- otherwise those
-  // three fields are always sent as real numbers (never null) for a backtest,
-  // and would silently clobber the loaded value back to FeaturePanel's
-  // hardcoded defaults (see structuralPayload/_write_params_file below).
+  // Selection is read-only. The server resolves the saved winning contract.
   async function handleSelectSourceRun(runId) {
+    const version = ++selectionVersion.current;
     setSourceRunId(runId);
-    if (!runId) {
-      setLoadedParams(null);
-      return;
-    }
-    setLoadingParams(true);
+    setLoadedParams(null);
+    setLoadingParams(Boolean(runId));
     setError(null);
+    if (!runId) return;
     try {
       const run = await api.getRun(runId);
+      if (selectionVersion.current !== version) return;
+      setLoadedParams(run.best_params || {});
+      setAllowShorts(run.allow_short_positions === true);
       if (run.equity_simulation?.config) setEquitySimulation(run.equity_simulation.config);
-      const params = run.best_params || {};
-      setLoadedParams(params);
-      setFeatures((prev) => ({
-        ...prev,
-        ...(params.n_lags != null && { n_lags: params.n_lags }),
-        ...(params.cross_asset_lags != null && { cross_asset_lags: params.cross_asset_lags }),
-        ...(params.spread_lags != null && { spread_lags: params.spread_lags }),
-      }));
+      if (run.bar_interval_minutes != null) setBarHours(run.bar_interval_minutes / 60);
+      setIncludeExtendedHours(Boolean(run.include_extended_hours));
     } catch (err) {
-      setError(`Failed to load params from ${runId}: ${err.message}`);
-      setLoadedParams(null);
+      if (selectionVersion.current !== version) return;
+      setSourceRunId("");
+      setError(`Could not load the Optuna result: ${err.message}`);
     } finally {
-      setLoadingParams(false);
+      if (selectionVersion.current === version) setLoadingParams(false);
     }
   }
 
-  // For an Optuna sweep, a field left in "optuna" mode must be sent as null
-  // so api/schemas.py's FeatureConfig.as_overrides() omits it entirely --
-  // that's what lets optimize.py's trial.suggest_int() run for that field
-  // instead of being clobbered by a fixed structural override. Backtest has
-  // no Optuna trials to search, so it always sends the manual value.
-  function effectiveFeatures() {
-    if (tab !== "optimize") return features;
-    const optunaFields = Object.entries(searchModes)
-      .filter(([, mode]) => mode === "optuna")
-      .map(([key]) => key);
-    return { ...features, ...Object.fromEntries(optunaFields.map((key) => [key, null])) };
+  function strategySelector(automatic = false) {
+    return (
+      <Field label="Optuna result" wide>
+        <select aria-label="Optuna result" value={sourceRunId} onChange={(event) => handleSelectSourceRun(event.target.value)}>
+          <option value="">{automatic ? "Optimize automatically · 40 trials" : "Select a saved Optuna result"}</option>
+          {optimizeRuns.map((run) => (
+            <option key={run.run_id} value={run.run_id}>
+              {run.name || run.run_id} · {run.allow_short_positions ? "Long/short" : "Long only"} ({formatTime(run.finished_at)})
+            </option>
+          ))}
+        </select>
+        <span className="action-panel__ibkr-copy" role="status">
+          {loadingParams ? "Loading selected result…" : automatic
+            ? "Optuna selects strategy parameters. Automatic mode runs purged walk-forward search and reports the untouched final-test backtest."
+            : "Parameters and long/short policy come from the saved result. Results without a recorded policy require a new sweep."}
+        </span>
+      </Field>
+    );
   }
 
   function structuralPayload() {
     return {
-      features: effectiveFeatures(),
       risk: toRiskOverrides(risk),
       ...(assetClass === "equity" ? { equity_simulation: equitySimulation } : {}),
       ibkr: {
@@ -549,8 +468,9 @@ export default function ActionPanel({
           csv: csvPath.trim() || defaultCsvPath(assetClass),
           tickers: parseTickers(tickers),
           asset_class: assetClass,
+          allow_shorts: assetClass === "equity" && allowShorts,
           cash: Number(cash),
-          params: loadedParams,
+          source_run_id: sourceRunId || null,
           ...structuralPayload(),
         });
       } else if (tab === "optimize") {
@@ -559,6 +479,7 @@ export default function ActionPanel({
           csv: csvPath.trim() || defaultCsvPath(assetClass),
           tickers: parseTickers(tickers),
           asset_class: assetClass,
+          allow_shorts: assetClass === "equity" && allowShorts,
           cash: Number(cash),
           trials: stopMode === "score" ? (trials ? Number(trials) : null) : Number(trials),
           score: stopMode === "score" ? Number(targetScore) : null,
@@ -590,7 +511,8 @@ export default function ActionPanel({
           session_policy: executionSession,
           client_id: Number(clientId),
           account_id: accountId || null,
-          params: executionParamsWithRisk(tradingParams, toRiskOverrides(risk)),
+          source_run_id: sourceRunId || null,
+          risk: toRiskOverrides(risk),
           sector_evidence: assetClass === "equity" ? sectorEvidence : null,
         });
       } else if (tab === "live") {
@@ -616,7 +538,8 @@ export default function ActionPanel({
           client_id: Number(clientId),
           account_id: accountId || null,
           cash: Number(cash),
-          params: executionParamsWithRisk(tradingParams, toRiskOverrides(risk)),
+          source_run_id: sourceRunId || null,
+          risk: toRiskOverrides(risk),
           sector_evidence: assetClass === "equity" ? sectorEvidence : null,
           confirm: liveConfirmation,
         });
@@ -683,6 +606,12 @@ export default function ActionPanel({
               <Field label="Cash">
                 <input type="number" value={cash} onChange={(e) => setCash(e.target.value)} />
               </Field>
+              {assetClass === "equity" && (
+                <Field label="Simulate short entries" wide>
+                  <input aria-label="Simulate short entries" type="checkbox" checked={allowShorts} onChange={(event) => setAllowShorts(event.target.checked)} />
+                  <span className="action-panel__ibkr-copy">Saved with the result. Paper trading must use the same policy. Simulated shorts include borrow costs.</span>
+                </Field>
+              )}
               <Field label="Data CSV" wide>
                 <DataCsvPicker
                   inputRef={csvInput}
@@ -695,26 +624,11 @@ export default function ActionPanel({
                 />
               </Field>
 
-              {tab === "backtest" && optimizeRuns.length > 0 && (
-                <Field label="Load hyperparameters from Optuna run">
-                  <select
-                    value={sourceRunId}
-                    onChange={(e) => handleSelectSourceRun(e.target.value)}
-                    disabled={loadingParams}
-                  >
-                    <option value="">— none (defaults) —</option>
-                    {optimizeRuns.map((r) => (
-                      <option key={r.run_id} value={r.run_id}>
-                        {r.name ? `${r.name} · ${r.run_id}` : r.run_id} ({formatTime(r.finished_at)})
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              )}
+              {tab === "backtest" && strategySelector(true)}
 
               {tab === "optimize" && (
                 <>
-                  <Field label="Resume interrupted study (optional)">
+                  <Field label="Resume study (optional)">
                     <input
                       value={resumeRunId}
                       onChange={(e) => setResumeRunId(e.target.value)}
@@ -777,13 +691,13 @@ export default function ActionPanel({
               )}
             </div>
 
-            <DataPreflight state={preflight} request={dataRequest} jobs={jobs} onJobStarted={onJobStarted}
+            <DataPreflight compact={tab === "optimize"} state={preflight} request={dataRequest} jobs={jobs} onJobStarted={onJobStarted}
               onFixtureStarted={onAuxiliaryJobStarted}
               onSelectCsv={(path, label) => { setCsvPath(path); setCsvFileName(label); }}
-              repairOptions={assetClass === "equity" ? { ...structuralPayload().ibkr, ibkr_bar_hours: Number(ibkrBarHours), ibkr_client_id: 71 } : null} />
+              repairOptions={{ ...structuralPayload().ibkr, ibkr_bar_hours: Number(ibkrBarHours), ibkr_client_id: 71 }} />
             <div className="action-panel__actions">
-              <button className="button-primary" disabled={pending || uploadingCsv || !researchDataReady} onClick={submit}>
-                {pending ? "Starting…" : dataFetchMode !== "none" ? "Fetch, validate & run" : tab === "backtest" ? "Run Backtest" : "Start Sweep"}
+              <button className="button-primary" disabled={pending || loadingParams || uploadingCsv || !researchDataReady} onClick={submit}>
+                {pending ? "Starting…" : dataFetchMode !== "none" ? "Fetch, validate & run" : tab === "backtest" ? (sourceRunId ? "Run Backtest" : "Optimize & Backtest") : "Start Sweep"}
               </button>
 
               <button
@@ -793,7 +707,7 @@ export default function ActionPanel({
                 aria-controls="advanced-run-settings"
                 onClick={() => setShowAdvanced((v) => !v)}
               >
-                {showAdvanced ? "Hide" : "Show"} feature / risk / data settings
+                {showAdvanced ? "Hide" : "Show"} risk / data settings
               </button>
             </div>
 
@@ -808,7 +722,7 @@ export default function ActionPanel({
 
             {tab === "optimize" && resumeRunId && (
               <div className="action-panel__loaded-params label">
-                Resuming interrupted study {resumeRunId}. Data, universe, profile,
+                Resuming development study {resumeRunId}. Data, universe, profile,
                 features, risk, and validation settings must match exactly. Finalized
                 studies cannot be resumed after their outer test has been consumed.
               </div>
@@ -816,13 +730,6 @@ export default function ActionPanel({
 
             {showAdvanced && (
               <div className="action-panel__advanced" id="advanced-run-settings">
-                <FeaturePanel
-                  value={features}
-                  onChange={setFeatures}
-                  searchModes={searchModes}
-                  onSearchModesChange={setSearchModes}
-                  allowOptunaSearch={tab === "optimize"}
-                />
                 <RiskPanel value={risk} onChange={setRisk} />
                 {assetClass === "equity" && <EquitySimulationEditor value={equitySimulation} onChange={setEquitySimulation} />}
                 <div className="action-panel__ibkr">
@@ -848,7 +755,7 @@ export default function ActionPanel({
                   {dataFetchMode !== "none" && (
                     <div className="action-panel__ibkr-fields">
                       <Field label="IBKR host">
-                        <input value={host} onChange={(e) => setHost(e.target.value)} />
+                        <input value={host} onChange={(e) => { paperConnectionEdited.current = true; setHost(e.target.value); }} />
                       </Field>
                       <Field label="IBKR port">
                         <input type="number" value={ibkrPort} onChange={(e) => setIbkrPort(e.target.value)} />
@@ -864,10 +771,6 @@ export default function ActionPanel({
                             onChange={(e) => {
                               const checked = e.target.checked;
                               setIncludeExtendedHours(checked);
-                              setFeatures((current) => ({
-                                ...current,
-                                regime_window: regimeWindowForBarHours(assetClass, ibkrBarHours, checked),
-                              }));
                             }}
                           />
                         </Field>
@@ -879,10 +782,7 @@ export default function ActionPanel({
                             onChange={(e) => {
                               const hours = Number(e.target.value);
                               setIbkrBarHours(hours);
-                              setFeatures((current) => ({
-                                ...current,
-                                regime_window: regimeWindowForBarHours(assetClass, hours),
-                              }));
+
                             }}
                           >
                             <option value={1}>1 hour · IBKR native</option>
@@ -899,8 +799,8 @@ export default function ActionPanel({
                   {dataFetchMode === "replace" && (
                     <div className="action-panel__loaded-params">
                       Replacement is destructive to the selected CSV: existing tickers and
-                      their old-frequency bars are removed. The 20-session regime lookback is
-                      rescaled to {features.regime_window} completed bars; the daily-loss rail
+                      their old-frequency bars are removed. The regime lookback follows
+                      the strategy defaults for the observed cadence; the daily-loss rail
                       still resets on elapsed UTC days.
                     </div>
                   )}
@@ -962,10 +862,6 @@ export default function ActionPanel({
                       onChange={(e) => {
                         const checked = e.target.checked;
                         setIncludeExtendedHours(checked);
-                        setFeatures((current) => ({
-                          ...current,
-                          regime_window: regimeWindowForBarHours(assetClass, barHours, checked),
-                        }));
                       }}
                     />
                   </Field>
@@ -983,23 +879,16 @@ export default function ActionPanel({
                   </span>
                 </div>
               </Field>
-              <Field label="Strategy" wide>
-                <StrategyParamsPicker
-                  inputRef={tradingParamsInput}
-                  fileName={tradingParamsName}
-                  onChange={handleTradingParamsFile}
-                  onClear={clearTradingParams}
-                />
-              </Field>
+              {strategySelector()}
             </div>}
             {!paperJob && <details className="action-panel__trading-advanced">
               <summary className="label">Advanced</summary>
               <div className="action-panel__fields action-panel__fields--trading-advanced">
                 <Field label="Host">
-                  <input value={host} onChange={(e) => setHost(e.target.value)} />
+                  <input value={host} onChange={(e) => { paperConnectionEdited.current = true; setHost(e.target.value); }} />
                 </Field>
                 <Field label="Port">
-                  <input type="number" value={port} onChange={(e) => setPort(e.target.value)} />
+                  <input type="number" value={port} onChange={(e) => { paperConnectionEdited.current = true; setPort(e.target.value); }} />
                 </Field>
                 <Field label="Client ID">
                   <input type="number" value={clientId} onChange={(e) => setClientId(e.target.value)} />
@@ -1016,10 +905,6 @@ export default function ActionPanel({
                     value={barHours}
                     onChange={(hours) => {
                       setBarHours(hours);
-                      setFeatures((current) => ({
-                        ...current,
-                        regime_window: regimeWindowForBarHours(assetClass, hours, includeExtendedHours),
-                      }));
                     }}
                   />
                 </Field>
@@ -1053,7 +938,7 @@ export default function ActionPanel({
             <div className="action-panel__actions">
               <button
                 className={paperJob ? "button-danger" : "button-primary"}
-                disabled={pending || paperJob?.status === "cancelling" || (!paperJob && assetClass === "crypto")}
+                disabled={pending || paperJob?.status === "cancelling" || (!paperJob && (assetClass === "crypto" || loadingParams || !sourceRunId))}
                 onClick={paperJob ? stopPaperTrading : submit}
               >
                 {pending
@@ -1122,23 +1007,12 @@ export default function ActionPanel({
                       onChange={(e) => {
                         const checked = e.target.checked;
                         setIncludeExtendedHours(checked);
-                        setFeatures((current) => ({
-                          ...current,
-                          regime_window: regimeWindowForBarHours(assetClass, barHours, checked),
-                        }));
                       }}
                     />
                   </Field>
                 </>
               )}
-              <Field label="Strategy" wide>
-                <StrategyParamsPicker
-                  inputRef={tradingParamsInput}
-                  fileName={tradingParamsName}
-                  onChange={handleTradingParamsFile}
-                  onClear={clearTradingParams}
-                />
-              </Field>
+              {strategySelector()}
               <Field label="Type the exact phrase to arm live trading" wide>
                 <input
                   className="action-panel__confirm-input"
@@ -1155,7 +1029,7 @@ export default function ActionPanel({
               <summary className="label">Advanced</summary>
               <div className="action-panel__fields action-panel__fields--trading-advanced">
                 <Field label="Host">
-                  <input value={host} onChange={(e) => setHost(e.target.value)} />
+                  <input value={host} onChange={(e) => { paperConnectionEdited.current = true; setHost(e.target.value); }} />
                 </Field>
                 <Field label="Live port (not 7497)">
                   <input
@@ -1177,10 +1051,6 @@ export default function ActionPanel({
                     value={barHours}
                     onChange={(hours) => {
                       setBarHours(hours);
-                      setFeatures((current) => ({
-                        ...current,
-                        regime_window: regimeWindowForBarHours(assetClass, hours, includeExtendedHours),
-                      }));
                     }}
                   />
                 </Field>
@@ -1216,6 +1086,8 @@ export default function ActionPanel({
                 className="button-danger"
                 disabled={
                   pending ||
+                  loadingParams ||
+                  !sourceRunId ||
                   !liveReadiness.live_capital_enabled ||
                   liveConfirmation !== LIVE_CONFIRM_PHRASE ||
                   !Number(livePort) ||
@@ -1256,52 +1128,6 @@ function BarHoursSelect({ value, onChange }) {
   );
 }
 
-function StrategyParamsPicker({ inputRef, fileName, onChange, onClear }) {
-  return (
-    <div className="action-panel__file-control">
-      <input
-        ref={inputRef}
-        className="action-panel__file-input"
-        type="file"
-        tabIndex={-1}
-        accept=".json,application/json"
-        onChange={onChange}
-      />
-      <div className="action-panel__file-picker">
-        <button
-          type="button"
-          className="action-panel__file-button"
-          aria-describedby="strategy-params-file-status"
-          onClick={() => inputRef.current?.click()}
-        >
-          <span>{fileName ? "Replace params file" : "Choose params file"}</span>
-          <span className="action-panel__file-type" aria-hidden="true">
-            JSON
-          </span>
-        </button>
-        {fileName && (
-          <button
-            type="button"
-            className="action-panel__file-clear"
-            aria-label={`Clear selected strategy params file ${fileName}`}
-            onClick={onClear}
-          >
-            Clear
-          </button>
-        )}
-      </div>
-      <span
-        id="strategy-params-file-status"
-        className={`action-panel__file-status ${fileName ? "has-file" : ""}`}
-        role="status"
-        aria-live="polite"
-      >
-        {fileName || "Built-in strategy defaults"}
-      </span>
-    </div>
-  );
-}
-
 function DataCsvPicker({ inputRef, fileName, selectedPath, loading, defaultPath, onChange, onClear }) {
   const selectedLabel = fileName || selectedPath.split(/[\\/]/).at(-1);
   return (
@@ -1319,6 +1145,7 @@ function DataCsvPicker({ inputRef, fileName, selectedPath, loading, defaultPath,
           type="button"
           className="action-panel__file-button"
           aria-describedby="data-csv-file-status"
+          title={selectedLabel || "Choose data CSV"}
           disabled={loading}
           onClick={() => inputRef.current?.click()}
         >

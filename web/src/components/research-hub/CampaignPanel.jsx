@@ -27,6 +27,7 @@ export default function CampaignPanel({ assetClass, profile, jobs, onJobStarted 
   const [tickers, setTickers] = useState((profile?.defaults?.tickers || []).join(","));
   const [csv, setCsv] = useState(assetClass === "equity" ? "quant/data/equity_bars.csv" : "quant/data/ibkr_bars.csv");
   const [cash, setCash] = useState(5000);
+  const [allowShorts, setAllowShorts] = useState(false);
   const [finalTestFrac, setFinalTestFrac] = useState(0.2);
   const [walkForwardFolds, setWalkForwardFolds] = useState(5);
   const [embargoBars, setEmbargoBars] = useState(0);
@@ -153,6 +154,7 @@ export default function CampaignPanel({ assetClass, profile, jobs, onJobStarted 
           <summary>Validation and compute settings</summary>
           <div className="campaign-panel__advanced-grid">
             <label>Cash<input type="number" min="1" value={cash} onChange={(event) => setCash(event.target.value)} /></label>
+            {assetClass === "equity" && <label>Campaign short entries<input type="checkbox" checked={allowShorts} onChange={(event) => setAllowShorts(event.target.checked)} /></label>}
             <label>Outer holdout fraction<input type="number" min="0.01" max="0.49" step="0.01" value={finalTestFrac} onChange={(event) => setFinalTestFrac(event.target.value)} /></label>
             <label>Walk-forward folds<input type="number" min="2" max="10" value={walkForwardFolds} onChange={(event) => setWalkForwardFolds(event.target.value)} /></label>
             <label>Embargo bars<input type="number" min="0" value={embargoBars} onChange={(event) => setEmbargoBars(event.target.value)} /></label>
@@ -175,6 +177,7 @@ export default function CampaignPanel({ assetClass, profile, jobs, onJobStarted 
             trials: Number(trials),
             csv,
             asset_class: assetClass,
+            allow_shorts: assetClass === "equity" && allowShorts,
             tickers: tickers.split(",").map((value) => value.trim().toUpperCase()).filter(Boolean),
             cash: Number(cash),
             final_test_frac: Number(finalTestFrac),

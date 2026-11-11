@@ -208,6 +208,7 @@ physical indicator lamps.
 - **Benchmark contract:** every eligible run is rebased against the S&P 500 price index over the same observed period. The source, coverage, and price-return basis are always visible; missing overlap appears as an explicit unavailable state.
 - **Validation contract:** optimization exposes every trial, the incumbent path, parameter sensitivity, walk-forward folds, doubled-cost stress, and the in-sample/out-of-sample gap. Multi-seed campaigns advance through consensus and robustness before the one-shot outer holdout action becomes available.
 - **Interaction:** panels have a stable document order and never drag or resize. Run configuration opens from the primary action or appears in Run & logs; campaign stages launch beside their evidence.
+- **Optimization data checks:** a compact checklist shows ticker coverage, price/timestamp checks, volume checks and declared source/session metadata, followed by the bar count and UTC coverage range. Green checks require supporting preflight evidence; failed or unknown checks retain explicit text states. Coverage tables, provenance, fingerprints and data tools use closed disclosures. Blockers and synthetic-data notices remain visible.
 
 ### Buttons
 - **Shape:** 4px radius, 1px Hairline border, mono Label typography, uppercase, tracked.

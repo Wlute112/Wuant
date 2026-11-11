@@ -6,15 +6,17 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 from nautilus_trader.backtest.engine import BacktestEngine, BacktestEngineConfig
-from nautilus_trader.backtest.models import FillModel, LatencyModel
+from nautilus_trader.backtest.models import FillModel
 from nautilus_trader.config import LoggingConfig, StrategyConfig
+from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.execution.messages import CancelAllOrders
 from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.enums import AccountType, BookType, OmsType, OrderSide, TimeInForce
 from nautilus_trader.model.objects import Money, Price, Quantity
 from nautilus_trader.trading.strategy import Strategy
 
 from quant.run.backtest_common import VENUE, make_equity, _bars_from_df, replay_batches
-from quant.run.equity_simulation import EquitySimulation, EquitySimulationConfig, EquityFeeModel
+from quant.run.equity_simulation import EquitySimulation, EquitySimulationConfig, EquityFeeModel, equity_latency_model
 from quant.run.scoring import sharpe_from_curve
 
 
@@ -23,10 +25,12 @@ class ScriptConfig(StrategyConfig, frozen=True):
 
 
 class Script(Strategy):
-    def __init__(self, runtime, instrument, bars, side=OrderSide.BUY, size=10, limit=False):
+    def __init__(self, runtime, instrument, bars, side=OrderSide.BUY, size=10, limit=False, limit_price=200):
         super().__init__(ScriptConfig())
         self.runtime, self.instrument, self.bars = runtime, instrument, bars
+        self._equity_simulation = runtime
         self.side, self.size, self.limit = side, size, limit
+        self.limit_price = limit_price
         self.count = 0
         self.splits = []
 
@@ -36,8 +40,8 @@ class Script(Strategy):
     def on_bar(self, bar):
         if self.count == 0:
             values = dict(instrument_id=self.instrument.id, order_side=self.side, quantity=Quantity.from_int(self.size))
-            order = self.order_factory.limit(**values, price=Price(200, 2), time_in_force=TimeInForce.GTC) if self.limit else self.order_factory.market(**values)
-            self.submit_order(order)
+            order = self.order_factory.limit(**values, price=Price(self.limit_price, 2), time_in_force=TimeInForce.GTC) if self.limit else self.order_factory.market(**values)
+            self.runtime.submit_order(self, order)
         self.count += 1
 
     def _apply_research_split(self, iid, ratio):
@@ -45,7 +49,7 @@ class Script(Strategy):
 
 
 def replay(prices=(100, 110, 120), volume=100000, *, config=None, size=10, side=OrderSide.BUY, limit=False,
-           start="2026-01-02", streaming=False, cost_multiplier=1):
+           start="2026-01-02", streaming=False, cost_multiplier=1, limit_price=200):
     runtime = EquitySimulation({"spread_bps": 0, "impact_bps": 0, "borrow_rate": 0, **(config or {})}, cost_multiplier)
     inst = make_equity("ABC")
     frame = pd.DataFrame([dict(timestamp=ts, ticker="ABC", open=px, high=px, low=px, close=px, volume=volume)
@@ -55,9 +59,9 @@ def replay(prices=(100, 110, 120), volume=100000, *, config=None, size=10, side=
     engine.add_venue(VENUE, oms_type=OmsType.NETTING, account_type=AccountType.MARGIN, base_currency=USD,
         starting_balances=[Money(5000, USD)], book_type=BookType.L2_MBP, bar_execution=False,
         liquidity_consumption=True, fill_model=FillModel(), fee_model=EquityFeeModel(runtime), modules=[runtime],
-        latency_model=LatencyModel(base_latency_nanos=0, insert_latency_nanos=1))
+        latency_model=equity_latency_model())
     engine.add_instrument(inst)
-    strategy = Script(runtime, inst, bars, side, size, limit)
+    strategy = Script(runtime, inst, bars, side, size, limit, limit_price)
     runtime.strategy = strategy
     engine.add_strategy(strategy)
     stream = runtime.replay(bars)
@@ -80,6 +84,109 @@ def test_market_fills_next_open_and_equity_includes_unrealized_pnl():
         assert float(fills.iloc[0].avg_px) == 110
         assert runtime.curve[-1]["equity"] == pytest.approx(5099)
         assert runtime.commissions == 1
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize('symbols', [('NVDA', 'JPM'), ('JPM', 'NVDA')])
+@pytest.mark.parametrize('streaming', [False, True])
+def test_market_entry_waits_for_its_own_next_open_book(symbols, streaming):
+    runtime = EquitySimulation({'spread_bps': 0, 'impact_bps': 0})
+    engine = BacktestEngine(BacktestEngineConfig(logging=LoggingConfig(bypass_logging=True)))
+    engine.add_venue(VENUE, oms_type=OmsType.NETTING, account_type=AccountType.MARGIN,
+        base_currency=USD, starting_balances=[Money(5000, USD)], book_type=BookType.L2_MBP,
+        bar_execution=False, liquidity_consumption=True, fill_model=FillModel(),
+        fee_model=EquityFeeModel(runtime), modules=[runtime], latency_model=equity_latency_model())
+    combined, target, instrument = [], None, None
+    for symbol in symbols:
+        inst = make_equity(symbol)
+        engine.add_instrument(inst)
+        frame = pd.DataFrame([dict(timestamp=ts, ticker=symbol, open=px,
+            high=px + 10, low=px - 10, close=px + 5, volume=100000)
+            for ts, px in zip(pd.date_range('2026-01-02', periods=3, freq='B', tz='UTC'), (100, 200, 300))])
+        bars = _bars_from_df(frame, inst, '-1-DAY-LAST-EXTERNAL')
+        combined.extend(bars)
+        if symbol == 'JPM':
+            target, instrument = bars, inst
+    strategy = Script(runtime, instrument, target, size=1)
+    runtime.strategy = strategy
+    engine.add_strategy(strategy)
+    stream = runtime.replay(sorted(combined, key=lambda event: event.ts_init))
+    try:
+        if streaming:
+            for batch in replay_batches(stream, 1):
+                engine.add_data(batch)
+                engine.run(streaming=True)
+                engine.clear_data()
+            engine.end()
+        else:
+            engine.add_data(stream)
+            engine.run()
+        fills = engine.trader.generate_order_fills_report()
+        assert len(fills) == 1
+        assert float(fills.iloc[0].avg_px) == 200  # next OPEN, never same close or next low
+        assert fills.iloc[0].instrument_id == str(instrument.id)
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize('symbols', [('NVDA', 'JPM'), ('JPM', 'NVDA')])
+def test_ml_strategy_later_instrument_entry_does_not_trigger_rejection_halt(tmp_path, monkeypatch, symbols):
+    """Keep real MLStrategy arbitration, order routing and safety in this regression."""
+    from quant.data.generate_sample_bars import generate
+    from quant.models.prediction_engine import PredictionEngine
+    from quant.run.backtest_common import build_and_run
+
+    frame = generate(list(symbols), n_days=12, seed=42, asset_class='equity')
+    for i, symbol in enumerate(symbols):
+        selected = frame.ticker == symbol
+        close = 40 + 5 * i + np.arange(selected.sum()) * .1
+        frame.loc[selected, 'open'] = close
+        frame.loc[selected, 'close'] = close
+        frame.loc[selected, 'high'] = close + 2
+        frame.loc[selected, 'low'] = close - 2
+    source = tmp_path / 'execution_fixture.csv'
+    frame.to_csv(source, index=False)
+    # Isolate execution from model quality. JPM has the strongest known signal,
+    # so the one available position must go to it in either event-stream order.
+    monkeypatch.setattr(PredictionEngine, 'refit_on_history', lambda *args, **kwargs: True)
+    monkeypatch.setattr(PredictionEngine, 'predict_move', lambda self, *args, **kwargs:
+        .02 if any('NVDA' in peer for peer in self.cfg.peer_symbols) else .01)
+    engine = build_and_run(str(source), list(symbols), starting_cash=5000, asset_class='equity',
+        bypass_logging=True, strategy_overrides={'warmup_bars': 4, 'min_train_bars': 3,
+        'atr_period': 3, 'atr_stop_mult': 2, 'max_open_positions': 1, 'use_limit_orders': False})
+    try:
+        fills = engine.trader.generate_order_fills_report()
+        assert not fills.empty
+        assert set(fills.instrument_id) == {'JPM.IBKR'}
+        strategy = engine.trader.strategies()[0]
+        assert strategy._execution_safety.rejection_count == 0
+        assert not any(order.rejection_reason for order in strategy._execution.orders.values())
+    finally:
+        engine.dispose()
+
+
+def test_latency_queue_drains_mixed_arrival_times_without_reusing_live_keys():
+    engine, runtime = replay()
+    try:
+        now = runtime.now
+
+        def cancel(at):
+            runtime.exchange.send(CancelAllOrders(
+                trader_id=engine.trader.id, strategy_id=runtime.strategy.id,
+                instrument_id=runtime.strategy.instrument.id,
+                order_side=OrderSide.NO_ORDER_SIDE, command_id=UUID4(), ts_init=at,
+            ))
+
+        # A heap can lay these out [due-1, future-1, due-2]. Its pop(0)
+        # consumer would stop at future-1 and incorrectly reset due's counter.
+        cancel(now + 10)
+        cancel(now + 20)
+        cancel(now + 10)
+        runtime.exchange.process(now + 10)
+        cancel(now + 10)
+        cancel(now + 10)  # Previously compared two CancelAllOrders and raised.
+        runtime.exchange.process(now + 20)
     finally:
         engine.dispose()
 

@@ -8,13 +8,29 @@ while [[ -L "$SOURCE_PATH" ]]; do
   [[ "$SOURCE_PATH" == /* ]] || SOURCE_PATH="$SOURCE_DIR/$SOURCE_PATH"
 done
 ROOT_DIR="$(cd -P "$(dirname "$SOURCE_PATH")" && pwd)"
-WORK_DIR="$(cd "$ROOT_DIR/.." && pwd)"
+WORK_DIR="$ROOT_DIR/.quant-runtime"
+mkdir -p "$WORK_DIR"
+if [ -L "$WORK_DIR/quant" ]; then
+  if [ "$(readlink "$WORK_DIR/quant")" != "$ROOT_DIR" ]; then
+    echo "Error: $WORK_DIR/quant exists but does not point to $ROOT_DIR" >&2
+    exit 1
+  fi
+elif [ -e "$WORK_DIR/quant" ]; then
+  echo "Error: $WORK_DIR/quant exists but is not a symlink" >&2
+  exit 1
+else
+  ln -s "$ROOT_DIR" "$WORK_DIR/quant"
+fi
+export QUANT_WORKDIR="$WORK_DIR"
+export PYTHONPATH="$WORK_DIR${PYTHONPATH:+:$PYTHONPATH}"
+cd "$WORK_DIR"
 PYTHON_BIN="${QUANT_PYTHON:-$ROOT_DIR/.quant312/bin/python}"
 API_URL="http://127.0.0.1:${QUANT_API_PORT:-8000}"
 WEB_URL="http://127.0.0.1:${QUANT_WEB_PORT:-5173}"
 NO_BROWSER=0
 NO_REDIS=0
 INSTALL=0
+DEV=1
 
 if [[ "${1:-}" == "doctor" ]]; then
   shift
@@ -34,8 +50,9 @@ if [[ "${1:-}" == "compute" || "${1:-}" == "benchmark" ]]; then
 fi
 
 usage() {
-  printf 'Usage: %s [--no-browser] [--no-redis] [--install]\n' "$0"
-  printf '\nStarts Redis, the FastAPI dashboard, and the built static frontend.\n'
+  printf 'Usage: %s [dev|--dev|--static] [--no-browser] [--no-redis] [--install]\n' "$0"
+  printf '\nStarts Redis, the FastAPI dashboard, and Vite with live frontend updates by default.\n'
+  printf '%s\n' '--static builds and serves the frontend without live updates.'
   printf '%s\n' 'Research: ./quant compute | ./quant benchmark --workers 1 0'
   printf '%s\n' '--no-redis skips local service management; the API still requires an external Redis.'
 }
@@ -45,6 +62,8 @@ while (($#)); do
     --no-browser) NO_BROWSER=1 ;;
     --no-redis) NO_REDIS=1 ;;
     --install) INSTALL=1 ;;
+    dev|--dev) DEV=1 ;;
+    --static) DEV=0 ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'Unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
@@ -53,6 +72,7 @@ done
 
 die() { printf 'Error: %s\n' "$1" >&2; exit 1; }
 
+command -v node >/dev/null 2>&1 || die "Node.js is required."
 command -v npm >/dev/null 2>&1 || die "npm is required. Install Node.js, then run this command again."
 command -v curl >/dev/null 2>&1 || die "curl is required."
 
@@ -70,7 +90,9 @@ fi
 if [[ ! -d "$ROOT_DIR/web/node_modules" ]]; then
   (cd "$ROOT_DIR/web" && npm ci)
 fi
-(cd "$ROOT_DIR/web" && npm run build)
+if (( ! DEV )); then
+  (cd "$ROOT_DIR/web" && VITE_API_URL="$API_URL" npm run build)
+fi
 
 if (( ! NO_REDIS )); then
   command -v redis-cli >/dev/null 2>&1 || die "redis-cli is required. Install Redis with 'brew install redis'."
@@ -94,8 +116,11 @@ cleanup() {
   trap - EXIT INT TERM
   [[ -n "$WEB_PID" ]] && kill "$WEB_PID" 2>/dev/null || true
   [[ -n "$API_PID" ]] && kill "$API_PID" 2>/dev/null || true
+  wait "$WEB_PID" 2>/dev/null || true
+  wait "$API_PID" 2>/dev/null || true
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 0' INT TERM
 
 PYTHONPATH="$WORK_DIR${PYTHONPATH:+:$PYTHONPATH}" \
   "$PYTHON_BIN" -u -m uvicorn quant.api.main:app --host 127.0.0.1 \
@@ -103,9 +128,17 @@ PYTHONPATH="$WORK_DIR${PYTHONPATH:+:$PYTHONPATH}" \
   >"$API_LOG" 2>&1 &
 API_PID=$!
 
-(cd "$ROOT_DIR/web" && exec "$PYTHON_BIN" -m http.server "${QUANT_WEB_PORT:-5173}" \
-  --bind 127.0.0.1 --directory dist >"$WEB_LOG" 2>&1) &
-WEB_PID=$!
+if ((DEV)); then
+  # exec Node directly so cleanup owns Vite's PID rather than an npm parent.
+  (cd "$ROOT_DIR/web" && export VITE_API_URL="" QUANT_API_TARGET="$API_URL"
+    exec node node_modules/vite/bin/vite.js --host 127.0.0.1 \
+      --port "${QUANT_WEB_PORT:-5173}" --strictPort >"$WEB_LOG" 2>&1) &
+  WEB_PID=$!
+else
+  (cd "$ROOT_DIR/web" && exec "$PYTHON_BIN" -m http.server "${QUANT_WEB_PORT:-5173}" \
+    --bind 127.0.0.1 --directory dist >"$WEB_LOG" 2>&1) &
+  WEB_PID=$!
+fi
 
 for _ in {1..40}; do
   kill -0 "$API_PID" 2>/dev/null || {
@@ -138,6 +171,9 @@ curl -fsS "$WEB_URL" >/dev/null 2>&1 || {
 printf 'Dashboard: %s\nAPI logs:  %s\nWeb logs:  %s\n' "$WEB_URL" "$API_LOG" "$WEB_LOG"
 if (( ! NO_BROWSER )); then
   open "$WEB_URL" >/dev/null 2>&1 || printf 'Open %s in your browser.\n' "$WEB_URL"
+fi
+if ((DEV)); then
+  printf 'Development mode: frontend edits update live. Use --static for a production build.\n'
 fi
 printf 'Press Ctrl-C to stop the dashboard processes. Redis remains running.\n'
 

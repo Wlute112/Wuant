@@ -138,6 +138,9 @@ def test_equity_and_crypto_default_historical_price_types(monkeypatch):
             pass
         async def connect(self):
             pass
+        async def request_instruments(self, **kwargs):
+            from types import SimpleNamespace
+            return [SimpleNamespace(id="QQQ.NASDAQ")]
         async def request_bars(self, **kwargs):
             requested.append(kwargs["bar_specifications"])
             return []

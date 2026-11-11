@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from quant.strategies.sessions import resolve_session_policy, session_policy_payload
 from quant.run.equity_simulation import EquitySimulationConfig
@@ -33,39 +33,6 @@ class SyntheticFixtureRequest(BaseModel):
         if len(set(normalized)) != len(normalized):
             raise ValueError("tickers must be unique")
         return normalized
-
-
-class FeatureConfig(BaseModel):
-    """Which alpha feature blocks are on, and fit-vs-raw source for the two
-    regime features (see models/prediction_engine.py's PredictionConfig).
-    All optional -- an unset field means "use the engine's own default",
-    letting a caller override just the one knob it cares about.
-    """
-    n_lags: int | None = None  # AR (lagged log-return) block; 0 disables it
-    cross_asset_lags: int | None = None
-    spread_lags: int | None = None
-    use_industry_features: bool | None = None
-    industry_map: dict[str, str] | None = None
-    industry_benchmark_map: dict[str, str] | None = None
-    sector_map: dict[str, str] | None = None
-    industry_correlation_window_bars: int | None = Field(default=None, ge=2)
-    industry_correlation_half_life_bars: int | None = Field(default=None, ge=1)
-    industry_minimum_observations: int | None = Field(default=None, ge=2)
-    industry_minimum_correlation: float | None = Field(default=None, ge=0, lt=1)
-    industry_correlation_shrinkage: float | None = Field(default=None, ge=0, le=1)
-    industry_momentum_bars: int | None = Field(default=None, ge=1)
-    use_regime_features: bool | None = None
-    use_hmm_feature: bool | None = None
-    regime_source: str | None = None  # "fit" | "raw"
-    hmm_source: str | None = None     # "fit" | "raw"
-    regime_raw_scale: float | None = None
-    hmm_raw_scale: float | None = None
-    regime_window: int | None = Field(default=None, ge=2)
-    regime_bull_threshold: float | None = Field(default=None, gt=0)
-    regime_bear_threshold: float | None = Field(default=None, lt=0)
-
-    def as_overrides(self) -> dict:
-        return {k: v for k, v in self.model_dump().items() if v is not None}
 
 
 class RiskConfigOverrides(BaseModel):
@@ -112,8 +79,19 @@ class ShortControlOptions(BaseModel):
     recall_grace_secs: float = Field(default=60.0, gt=0, le=3600)
 
 
-class NamedResearchJobRequest(BaseModel):
+class ParameterPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class NamedResearchJobRequest(ParameterPolicy):
+    allow_shorts: bool = False
     name: str | None = Field(default=None, max_length=80)
+
+    @model_validator(mode="after")
+    def validate_research_direction(self):
+        if getattr(self, "asset_class", None) == "crypto" and self.allow_shorts:
+            raise ValueError("Crypto spot research does not support short entries")
+        return self
 
     @field_validator("name")
     @classmethod
@@ -132,13 +110,7 @@ class BacktestJobRequest(NamedResearchJobRequest):
     asset_class: Literal["crypto", "equity"] = "crypto"
     tickers: list[str] | None = None
     cash: float = 5000.0
-    params_path: str | None = None
-    # Inline base hyperparameters -- e.g. an Optuna run's best_params, fetched
-    # client-side via GET /api/runs/{run_id} and sent here so a backtest can
-    # be re-run with the tuned values that sweep achieved. Takes precedence
-    # over params_path when both are given (see jobs_routes._write_params_file).
-    params: dict | None = None
-    features: FeatureConfig = FeatureConfig()
+    source_run_id: str | None = None
     risk: RiskConfigOverrides = RiskConfigOverrides()
     ibkr: IbkrFetchOptions = IbkrFetchOptions()
 
@@ -164,17 +136,15 @@ class OptimizeJobRequest(NamedResearchJobRequest):
     stress_cost_multiplier: float = Field(default=2.0, ge=1)
     cash: float = 5000.0
     seed: int | None = None
-    warmup_bars: int | None = None
-    min_train_bars: int | None = None
     # Continue an interrupted study only before its outer test was consumed.
     # Completed/finalized studies are immutable to preserve holdout integrity.
     resume_run_id: str | None = None
-    features: FeatureConfig = FeatureConfig()
     risk: RiskConfigOverrides = RiskConfigOverrides()
     ibkr: IbkrFetchOptions = IbkrFetchOptions()
 
 
 class CampaignSeedJobRequest(BaseModel):
+    allow_shorts: bool = False
     campaign_id: str = Field(..., pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
     seeds: list[int] = Field(default=[42, 43, 44, 45], min_length=3)
     trials: int = Field(default=100, ge=100, le=150)
@@ -189,6 +159,12 @@ class CampaignSeedJobRequest(BaseModel):
     memory_budget_gb: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     worker_memory_gb: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
+    @model_validator(mode="after")
+    def validate_research_direction(self):
+        if self.asset_class == "crypto" and self.allow_shorts:
+            raise ValueError("Crypto spot research does not support short entries")
+        return self
+
 
 class CampaignStageJobRequest(BaseModel):
     campaign_id: str = Field(..., pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
@@ -201,7 +177,7 @@ class CampaignStageJobRequest(BaseModel):
     confirm: str | None = None
 
 
-class ExecutionSessionRequest(BaseModel):
+class ExecutionSessionRequest(ParameterPolicy):
     asset_class: Literal["crypto", "equity"] = "crypto"
     include_extended_hours: bool = False
     session_policy: dict | None = None
@@ -232,8 +208,8 @@ class PaperJobRequest(ExecutionSessionRequest):
     # Paper risk sizing uses the broker account balance. A manual allocation
     # is intentionally not accepted for paper sessions.
     cash: float | None = None
-    params_path: str | None = None
-    params: dict | None = None
+    source_run_id: str | None = None
+    risk: RiskConfigOverrides = RiskConfigOverrides()
     sector_evidence: dict | None = None
     redis_host: str = "127.0.0.1"
     redis_port: int = 6379
@@ -260,8 +236,8 @@ class LiveJobRequest(ExecutionSessionRequest):
     client_id: int = 1
     account_id: str | None = None
     cash: float = 5000.0
-    params_path: str | None = None
-    params: dict | None = None
+    source_run_id: str | None = None
+    risk: RiskConfigOverrides = RiskConfigOverrides()
     sector_evidence: dict | None = None
     redis_host: str = "127.0.0.1"
     redis_port: int = 6379

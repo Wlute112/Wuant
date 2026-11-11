@@ -77,6 +77,8 @@ function Panel({ title, note, children, className = "" }) {
 function EvidenceHeader({ run, research, workflow, compareRun, profile }) {
   const metrics = run?.metrics || run?.oos_metrics || {};
   const isOptimize = workflow === "optimize";
+  const noCandidate = run?.selection_status === "NO_QUALIFYING_CANDIDATE";
+  const rejectedHoldout = run?.selection_status === "REJECTED_OUTER_HOLDOUT";
   const excessReturn = research?.benchmark?.status === "ready"
     ? (research.strategy?.total_return_pct ?? 0) - (research.benchmark.metrics?.total_return_pct ?? 0)
     : null;
@@ -89,12 +91,12 @@ function EvidenceHeader({ run, research, workflow, compareRun, profile }) {
       ].filter(Boolean).join(" · ")
     : "Run a study or select a saved result.";
   const badges = [
-    isOptimize ? "OUTER HOLDOUT" : "HISTORICAL SIMULATION",
+    isOptimize ? (noCandidate ? "DEVELOPMENT SEARCH · HOLDOUT UNTOUCHED" : rejectedHoldout ? "OUTER HOLDOUT REJECTED" : "OUTER HOLDOUT") : "HISTORICAL SIMULATION",
     profile?.short_label || run?.asset_class,
     compactPeriod(research?.period),
     compactBarInterval(run?.bar_interval_minutes),
     run?.market_session || run?.asset_profile?.market?.session,
-    metrics.total_trades != null ? `${metrics.total_trades} TRADES` : null,
+    metrics.total_trades != null ? `${metrics.total_trades} FILLED ORDERS` : null,
   ].filter(Boolean);
   return (
     <section className="research-verdict" aria-label="Selected run evidence summary">
@@ -130,7 +132,7 @@ function EvidenceHeader({ run, research, workflow, compareRun, profile }) {
 
 function MetricLedger({ research }) {
   const strategy = research?.strategy || {};
-  const benchmark = research?.benchmark?.metrics || {};
+  const benchmark = research?.benchmark?.status === "ready" ? research.benchmark.metrics || {} : {};
   return (
     <div className="metric-ledger">
       <div className="metric-ledger__head" aria-hidden="true">
@@ -260,7 +262,7 @@ function TrialHistory({ optimization }) {
 
 function ParameterImportance({ optimization }) {
   const rows = optimization?.parameter_importance || [];
-  if (!rows.length) return <div className="research-empty">At least three completed trials are required for sensitivity estimates.</div>;
+  if (!rows.length) return <div className="research-empty">At least three qualifying completed trials are required for sensitivity estimates.</div>;
   return (
     <div className="parameter-importance">
       {rows.slice(0, 12).map((row) => (
@@ -281,7 +283,7 @@ function FoldMatrix({ optimization }) {
   return (
     <div className="research-table-wrap">
       <table className="research-table">
-        <thead><tr><th>Fold</th><th>Period</th><th>Normal</th><th>2× costs</th><th>Degradation</th><th>Turnover</th><th>Trades</th></tr></thead>
+        <thead><tr><th>Fold</th><th>Period</th><th>Normal</th><th>2× costs</th><th>Degradation</th><th>Turnover</th><th>Filled orders</th></tr></thead>
         <tbody>
           {folds.map((fold, index) => {
             const normal = fold.normal_ratio ?? fold.normal;
@@ -306,6 +308,7 @@ function FoldMatrix({ optimization }) {
 
 function BestParameters({ optimization }) {
   const params = Object.entries(optimization?.best_params || {});
+  if (!params.length) return <p className="research-empty">{optimization?.selection_status === "NO_QUALIFYING_CANDIDATE" ? "No parameters selected: no candidate qualified." : "No selected parameters recorded."}</p>;
   return (
     <div className="best-parameters">
       {params.map(([key, value]) => (
@@ -334,6 +337,7 @@ export default function ResearchHub({
   jobs,
   onJobStarted,
   onJobStopped,
+  initialJobId = null,
   brokerStatus,
   toolbarNavigation,
   toolbarLead,
@@ -345,7 +349,7 @@ export default function ResearchHub({
 }) {
   const [section, setSection] = useState("overview");
   const [controlsOpen, setControlsOpen] = useState(false);
-  const [activeJobViewId, setActiveJobViewId] = useState(null);
+  const [activeJobViewId, setActiveJobViewId] = useState(initialJobId);
   const [research, setResearch] = useState(null);
   const [compareResearch, setCompareResearch] = useState(null);
   const [researchStatus, setResearchStatus] = useState("idle");
@@ -355,8 +359,8 @@ export default function ResearchHub({
 
   useEffect(() => {
     setSection("overview");
-    setActiveJobViewId(null);
-  }, [workflow, assetClass]);
+    setActiveJobViewId(initialJobId);
+  }, [workflow, assetClass, initialJobId]);
 
   useEffect(() => {
     if (!activeDrawer) return undefined;
@@ -460,10 +464,10 @@ export default function ResearchHub({
     }
   }, [activeJobView, onSelectRun, runs]);
   const strategyIndex = toPoints(research?.series?.strategy_index);
-  const benchmarkIndex = toPoints(research?.series?.benchmark_index);
+  const benchmarkIndex = research?.benchmark?.status === "ready" ? toPoints(research?.series?.benchmark_index) : [];
   const compareIndex = toPoints(compareResearch?.series?.strategy_index);
   const strategyDrawdown = toPoints(research?.series?.strategy_drawdown);
-  const benchmarkDrawdown = toPoints(research?.series?.benchmark_drawdown);
+  const benchmarkDrawdown = research?.benchmark?.status === "ready" ? toPoints(research?.series?.benchmark_drawdown) : [];
   const rollingSharpe = toPoints(research?.series?.rolling_sharpe_63d);
   const tickers = activeRun?.tickers || [];
   const modelChart = ticker ? activeRun?.model_chart?.[ticker] || [] : [];
@@ -542,12 +546,31 @@ export default function ResearchHub({
 
         {!activeJobView && researchStatus === "loading" && <div className="research-hub__loading">Building benchmark-relative analysis…</div>}
         {!activeJobView && researchStatus === "error" && <div className="research-hub__error" role="alert">Research analysis unavailable: {researchError}</div>}
+        {!activeJobView && activeRun?.selection_status === "NO_QUALIFYING_CANDIDATE" && (
+          <section className="research-panel optimization-outcome" role="status" aria-label="Optimization outcome">
+            <header className="research-panel__header"><h2>No qualifying candidate</h2></header>
+            <div className="research-panel__body">
+              <p>No saved parameters were replaced. The outer holdout was not evaluated.</p>
+              <p>Review the trial history in Optimization. To add development trials, open New sweep and enter <code>{activeRun.resume_run_id || activeRun.run_id}</code> in Resume study, using the same data, universe and validation settings.</p>
+            </div>
+          </section>
+        )}
+        {!activeJobView && activeRun?.selection_status === "REJECTED_OUTER_HOLDOUT" && (
+          <section className="research-panel optimization-outcome" role="status" aria-label="Optimization outcome">
+            <header className="research-panel__header"><h2>Outer holdout rejected</h2></header>
+            <div className="research-panel__body">
+              <p>The development candidate did not pass its outer holdout and cannot be selected for execution.</p>
+              <ul>{(activeRun.holdout_assessment?.reasons || activeRun.validation?.holdout_assessment?.reasons || []).map((reason) => <li key={reason}>{reason}</li>)}</ul>
+              <p>This study has consumed its holdout and cannot resume tuning. Its parameters and results remain available for diagnosis.</p>
+            </div>
+          </section>
+        )}
         {!activeJobView && !activeRun && <div className="research-hub__blank"><strong>No saved {workflow} selected.</strong><button type="button" onClick={() => setControlsOpen(true)}>Configure the first run</button></div>}
 
         {!activeJobView && activeRun && section === "overview" && (
           <div className="research-hub__content-grid">
-            <Panel title="Benchmark ledger" note="Same observed period · both series rebased to 100" className="is-wide">
-              <ChannelStrip label="GROWTH OF 100" color="var(--color-trace-amber)" series={strategyIndex} ghostSeries={compareIndex.length ? compareIndex : null} ghostLabel={compareRun?.name || compareRun?.run_id} overlaySeries={benchmarkIndex} overlayColor="var(--color-text-primary)" overlayLabel="S&P 500 price index" currentValueLabel={strategyIndex.length ? formatNum(strategyIndex.at(-1).y, 1) : "—"} emptyMessage="Equity curve unavailable" height={300} tickFormat={(value) => formatNum(value, 0)} />
+            <Panel title="Benchmark ledger" note={research?.benchmark?.status === "ready" ? "Same observed period · both series rebased to 100" : "Strategy rebased to 100 · same-period benchmark unavailable"} className="is-wide">
+              <ChannelStrip label="GROWTH OF 100" color="var(--color-trace-amber)" series={strategyIndex} ghostSeries={compareIndex.length ? compareIndex : null} ghostLabel={compareRun?.name || compareRun?.run_id} overlaySeries={benchmarkIndex} overlayColor="var(--color-text-primary)" overlayLabel={benchmarkIndex.length ? "S&P 500 price index" : null} currentValueLabel={strategyIndex.length ? formatNum(strategyIndex.at(-1).y, 1) : "—"} emptyMessage="Equity curve unavailable" height={300} tickFormat={(value) => formatNum(value, 0)} />
               {research?.benchmark?.status !== "ready" && <p className="research-panel__notice">{research?.benchmark?.message || "Benchmark is unavailable."}</p>}
             </Panel>
             <Panel title="Performance ledger" note="Strategy against an independent market comparator"><MetricLedger research={research} /></Panel>
@@ -559,7 +582,7 @@ export default function ResearchHub({
         {!activeJobView && activeRun && section === "performance" && (
           <div className="research-hub__content-grid">
             <Panel title="Cumulative performance" note="Strategy, selected comparison run, and S&P 500" className="is-wide">
-              <ChannelStrip label="INDEX" color="var(--color-trace-amber)" series={strategyIndex} ghostSeries={compareIndex.length ? compareIndex : null} ghostLabel={compareRun?.name || compareRun?.run_id} overlaySeries={benchmarkIndex} overlayColor="var(--color-text-primary)" overlayLabel="S&P 500" currentValueLabel={strategyIndex.length ? formatNum(strategyIndex.at(-1).y, 1) : "—"} height={330} tickFormat={(value) => formatNum(value, 0)} />
+              <ChannelStrip label="INDEX" color="var(--color-trace-amber)" series={strategyIndex} ghostSeries={compareIndex.length ? compareIndex : null} ghostLabel={compareRun?.name || compareRun?.run_id} overlaySeries={benchmarkIndex} overlayColor="var(--color-text-primary)" overlayLabel={benchmarkIndex.length ? "S&P 500" : null} currentValueLabel={strategyIndex.length ? formatNum(strategyIndex.at(-1).y, 1) : "—"} height={330} tickFormat={(value) => formatNum(value, 0)} />
             </Panel>
             <Panel title="Rolling Sharpe" note={research?.sharpe_basis || "63-day trailing estimate; instability should remain visible"}>
               <ChannelStrip label="63D SHARPE" color="var(--color-trace-amber)" series={rollingSharpe} currentValueLabel={rollingSharpe.length ? formatNum(rollingSharpe.at(-1).y, 2) : "—"} height={240} emptyMessage="More daily observations are required" tickFormat={(value) => formatNum(value, 1)} />
@@ -572,7 +595,7 @@ export default function ResearchHub({
         {!activeJobView && activeRun && section === "risk" && (
           <div className="research-hub__content-grid">
             <Panel title="Underwater curve" note="Depth and duration of every drawdown" className="is-wide">
-              <ChannelStrip label="DRAWDOWN" color="var(--color-trace-amber)" series={strategyDrawdown} overlaySeries={benchmarkDrawdown} overlayColor="var(--color-text-primary)" overlayLabel="S&P 500" thresholds={DRAWDOWN_THRESHOLDS} currentValueLabel={strategyDrawdown.length ? formatPct(strategyDrawdown.at(-1).y, 2) : "—"} height={310} tickFormat={(value) => formatPct(value, 1)} />
+              <ChannelStrip label="DRAWDOWN" color="var(--color-trace-amber)" series={strategyDrawdown} overlaySeries={benchmarkDrawdown} overlayColor="var(--color-text-primary)" overlayLabel={benchmarkDrawdown.length ? "S&P 500" : null} thresholds={DRAWDOWN_THRESHOLDS} currentValueLabel={strategyDrawdown.length ? formatPct(strategyDrawdown.at(-1).y, 2) : "—"} height={310} tickFormat={(value) => formatPct(value, 1)} />
             </Panel>
             <Panel title="Trade diagnostics" note="Closed-position outcome quality"><TradeSummary research={research} run={activeRun} /></Panel>
             <Panel title="Tail and path risk" note="Daily return distribution">

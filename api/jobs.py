@@ -34,7 +34,7 @@ _SENSITIVE_CONFIG_KEYS = frozenset(
 )
 
 PYTHON_BIN = sys.executable
-WORKDIR = Path(__file__).resolve().parents[2]
+WORKDIR = Path(os.environ.get('QUANT_WORKDIR', Path(__file__).resolve().parents[2])).resolve()
 JOBS_DIR = WORKDIR / "quant" / "jobs"
 
 _TERMINATE_GRACE_SECONDS = 5.0

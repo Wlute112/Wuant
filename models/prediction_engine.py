@@ -21,10 +21,12 @@ The Strategy layer NEVER sees how yhat is produced -- it only consumes yhat.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import warnings
 
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import HuberRegressor
+from sklearn.exceptions import ConvergenceWarning
 
 from quant.models.cross_asset import (
     INDUSTRY_FEATURE_NAMES,
@@ -666,7 +668,26 @@ class PredictionEngine:
             alpha=self.cfg.huber_alpha,
             max_iter=self.cfg.huber_max_iter,
         )
-        model.fit(Xs, y)
+        # Correlated peer/spread columns can exhaust the first solver budget.
+        # Continue that same fit once, rather than immediately publishing an
+        # unfinished solution. Warm start belongs only to this retry: carrying
+        # coefficients between histories would change walk-forward semantics.
+        with warnings.catch_warnings(record=True) as fit_warnings:
+            warnings.simplefilter("always", ConvergenceWarning)
+            model.fit(Xs, y)
+        convergence_failed = any(
+            issubclass(item.category, ConvergenceWarning) for item in fit_warnings
+        )
+        for item in fit_warnings:
+            if not issubclass(item.category, ConvergenceWarning):
+                warnings.warn_explicit(item.message, item.category, item.filename, item.lineno)
+        if convergence_failed:
+            model.set_params(warm_start=True, max_iter=self.cfg.huber_max_iter * 4)
+            # A second convergence warning remains visible if the bounded
+            # retry also exhausts its budget; never hide an unresolved fit.
+            model.fit(Xs, y)
+        if not np.isfinite(model.coef_).all() or not np.isfinite(model.intercept_):
+            raise ValueError("Huber regression produced nonfinite coefficients")
         self._state = _FitState(
             coef=model.coef_.copy(),
             intercept=float(model.intercept_),

@@ -40,7 +40,7 @@ warnings.filterwarnings(
 )
 
 from nautilus_trader.backtest.engine import BacktestEngine, BacktestEngineConfig
-from nautilus_trader.backtest.models import FeeModel, FillModel, PerContractFeeModel, LatencyModel
+from nautilus_trader.backtest.models import FeeModel, FillModel, PerContractFeeModel
 from nautilus_trader.config import LoggingConfig
 from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.data import Bar, BarType
@@ -346,7 +346,7 @@ def build_engine(
     simulation_config = overrides.pop("equity_simulation", None)
     simulation = None
     if asset_class == "equity":
-        from quant.run.equity_simulation import EquitySimulation, EquityFeeModel, canonical_equity_frame
+        from quant.run.equity_simulation import EquitySimulation, EquityFeeModel, canonical_equity_frame, equity_latency_model
         simulation = EquitySimulation(simulation_config, cost_multiplier)
         simulation.data_preflight = data_preflight
         df = canonical_equity_frame(df, simulation.settings)
@@ -395,7 +395,7 @@ def build_engine(
         book_type=BookType.L2_MBP if simulation else BookType.L1_MBP,
         bar_execution=simulation is None,
         liquidity_consumption=simulation is not None,
-        latency_model=LatencyModel(base_latency_nanos=0, insert_latency_nanos=1) if simulation else None,
+        latency_model=equity_latency_model() if simulation else None,
     )
 
     instrument_ids = []

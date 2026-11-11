@@ -1,0 +1,12 @@
+[
+  {
+    "path": "/Users/wynstonsu/Projects/Wuant/Wuant/runs/optimize_fccfe699fc.json",
+    "before_sha256": "bac6120b1eeeb2b1a58f24681f8f6e740010e763eacb5f1d6ff1b2e72d331a73",
+    "after_sha256": "85314d86c471c1cb5880456ccbc118584b77c322f8c4525943f64863535e9367"
+  },
+  {
+    "path": "/Users/wynstonsu/Projects/Wuant/Wuant/optimize/best_params.json",
+    "before_sha256": "b98ece3b558add3f5ff539eac7a0bdc9d81d372465d08298a7a0d207fd909056",
+    "after_sha256": "c65b406816ef941206d9570277e75b317ed096b656791e9fe3c1765d602949c8"
+  }
+]

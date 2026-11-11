@@ -73,7 +73,7 @@ export default function RunList({
                     netProfit > 0 ? "is-positive" : netProfit < 0 ? "is-negative" : ""
                   }`}
                 >
-                  {netProfit != null ? formatUsd(netProfit) : "—"}
+                  {run.selection_status === "NO_QUALIFYING_CANDIDATE" ? "No candidate" : netProfit != null ? formatUsd(netProfit) : "—"}
                 </span>
               </button>
               <button

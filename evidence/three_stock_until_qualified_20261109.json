@@ -1,0 +1,970 @@
+{
+  "job_id": "optimize_fccfe699fc",
+  "study_id": "optimize_36be2d0907",
+  "initial_trial_count": 20,
+  "scope": "Continue same three-stock study without a trial cap until the first qualifying completed candidate",
+  "config": {
+    "name": "NVDA AMD JPM \u00b7 until first qualifying candidate",
+    "equity_simulation": {
+      "spread_bps": 5.0,
+      "impact_bps": 5.0,
+      "participation": 0.01,
+      "extended_liquidity": 0.25,
+      "extended_spread_multiplier": 2.0,
+      "commission_per_share": 0.005,
+      "minimum_commission": 1.0,
+      "commission_cap_pct": 0.01,
+      "sec_sell_rate": 0.0,
+      "taf_per_share": 0.0,
+      "taf_cap": 0.0,
+      "cat_per_share": 0.0,
+      "borrow_rate": 0.03,
+      "debit_rate": 0.06,
+      "cash_credit_rate": 0.0,
+      "risk_free_rate": 0.0,
+      "version": 1,
+      "price_basis": "split_adjusted",
+      "path": "open_low_high_close",
+      "source": "Uncalibrated conservative scenario; regulatory fees require dated inputs",
+      "calibrations": [],
+      "corporate_actions": []
+    },
+    "workers": 10,
+    "memory_budget_gb": null,
+    "worker_memory_gb": null,
+    "csv": "/Users/wynstonsu/Projects/Wuant/Wuant/.quant-runtime/quant/jobs/uploads/sp500_top20_ibkr_daily_20261105-4374a57b12.csv",
+    "asset_class": "equity",
+    "tickers": [
+      "NVDA",
+      "AMD",
+      "JPM"
+    ],
+    "trials": null,
+    "score": -1000000.0,
+    "final_test_frac": 0.15,
+    "walk_forward_folds": 5,
+    "embargo_bars": 0,
+    "stability_std_weight": 0.5,
+    "turnover_penalty_weight": 0.01,
+    "cost_sensitivity_weight": 0.5,
+    "min_positive_fold_fraction": 0.6,
+    "normal_slippage_probability": 0.05,
+    "stress_cost_multiplier": 2.0,
+    "cash": 5000.0,
+    "seed": 42,
+    "resume_run_id": "optimize_36be2d0907",
+    "risk": {
+      "risk_budget_pct": 0.01,
+      "max_trade_risk_pct": 0.0025,
+      "max_leverage": 1.0,
+      "daily_loss_limit_pct": 0.02,
+      "kill_switch_pct": 0.1,
+      "kill_warn_pct": 0.05,
+      "kelly_max_fraction": 0.5,
+      "max_order_notional_pct": null,
+      "max_symbol_exposure_pct": null,
+      "max_sector_exposure_pct": 0.3,
+      "max_gross_exposure_pct": null,
+      "max_concentration_pct": null,
+      "price_collar_pct": null
+    },
+    "ibkr": {
+      "fetch_missing": false,
+      "replace_bars": false,
+      "ibkr_host": "127.0.0.1",
+      "ibkr_port": 7497,
+      "ibkr_client_id": 1,
+      "ibkr_years": 5,
+      "ibkr_bar_hours": null,
+      "include_extended_hours": false
+    }
+  },
+  "source_sha256": "8b4b3c91f703ca809d4bf81ca8eaddc31fe3466a9d98d3154c2b7ba03193919d",
+  "baseline_params_sha256": "d44efb2ec35209b1a3a4a04e9a33f8cdadf957932f54bade99fd2a0fb17dc79f",
+  "qualification": "COMPLETE trial with finite score greater than the -1000000 rejection sentinel; objective requires at least 3 of 5 positive folds",
+  "goal_mode": "Target equals rejection sentinel; existing callback rejects sentinel/pruned/nonfinite trials before comparing target",
+  "validation_contract": {
+    "scheme": "purged_nested_walk_forward_v1",
+    "source_csv": "/Users/wynstonsu/Projects/Wuant/Wuant/jobs/uploads/sp500_top20_ibkr_daily_20261105-4374a57b12.csv.provenance/57077f1ac6fd2e69240b5d2a6e16a1ae437b06b0f46c945bd4a2ccfdbfba2819.csv",
+    "source_csv_sha256": "57077f1ac6fd2e69240b5d2a6e16a1ae437b06b0f46c945bd4a2ccfdbfba2819",
+    "dataset_manifest_sha256": "ff79b229f7261698c66bdc1d259580b3afd377707dbe4a1a4dad57dab85422c9",
+    "tickers": [
+      "NVDA",
+      "AMD",
+      "JPM"
+    ],
+    "asset_class": "equity",
+    "final_test_frac": 0.15,
+    "walk_forward_folds": 5,
+    "embargo_bars": 0,
+    "stability_std_weight": 0.5,
+    "turnover_penalty_weight": 0.01,
+    "cost_sensitivity_weight": 0.5,
+    "min_positive_fold_fraction": 0.6,
+    "normal_slippage_probability": 0.05,
+    "stress_cost_multiplier": 2.0,
+    "starting_cash": 5000.0,
+    "evaluation_seed": 1729,
+    "include_extended_hours": false,
+    "warmup_bars": 150,
+    "min_train_bars": 120,
+    "refit_every_n_bars": 1,
+    "structural_overrides": {
+      "regime_window": 20,
+      "regime_bull_threshold": 0.01,
+      "regime_bear_threshold": -0.01,
+      "use_industry_features": true,
+      "industry_correlation_window_bars": 60,
+      "industry_correlation_half_life_bars": 20,
+      "industry_minimum_observations": 40,
+      "industry_momentum_bars": 5,
+      "risk_budget_pct": 0.01,
+      "max_trade_risk_pct": 0.0025,
+      "max_leverage": 1.0,
+      "daily_loss_limit_pct": 0.02,
+      "kill_switch_pct": 0.1,
+      "kill_warn_pct": 0.05,
+      "kelly_max_fraction": 0.5,
+      "max_sector_exposure_pct": 0.3,
+      "equity_simulation": {
+        "spread_bps": 5.0,
+        "impact_bps": 5.0,
+        "participation": 0.01,
+        "extended_liquidity": 0.25,
+        "extended_spread_multiplier": 2.0,
+        "commission_per_share": 0.005,
+        "minimum_commission": 1.0,
+        "commission_cap_pct": 0.01,
+        "sec_sell_rate": 0.0,
+        "taf_per_share": 0.0,
+        "taf_cap": 0.0,
+        "cat_per_share": 0.0,
+        "borrow_rate": 0.03,
+        "debit_rate": 0.06,
+        "cash_credit_rate": 0.0,
+        "risk_free_rate": 0.0,
+        "version": 1,
+        "price_basis": "split_adjusted",
+        "path": "open_low_high_close",
+        "source": "Uncalibrated conservative scenario; regulatory fees require dated inputs",
+        "calibrations": [],
+        "corporate_actions": []
+      }
+    },
+    "news_snapshot_sha256": null,
+    "fold_boundaries": [
+      {
+        "number": 1,
+        "validation_start_ns": 1655164800000000000,
+        "validation_end_ns": 1678147200000000000
+      },
+      {
+        "number": 2,
+        "validation_start_ns": 1678233600000000000,
+        "validation_end_ns": 1701043200000000000
+      },
+      {
+        "number": 3,
+        "validation_start_ns": 1701129600000000000,
+        "validation_end_ns": 1724112000000000000
+      },
+      {
+        "number": 4,
+        "validation_start_ns": 1724198400000000000,
+        "validation_end_ns": 1747180800000000000
+      },
+      {
+        "number": 5,
+        "validation_start_ns": 1747267200000000000,
+        "validation_end_ns": 1770249600000000000
+      }
+    ],
+    "outer_holdout_start_ns": 1770336000000000000,
+    "outer_holdout_end_ns": 1793836800000000000
+  },
+  "latest_job_status": "completed",
+  "latest_progress": {
+    "kind": "optimize",
+    "phases": [
+      "preparing",
+      "search",
+      "holdout",
+      "saving"
+    ],
+    "phase": "complete",
+    "phase_label": "Research artifact ready",
+    "percent": 100,
+    "tickers": [
+      "NVDA",
+      "AMD",
+      "JPM"
+    ],
+    "trials_target": null,
+    "fold_total": 5,
+    "starting_cash": 5000.0,
+    "history": [
+      {
+        "trial": 21,
+        "score": -4.933759273342765,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 22,
+        "score": -1.936863637652483,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 23,
+        "score": -1.118703676996855,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 24,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 25,
+        "score": -2.4636308635441493,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 26,
+        "score": -1.6664723385333053,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 27,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 28,
+        "score": -4.182733550567339,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 29,
+        "score": -4.039105178050362,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 30,
+        "score": -1.3229242299213053,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 31,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 32,
+        "score": -0.3139269123195919,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 33,
+        "score": -1.6606814812008306,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 34,
+        "score": -4.243229342200409,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 35,
+        "score": -0.24966353330223595,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 36,
+        "score": -3.719594899216119,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 37,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 38,
+        "score": -3.7193744265358193,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 39,
+        "score": -4.737350356892825,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 40,
+        "score": -0.4547300643384225,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 41,
+        "score": -1.3229438694415296,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 42,
+        "score": -5.26093851187906,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 43,
+        "score": -4.052460327637517,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 44,
+        "score": -0.26458869624353015,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 45,
+        "score": -3.8085730283092296,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 46,
+        "score": -5.130176307264548,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 47,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 48,
+        "score": -1.7633343457290804,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 49,
+        "score": -1.4944914534807994,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 50,
+        "score": -4.8239981408044015,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 51,
+        "score": -3.9549734093411613,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 52,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 53,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 54,
+        "score": -3.860517984834177,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 55,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 56,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 57,
+        "score": -1.619160847708065,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 58,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 59,
+        "score": -2.5763589450263633,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 60,
+        "score": -1.5403534384547266,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 61,
+        "score": -2.2242148534184647,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 62,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 63,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 64,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 65,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 66,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 67,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 68,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 69,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 70,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 71,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 72,
+        "score": -1.6425195091560103,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 73,
+        "score": -1.619160847708065,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 74,
+        "score": -3.10372364589311,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 75,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 76,
+        "score": -1.9632178482755631,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 77,
+        "score": -2.9578400642011187,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 78,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 79,
+        "score": -1.2092524984121535,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 80,
+        "score": -1.659371134281071,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 81,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 82,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 83,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 84,
+        "score": -1.7715856078442611,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 85,
+        "score": -1.31610426558531,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 86,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 87,
+        "score": -1.619160847708065,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 88,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 89,
+        "score": -4.159693855262007,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 90,
+        "score": -1.4410938414037235,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 91,
+        "score": -1.455166655485963,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 92,
+        "score": -6.787696237041207,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 93,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 94,
+        "score": -1.6598228247617084,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 95,
+        "score": -1.6892697953862805,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 96,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 97,
+        "score": -1.0152405859317328,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 98,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 99,
+        "score": -7.4135553715744145,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 100,
+        "score": -2.016774564574052,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 101,
+        "score": -3.4554425902483548,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 102,
+        "score": -1.7088327654382531,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 103,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 104,
+        "score": -0.1593543511283814,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 105,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 106,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 107,
+        "score": -1.2884289275585403,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 108,
+        "score": -2.3466250497768772,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 109,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 110,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 111,
+        "score": -1.6664723385333053,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 112,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 113,
+        "score": -1.5604298449096197,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 114,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 115,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 116,
+        "score": -1.3229242299213053,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 117,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 118,
+        "score": -3.133242938951618,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 119,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 120,
+        "score": -1.3229242299213053,
+        "best": null,
+        "state": "pruned"
+      },
+      {
+        "trial": 121,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 122,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 123,
+        "score": -1000000.0,
+        "best": null,
+        "state": "complete"
+      },
+      {
+        "trial": 124,
+        "score": -0.22517297222520322,
+        "best": -0.22517297222520322,
+        "state": "complete"
+      }
+    ],
+    "updated_at": "2026-11-10T06:21:37.550772+00:00",
+    "trial_current": 124,
+    "fold_current": 5,
+    "candidate_score": -0.22517297222520322,
+    "trials_complete": 55,
+    "trials_pruned": 69,
+    "best_score": -0.22517297222520322
+  },
+  "observed_trial_count": 124,
+  "convergence_warnings": 0,
+  "tracebacks": 0,
+  "status": "completed",
+  "return_code": 0,
+  "started_at": "2026-11-10T06:04:48.715664+00:00",
+  "finished_at": "2026-11-10T06:21:37.679053+00:00",
+  "elapsed_seconds": 1008.963389,
+  "new_trials": 104,
+  "total_trials": 124,
+  "trial_states": {
+    "COMPLETE": 55,
+    "PRUNED": 69
+  },
+  "winner": {
+    "trial": 124,
+    "optuna_trial_number": 123,
+    "value": -0.22517297222520322,
+    "params": {
+      "n_lags": 3,
+      "horizon": 1,
+      "entry_threshold": 0.00019173652087678736,
+      "atr_period": 8,
+      "atr_stop_mult": 2.7344917571098293,
+      "use_limit_orders": false,
+      "limit_offset_bps": 2.630063767314437,
+      "use_kelly_sizing": false,
+      "kelly_fraction": 0.12089255336500315,
+      "max_open_positions": 1,
+      "cross_asset_lags": 4,
+      "spread_lags": 3,
+      "huber_alpha": 0.45823255781554356,
+      "huber_epsilon": 1.9987869923699992,
+      "training_window_bars": 300
+    },
+    "diagnostics": {
+      "fold_count": 5,
+      "median_fold_ratio": 0.11166640237768745,
+      "median_stressed_ratio": 0.0,
+      "median_turnover": 0.13,
+      "normal_to_stress_degradation": 0.32043826817122895,
+      "positive_folds": 3,
+      "std_fold_ratio": 0.35064048103455236,
+      "trade_count": 20,
+      "walk_forward_folds": [
+        {
+          "fold": 1,
+          "validation_start": "2022-06-14T00:00:00+00:00",
+          "validation_end": "2023-03-07T00:00:00+00:00",
+          "embargo_bars": 1,
+          "normal_ratio": 0.0,
+          "stressed_ratio": 0.0,
+          "turnover": 0.0,
+          "trades": 0
+        },
+        {
+          "fold": 2,
+          "validation_start": "2023-03-08T00:00:00+00:00",
+          "validation_end": "2023-11-27T00:00:00+00:00",
+          "embargo_bars": 1,
+          "normal_ratio": 0.0,
+          "stressed_ratio": 0.0,
+          "turnover": 0.0,
+          "trades": 0
+        },
+        {
+          "fold": 3,
+          "validation_start": "2023-11-28T00:00:00+00:00",
+          "validation_end": "2024-08-20T00:00:00+00:00",
+          "embargo_bars": 1,
+          "normal_ratio": 0.11166640237768745,
+          "stressed_ratio": -0.4974207843559359,
+          "turnover": 0.13,
+          "trades": 4
+        },
+        {
+          "fold": 4,
+          "validation_start": "2024-08-21T00:00:00+00:00",
+          "validation_end": "2025-05-14T00:00:00+00:00",
+          "embargo_bars": 1,
+          "normal_ratio": 0.5381000985852284,
+          "stressed_ratio": 0.2176618304139995,
+          "turnover": 0.15,
+          "trades": 6
+        },
+        {
+          "fold": 5,
+          "validation_start": "2025-05-15T00:00:00+00:00",
+          "validation_end": "2026-02-05T00:00:00+00:00",
+          "embargo_bars": 1,
+          "normal_ratio": 0.8855181768819615,
+          "stressed_ratio": 0.36414923159284956,
+          "turnover": 0.34,
+          "trades": 10
+        }
+      ]
+    }
+  },
+  "holdout": {
+    "start": "2026-02-06T00:00:00+00:00",
+    "end": "2026-11-05T00:00:00+00:00",
+    "normal_ratio": 0.0,
+    "stressed_ratio": 0.0,
+    "turnover": 0.0,
+    "trades": 0,
+    "stability_adjusted_score": 0.0
+  },
+  "outer_holdout_status": "CONSUMED",
+  "artifact": "/Users/wynstonsu/Projects/Wuant/Wuant/runs/optimize_fccfe699fc.json",
+  "params_file": "/Users/wynstonsu/Projects/Wuant/Wuant/optimize/best_params.json",
+  "promotion_status": "REQUIRES_SHADOW_AND_PAPER_AGREEMENT",
+  "checks": {
+    "first_qualifier_stopped_search": true,
+    "same_validation_contract": true,
+    "winner_matches_params_and_artifact": true,
+    "holdout_record_matches_params": true,
+    "unchanged_model_source": true,
+    "no_failed_or_running_trials": true,
+    "no_retained_workers": true,
+    "convergence_warnings": 0,
+    "tracebacks": 0
+  },
+  "limits": [
+    "Qualification permits a negative stability-adjusted score after dispersion and cost penalties.",
+    "Only three normal-cost validation folds were positive; two stressed-cost folds were positive.",
+    "Holdout generated zero trades.",
+    "Outer holdout has been consumed; this study cannot accept further tuning."
+  ],
+  "overall_outcome": "REJECTED_OUTER_HOLDOUT",
+  "qualification_claim_withdrawn": true,
+  "correction": "Trial 124 passed development fold selection only. Its inactive holdout did not qualify. The simulation instrument-order defect also invalidates performance selection from this study."
+}
