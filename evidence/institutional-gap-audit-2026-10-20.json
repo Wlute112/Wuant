@@ -1,0 +1,138 @@
+{
+  "date": "2026-10-20",
+  "scope": "Static repository/control audit plus deterministic Python, process and browser tests for the implemented ownership fix. No orders, live activation, broker campaign or claim of institutional equivalence.",
+  "reference": {
+    "title": "FINRA Regulatory Notice 15-09: Guidance on Effective Supervision and Control Practices for Firms Engaging in Algorithmic Trading Strategies",
+    "url": "https://www.finra.org/rules-guidance/notices/15-09",
+    "accessed": "2026-10-20",
+    "use": "Engineering comparison for risk assessment, development/change control, independent testing, trading supervision and monitoring. It is not an assertion that member-firm obligations apply to this retail deployment."
+  },
+  "canonical_backlog": "PRODUCTION_READINESS.md",
+  "findings": [
+    {
+      "backlog": "P0: Execution ownership",
+      "observation": "The original public node builder had no shared writer ownership; different IBKR client IDs could run separate risk books and write the same profile cache.",
+      "code": ["run/run_live.py:build_node", "strategies/ml_strategy.py:MLStrategyConfig"],
+      "disposition": "Top implementation fixed locally; supported-broker validation remains pending. One slot spans all local accounts/profiles until account isolation is safe."
+    },
+    {
+      "backlog": "P0: Account state isolation",
+      "observation": "Trader IDs/cache namespaces are mode/profile-specific, and the saved strategy payload has no account identity. Renaming caches without migration could lose old allocation, halt and kill state.",
+      "code": ["run/run_live.py:build_node", "strategies/ml_strategy.py:on_save", "strategies/ml_strategy.py:_restore_loaded_state"]
+    },
+    {
+      "backlog": "P0: Kill-switch recovery follow-up",
+      "observation": "Immediate operational persistence is applied to operator kills. Automatic risk kills rely on the shutdown snapshot. Universe mismatch can return before risk restoration; legacy allocation migration can omit old risk restoration.",
+      "code": ["strategies/ml_strategy.py:_begin_risk_exit", "strategies/ml_strategy.py:_process_operations_control", "strategies/ml_strategy.py:_restore_loaded_state"]
+    },
+    {
+      "backlog": "P0: Real-time risk emergency actuation follow-up",
+      "observation": "The independent supervisor queues commands for the same strategy process; it is not an independent broker cancel/flatten actuator if that process is stopped or dead.",
+      "code": ["ops/supervisor.py:RiskSupervisor.step", "strategies/ml_strategy.py:_process_operations_control"]
+    },
+    {
+      "backlog": "P0: Allocation contract follow-up",
+      "observation": "CLI paper startup without --cash selects broker NAV, while the dashboard supplies an explicit allocation. The defaults do not provide one consistent capital contract.",
+      "code": ["run/run_live.py:main", "api/jobs_routes.py:start_paper"]
+    },
+    {
+      "backlog": "P1-09",
+      "observation": "Paper-soak runtime is first-to-last elapsed time rather than continuously observed time; health is calculated after trimming through the last unhealthy observation. Sparse observations and outages can overstate evidence.",
+      "code": ["ops/validation.py:evaluate_campaign"]
+    },
+    {
+      "backlog": "P1-08",
+      "observation": "Dedicated safety/recovery routes authenticate, but generic paper start/job cancellation do not share that contract. Remote authorization is already an open conditional deployment issue.",
+      "code": ["api/operations.py:authenticate", "api/jobs_routes.py:start_paper", "api/jobs_routes.py:cancel_job"]
+    },
+    {
+      "backlog": "P1-10",
+      "observation": "Registry artifacts and evaluations exist, but paper observations and campaign IDs are not bound to exact params, account/allocation and executing release. Registry evaluation consumes a caller-supplied ready report without that linkage.",
+      "code": ["ops/model_registry.py:ModelRegistry.evaluate", "ops/supervisor.py:RiskSupervisor.step", "api/jobs_routes.py:_submit_execution_with_supervisor", "run/telemetry.py"]
+    },
+    {
+      "backlog": "P1-11",
+      "observation": "Runtime broker/cache/ledger reconciliation is substantial; no independent statement/Flex cash, cost, position and PnL break-review workflow was found.",
+      "code": ["run/reconciliation.py", "run/nautilus_reconciliation.py", "api/drift.py"]
+    },
+    {
+      "backlog": "P1-12",
+      "observation": "Offline model evaluation and drift comparisons are present, but no frozen independent signal/order-intent shadow execution workflow with an order-disabled boundary was found.",
+      "code": ["models/prediction_engine.py", "api/drift.py", "run/run_live.py"]
+    },
+    {
+      "backlog": "P1-13",
+      "observation": "Purging, nested walk-forward and one-shot holdout controls are per study/campaign. No global experiment ledger links renamed campaigns, related hypotheses and reused inspected time windows or reports selection-adjusted uncertainty.",
+      "code": ["optimize/campaign.py:new_manifest", "optimize/promote.py:main", "optimize/optimize.py:main", "optimize/stability.py"]
+    },
+    {
+      "backlog": "P1-14",
+      "observation": "Local data snapshots and provenance exist, while declared vendor point-in-time availability, delisted coverage and historical universe membership remain incomplete/unknown.",
+      "code": ["PRODUCTION_READINESS.md:P2-01 local implementation evidence", "data/provenance.py", "OPERATIONS.md:dataset provenance"]
+    },
+    {
+      "backlog": "P1-15",
+      "observation": "Gross, symbol and reviewed sector rails are present. Industry-correlation alpha features do not supply covariance/factor or stressed liquidity/exit-cost portfolio risk budgets.",
+      "code": ["strategies/risk.py", "run/sector_risk.py", "models/cross_asset.py"]
+    },
+    {
+      "backlog": "P1-16, P1-03, P2-02",
+      "observation": "Current fill-price review references the strategy close, not the order's arrival NBBO. OHLC simulation and participation scenarios have not established observed transaction costs, capacity or independent fee reconciliation.",
+      "code": ["api/drift.py", "run/equity_simulation.py", "run/metrics.py"]
+    },
+    {
+      "backlog": "P1-17, P2-09",
+      "observation": "Python requirements are pinned and many local tests exist. The checked-in CI workflow only runs frontend tests/build/browser paths; a backend release/compatibility gate is absent.",
+      "code": [".github/workflows/dashboard.yml", "requirements.lock", "ops/model_registry.py"]
+    },
+    {
+      "backlog": "P1-18, P1-02",
+      "observation": "Live freshness/revision controls largely share IBKR as their source. macOS clock synchronization is a manual warning, not measured offset/uncertainty evidence.",
+      "code": ["ops/doctor.py:run_doctor", "api/broker_monitor.py", "run/account_evidence.py", "data/quality.py"]
+    },
+    {
+      "backlog": "P2-11",
+      "observation": "The pinned Nautilus risk engine already defaults to per-process submit/modify throttles; an explicit account/IBKR aggregate traffic contract with reserved emergency capacity was not found. This is a proposed refinement, not a claim of absent throttling.",
+      "code": ["run/run_live.py:build_node", "nautilus_trader/risk/config.py:RiskEngineConfig"]
+    },
+    {
+      "backlog": "P2-12, P1-07, P1-04",
+      "observation": "Local hash-chained/trigger-protected audit records, alerts and encrypted recovery exist. Independent external anchoring, receipt/acknowledgement and clean-host/broker recovery evidence are not established; the off-host portion was previously deferred by the user.",
+      "code": ["ops/state.py", "ops/alerts.py", "ops/backups.py", "ops/recovery.py"]
+    }
+  ],
+  "implemented_top_fix": {
+    "policy": "One broker execution runner for the same local OS user and host, across all accounts, profiles, client IDs and persistence modes",
+    "authority": "Kernel flock held by a non-inheritable descriptor; no timeout, takeover endpoint or configurable alternate lock domain",
+    "coverage": "Public node builder before adapter/cache assembly, strategy startup, submissions/lists/modifications/cancellations/closes, risk supervision, resume and telemetry",
+    "shutdown": "Retained through node stop/dispose and explicit engine disconnection checks; unverified or failed disposal retains ownership; process death releases kernel ownership but does not assert broker flatness",
+    "frontend": "Paper/Live telemetry ownership review, CLI-owner instructions, explicit UNKNOWN/stale errors, owning-session stop and AVAILABLE-after-release review; launch conflict returns HTTP 409",
+    "persistence": "Existing trader IDs, strategy snapshots and risk/kill/allocation state are deliberately unchanged",
+    "scope_limitations": [
+      "Not distributed or cross-user broker fencing; does not control manual/external IBKR clients",
+      "Stop old unguarded binaries before deployment; never unlink or replace the lock file",
+      "Account state isolation, automatic-kill recovery and independent emergency actuation remain open P0 work",
+      "Fresh broker reconciliation and every P0 capital gate remain required; live activation stays disabled"
+    ]
+  },
+  "verification": {
+    "python": {"command": "quant/.quant312/bin/python -m pytest quant/tests -q", "passed": 531, "warnings": 136},
+    "frontend_unit": {"command": "npm test", "passed": 22},
+    "browser": {"command": "PLAYWRIGHT_CHANNEL=chrome npm run test:e2e", "passed": 35, "result": "passed"},
+    "production_build": {"command": "npm run build", "result": "passed"},
+    "diff_check": {"command": "git diff --check", "result": "passed"},
+    "ownership_tests": "tests/test_execution_ownership.py",
+    "browser_tests": "web/e2e/ownership.spec.js",
+    "covered_faults": [
+      "Concurrent account/client/profile attempts and no-persistence starts",
+      "Real child process SIGSTOP retention and SIGKILL lock release",
+      "Mutation attempts without ownership and after ownership loss",
+      "Replaced/symlinked/corrupted lock identity fails closed",
+      "Build failure, sync/async run, stop, disposal exception and unverified disconnection",
+      "HTTP ownership review/unknown state and launch conflict before job creation",
+      "Dashboard owner stop preserves OWNED until release; CLI instructions, mobile layout and failed polling"
+    ],
+    "no_broker_connection_or_orders": true,
+    "independent_review": "No confirmed material lifecycle/safety defect within the local-user scope. Reviewer requested bounded/fresh ownership status; five-second request timeout, observation/receipt freshness expiry, single-flight polling and stalled/stale-request tests were added."
+  }
+}

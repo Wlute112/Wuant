@@ -281,6 +281,7 @@ def test_strategy_supervision_cancels_only_entries_at_configured_boundary(policy
         config=SimpleNamespace(execution_mode="paper", account_id="IB-DU1", asset_class="equity", startup_health_grace_secs=30,
                                cancel_entries_at_session_end=cancel_at_end, max_gross_exposure_pct=1),
         _risk=RiskManager(5000), _account=lambda: SimpleNamespace(balance_total=lambda: 5000, base_currency="USD"),
+        _assert_execution_ownership=lambda: None,
         _equity=lambda: 5000, _session_calendars={"QQQ.SMART": _calendar(policy)},
         _execution_safety=ExecutionSafetyController(), _started_at=None,
         _last_session_phase={}, _execution=ledger,

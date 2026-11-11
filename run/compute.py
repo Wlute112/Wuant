@@ -82,6 +82,7 @@ def resolve_compute_plan(workers: int = 0, memory_budget_gb: float = 0,
         raise ValueError("memory budget must be finite and >= 0")
     if not math.isfinite(worker_memory_gb) or worker_memory_gb <= 0:
         raise ValueError("worker memory estimate must be finite and > 0")
+    discovered_host = host is None
     host = host or host_resources()
     total = host["memory_gb"]
     available = max(0.0, total - max(8.0, total * 0.25)) if total else 0.0
@@ -94,6 +95,16 @@ def resolve_compute_plan(workers: int = 0, memory_budget_gb: float = 0,
     cores = host["compute_cores"]
     cpu_cap = max(1, cores - (2 if cores >= 8 else 1))
     count = min(workers or cpu_cap, cpu_cap, memory_cap, tasks)
+    if discovered_host:
+        from quant.run.admission import AdmissionStore
+        admission = AdmissionStore(host=host)
+        inherited = admission.inherited()
+        limits = ({"cpu_slots": inherited["cpu_slots"], "memory_gb": inherited["memory_gb"]}
+                  if inherited else admission.status()["limits"])
+        budget = min(budget, limits["memory_gb"])
+        count = min(count, limits["cpu_slots"], int(budget // worker_memory_gb))
+        if count < 1:
+            raise ValueError("Host research limits cannot fit one worker")
     return ComputePlan(count, budget, worker_memory_gb, host)
 
 
@@ -133,6 +144,17 @@ class ComputePool:
         self.executor = None
 
     def __enter__(self):
+        from quant.run.admission import research_slot
+        self._admission = research_slot(self.plan.workers, self.plan.worker_memory_gb)
+        self._admission.__enter__()
+        try:
+            return self._start()
+        except BaseException:
+            import sys
+            self.__exit__(*sys.exc_info())
+            raise
+
+    def _start(self):
         from threadpoolctl import threadpool_limits
         self._environment = {key: os.environ.get(key) for key in THREAD_ENV}
         for key in THREAD_ENV:
@@ -186,13 +208,18 @@ class ComputePool:
                     self._terminate_workers()
                 self.executor.shutdown(wait=True, cancel_futures=True)
         finally:
-            signal.signal(signal.SIGTERM, self._old_sigterm)
-            self._threads.restore_original_limits()
-            for key, value in self._environment.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
+            try:
+                if hasattr(self, "_old_sigterm"):
+                    signal.signal(signal.SIGTERM, self._old_sigterm)
+                if hasattr(self, "_threads"):
+                    self._threads.restore_original_limits()
+                for key, value in getattr(self, "_environment", {}).items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+            finally:
+                self._admission.__exit__(exc_type, exc, tb)
 
 
 def main() -> None:

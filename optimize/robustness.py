@@ -462,4 +462,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    from quant.run.admission import research_entry
+    with research_entry("CLI robustness"):
+        main()

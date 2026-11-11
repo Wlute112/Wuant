@@ -14,7 +14,9 @@ import {
 import ModelDecisionTape from "../model-tape/ModelDecisionTape.jsx";
 import NewsTape from "../news-tape/NewsTape.jsx";
 import SafetyControls from "./SafetyControls.jsx";
+import ExecutionOwnership from "./ExecutionOwnership.jsx";
 import RecoveryControls from "./RecoveryControls.jsx";
+import DriftReview from "./DriftReview.jsx";
 import SectorRiskEvidence from "./SectorRiskEvidence.jsx";
 import { executionEvidenceCurrent, telemetryIsFresh } from "../../lib/sectorRisk.js";
 import DockWorkspace from "../workspace/DockWorkspace.jsx";
@@ -87,6 +89,7 @@ export default function LivePanel({
   brokerStatus = {},
   apiHealth = {},
   jobs = [],
+  onJobUpdated = null,
   toolbarNavigation = null,
   toolbarLead = null,
   toolbarActions = null,
@@ -529,6 +532,8 @@ export default function LivePanel({
       minH: 4,
       content: (
         <TelemetryReadout
+          jobs={jobs}
+          onJobUpdated={onJobUpdated}
           statusUnknown={statusUnknown}
           brokerStatus={brokerStatus}
           apiHealth={apiHealth}
@@ -601,6 +606,15 @@ export default function LivePanel({
           isDemo={isDemo}
         />
       ),
+    },
+    {
+      id: "drift-review",
+      title: "Research / execution review",
+      kind: "drift-review",
+      defaultLayout: { x: 8, y: 12, w: 4, h: 6 },
+      minW: 3,
+      minH: 4,
+      content: <DriftReview jobId={executionJob?.id || telemetry?.job_id} assetClass={assetClass} isDemo={isDemo} />,
     },
   ];
 
@@ -675,6 +689,8 @@ function RiskReadout({ risk, statusUnknown, isDemo }) {
 }
 
 function TelemetryReadout({
+  jobs,
+  onJobUpdated,
   statusUnknown,
   brokerStatus,
   apiHealth,
@@ -724,6 +740,7 @@ function TelemetryReadout({
 
   return (
     <div className="live-panel__telemetry-readout">
+      <ExecutionOwnership jobs={jobs} onJobUpdated={onJobUpdated} />
       <SafetyControls key={executionJob?.id || "no-job"} job={executionJob} isDemo={isDemo} />
       <RecoveryControls />
       {feedError && <div className="live-panel__feed-error" role="alert">{feedError}</div>}

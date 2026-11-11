@@ -388,6 +388,7 @@ export default function App() {
           />
         ) : (
           <LivePanel
+            onJobUpdated={handleJobStopped}
             mode={workflowTab}
             assetClass={assetClass}
             profile={selectedProfile}

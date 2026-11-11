@@ -44,7 +44,21 @@ async function controlRequest(path, token, options = {}) {
   } finally { clearTimeout(timeout); }
 }
 
+async function ownershipRequest() {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    return await request("/api/execution-ownership", { signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("Ownership request timed out after 5 seconds");
+    throw error;
+  } finally { clearTimeout(timeout); }
+}
+
 export const api = {
+  getExecutionOwnership: ownershipRequest,
+  getResearchResources: () => request("/api/research-resources"),
+  saveResearchResources: (token, body) => controlRequest("/api/research-resources", token, { method: "PUT", body: JSON.stringify(body) }),
   getRecovery: (token) => controlRequest("/api/recovery", token),
   saveRecovery: (token, body) => controlRequest("/api/recovery/config", token, { method: "PUT", body: JSON.stringify(body) }),
   launchRecovery: (token, body) => controlRequest("/api/recovery/jobs", token, { method: "POST", body: JSON.stringify(body) }),
@@ -93,6 +107,10 @@ export const api = {
   listRuns: (kind) => request(`/api/runs${kind ? `?kind=${kind}` : ""}`),
   getRun: (runId) => request(`/api/runs/${encodeURIComponent(runId)}`),
   getRunResearch: (runId) => request(`/api/runs/${encodeURIComponent(runId)}/research`),
+  getDriftReview: (jobId) => request(`/api/drift/${encodeURIComponent(jobId)}`),
+  saveDriftConfig: (jobId, body) => request(`/api/drift/${encodeURIComponent(jobId)}/config`, {
+    method: "PUT", body: JSON.stringify(body),
+  }),
   deleteRun: (runId) => request(`/api/runs/${encodeURIComponent(runId)}`, { method: "DELETE" }),
 
   listCampaigns: () => request("/api/campaigns"),

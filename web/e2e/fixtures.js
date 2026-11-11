@@ -21,11 +21,18 @@ export const test = base.extend({
       if (state.failures[path]) return reply({ detail: 'Injected API failure' }, state.failures[path]);
       if (path === '/api/health') return reply({ status: 'ok', job_registry: { status: 'ready' } });
       if (path === '/api/profiles') return reply([]);
+      if (path === '/api/execution-ownership') return reply({ as_of: new Date().toISOString(), ...(state.ownership || { status: 'AVAILABLE', active: false }) });
+      if (path === '/api/research-resources') {
+        state.resources ||= { host: { compute_cores: 8, memory_gb: 32 }, ceiling: { cpu_slots: 6, memory_gb: 24 }, limits: { cpu_slots: 4, memory_gb: 16 }, used: { cpu_slots: 2, memory_gb: 8 }, requests: [], measurement: 'Sampled aggregate process-tree RSS; not an OS hard memory limit' };
+        if (method === 'PUT') state.resources.limits = body;
+        return reply(state.resources);
+      }
       if (path === '/api/readiness/live') return reply({ live_capital_enabled: false, code: 'READINESS_BLOCKED', gates: [] });
       if (path === '/api/broker/config') return reply({ status: 'disconnected' });
       if (path === '/api/broker/status') return reply({ status: 'disconnected', message: 'Isolated browser fixture' });
       if (path.startsWith('/api/broker/bars')) return reply({ bars: [], status: 'unavailable' });
       if (path === '/api/live/news') return reply({ items: [], articles: [], status: 'unavailable' });
+      if (path === '/api/drift/paper-test') return reply({ status: 'unconfigured' });
       if (path === '/api/live/telemetry') return reply({ mock: false, job_id: 'paper-test', status: 'running', job_status: 'running', as_of: new Date().toISOString(), tickers: ['QQQ'], series: {}, risk: {}, model: {} });
       if (path === '/api/runs') return reply(state.runs);
       if (path.match(/^\/api\/runs\/[^/]+\/research$/)) return reply({ benchmark: { status: 'unavailable', message: 'No benchmark fixture' }, strategy: {}, relative: {} });

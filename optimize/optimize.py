@@ -1435,4 +1435,6 @@ if __name__ == "__main__":
     # Interactive prompt at the very start of execution: the refit cadence is a
     # fixed structural setting supplied from the terminal, NOT an Optuna-tuned
     # parameter (see _prompt_refit_every_n_bars / the GUARDRAIL in make_objective).
-    main(refit_every_n_bars=None)
+    from quant.run.admission import research_entry
+    with research_entry("CLI optimization"):
+        main(refit_every_n_bars=None)

@@ -1,0 +1,1 @@
+{"kind": "backtest", "phases": ["loading", "replay", "reporting", "saving"], "phase": "loading", "phase_label": "Preparing run", "percent": 0, "updated_at": "2026-10-01T19:36:56.522325+00:00"}

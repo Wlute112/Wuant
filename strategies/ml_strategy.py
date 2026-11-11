@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
+from functools import wraps
 import json
 import math
 from typing import NamedTuple
@@ -71,6 +72,7 @@ from quant.run import broker_connectivity
 from quant.run.sector_risk import sector_snapshot
 from quant.run.reconciliation import ReconciliationConfig, reconcile, recover_ledger
 from quant.run.telemetry import LiveTelemetryRecorder
+from quant.run.execution_ownership import ExecutionOwnershipError
 from quant.strategies.execution_state import (
     ExecutionLedger,
     ExecutionSafetyController,
@@ -318,6 +320,15 @@ class MLStrategyConfig(StrategyConfig, frozen=True):
     backtest_trade_start_ns: int = 0
 
 
+def _owned_broker_mutation(method):
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        if self.config.execution_mode in {"paper", "live"}:
+            self._assert_execution_ownership()
+        return method(self, *args, **kwargs)
+    return guarded
+
+
 class MLStrategy(Strategy):
     def __init__(self, config: MLStrategyConfig):
         super().__init__(config)
@@ -378,6 +389,7 @@ class MLStrategy(Strategy):
         self._raw_by_iid: dict[InstrumentId, str] = {}
         self._sector_by_iid: dict[InstrumentId, str] = {}
         self._connectivity_unsubscribe = None
+        self._execution_owner = None
         self._last_bar_ns: dict[InstrumentId, int] = defaultdict(int)
         self._data_quality = BarQualityGate(
             expected_interval_seconds=max(1, config.expected_bar_interval_secs),
@@ -431,9 +443,41 @@ class MLStrategy(Strategy):
         """Attach the runner-owned IBKR short-control service before startup."""
         self._short_control = controller
 
+    def attach_execution_ownership(self, ownership) -> None:
+        ownership.assert_owned()
+        self._execution_owner = ownership
+
+    def _assert_execution_ownership(self) -> None:
+        try:
+            if self._execution_owner is None:
+                raise ExecutionOwnershipError("No exclusive broker execution owner is attached")
+            self._execution_owner.assert_owned()
+        except ExecutionOwnershipError as exc:
+            self._operations_entries_frozen = True
+            self._pending.clear()
+            clock = self.clock
+            try:
+                now = clock.timestamp_ns() if clock is not None else 0
+            except NotImplementedError:
+                now = 0  # Unregistered strategies still fail before any mutation.
+            self._execution_safety.mark_uncertain(str(exc), ts_ns=now)
+            self._audit_event("EXECUTION_OWNERSHIP_LOST", {"reason": str(exc)}, severity="CRITICAL")
+            raise
+
+    # Check every public broker mutation, including protective OCA legs and
+    # framework-managed exits. Backtests retain their engine-local behavior.
+    submit_order = _owned_broker_mutation(Strategy.submit_order)
+    submit_order_list = _owned_broker_mutation(Strategy.submit_order_list)
+    modify_order = _owned_broker_mutation(Strategy.modify_order)
+    cancel_order = _owned_broker_mutation(Strategy.cancel_order)
+    cancel_all_orders = _owned_broker_mutation(Strategy.cancel_all_orders)
+    close_position = _owned_broker_mutation(Strategy.close_position)
+    close_all_positions = _owned_broker_mutation(Strategy.close_all_positions)
+
     # ---- lifecycle ------------------------------------------------------
     def on_start(self) -> None:
         if self.config.execution_mode in {"paper", "live"}:
+            self._assert_execution_ownership()
             self._connectivity_unsubscribe = broker_connectivity.watch(
                 self.cache, self.config.account_id, self._on_broker_disconnect,
             )
@@ -597,6 +641,7 @@ class MLStrategy(Strategy):
                 "instrument_ids": sorted(self.config.instrument_ids),
                 "account_id": self.config.account_id,
                 "reconciliation_state": self._reconciliation_state,
+                "execution_ownership": self._execution_owner.snapshot() if self._execution_owner else None,
             },
             severity="INFO",
             event_id=f"strategy-started:{self._operations_target()}:{self.clock.timestamp_ns()}",
@@ -762,6 +807,9 @@ class MLStrategy(Strategy):
     def _resume_blockers(self) -> list[str]:
         """Re-evaluated by the node when a resume command is consumed."""
         blockers = []
+        owner = getattr(self, "_execution_owner", None)
+        if self.config.execution_mode in {"paper", "live"} and (owner is None or not owner.snapshot()["healthy"]):
+            blockers.append("Exclusive broker execution ownership is unavailable; restart the owning session.")
         if self.config.execution_mode in {"paper", "live"}:
             if not broker_connectivity.snapshot(self.cache, self.config.account_id)["healthy"]:
                 blockers.append("Execution adapter disconnected or requires fresh reconciliation; restart the session.")
@@ -1383,6 +1431,10 @@ class MLStrategy(Strategy):
             return
         broker_mode = self.config.execution_mode in {"paper", "live"}
         if broker_mode:
+            try:
+                self._assert_execution_ownership()
+            except ExecutionOwnershipError:
+                return
             connection = broker_connectivity.snapshot(self.cache, self.config.account_id)
             if not connection["healthy"]:
                 if self._execution_safety.state != ExecutionSafetyState.UNCERTAIN:
@@ -1912,6 +1964,7 @@ class MLStrategy(Strategy):
                     "price_collar_pct": self.config.price_collar_pct * 100.0,
                 },
                 "execution_state": self._execution_safety.state.value,
+                "execution_ownership": self._execution_owner.snapshot() if self._execution_owner else {"healthy": False, "status": "UNAVAILABLE"},
                 "broker_connectivity": broker_connectivity.snapshot(self.cache, self.config.account_id),
                 "sector_risk": self._sector_risk_snapshot() if self.config.execution_mode != "backtest" and self.config.asset_class == "equity" else {"status": "NOT_APPLICABLE", "healthy": True},
                 "settled_cash": settled_cash_from_cache(

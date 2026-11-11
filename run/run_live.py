@@ -37,6 +37,7 @@ from quant.data.ib_compat import (
 )
 from quant.run.asset_profiles import get_asset_profile, strategy_defaults_for_asset
 from quant.run.readiness import LiveCapitalDisabledError, assert_live_capital_enabled
+from quant.run.execution_ownership import exclusive_execution_node
 from quant.strategies.sessions import resolve_session_policy, session_policy_payload
 
 PAPER_PORTS = frozenset({7497, 4002})
@@ -208,6 +209,7 @@ def load_params_metadata(path: str | None) -> dict:
     }
 
 
+@exclusive_execution_node
 def build_node(
     tickers,
     host,
@@ -441,6 +443,7 @@ def build_node(
         **strategy_params,
     )
     strategy = MLStrategy(strat_cfg)
+    node.quant_strategy = strategy
     if asset_class == "equity":
         print(f"Execution session policy: {json.dumps(session_policy_payload(policy), sort_keys=True)}", flush=True)
     short_control = None

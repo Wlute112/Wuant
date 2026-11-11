@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import os
 import time
 
 from nautilus_trader.model.data import Bar
@@ -437,4 +438,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    from quant.run.admission import research_slot
+    from quant.run.compute import THREAD_ENV
+    from threadpoolctl import threadpool_limits
+    for key in THREAD_ENV:
+        os.environ[key] = "1"
+    with research_slot(label="CLI backtest"), threadpool_limits(limits=1):
+        main()

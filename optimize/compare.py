@@ -144,4 +144,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    from quant.run.admission import research_slot
+    from threadpoolctl import threadpool_limits
+    with research_slot(label="CLI campaign comparison"), threadpool_limits(limits=1):
+        main()

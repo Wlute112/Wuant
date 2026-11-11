@@ -33,6 +33,7 @@ const jobs = [
 ];
 
 test("starting and cancelling remain active lifecycle states", () => {
+  assert.equal(isJobActive({ status: "queued" }), true);
   assert.equal(isJobActive({ status: "starting" }), true);
   assert.equal(isJobActive({ status: "cancelling" }), true);
   assert.equal(isJobActive({ status: "cancelled" }), false);

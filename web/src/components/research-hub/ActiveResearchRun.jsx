@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import DataReport from "./DataReport.jsx";
+import { ResourceReading } from "./ResearchResources.jsx";
 import ChannelStrip from "../channel-strip/ChannelStrip.jsx";
 import { useInterval } from "../../hooks/useInterval.js";
 import { api } from "../../lib/api.js";
@@ -124,6 +125,7 @@ export default function ActiveResearchRun({ job, onJobUpdated }) {
         {active && <button type="button" disabled={cancelling || job.status === "cancelling"} onClick={cancel}>{cancelling || job.status === "cancelling" ? "Stopping…" : "Cancel run"}</button>}
       </header>
       <p>Campaign: {config.campaign_id} · Job: {job.id}</p>
+      <ResourceReading resources={job.resources || progress.resources} />
       {(error || job.failure_reason) && <p role="alert">{error || job.failure_reason}</p>}
       <details className="active-research__logs"><summary>Stage progress evidence</summary><pre>{JSON.stringify(progress, null, 2)}</pre></details>
       <details className="active-research__logs"><summary>Technical output</summary><pre>{logs.length ? logs.join("\n") : "No process output yet."}</pre></details>
@@ -153,7 +155,7 @@ export default function ActiveResearchRun({ job, onJobUpdated }) {
       <header className="active-research__header">
         <div>
           <div className="active-research__tags">
-            <span className={active ? "is-live" : ""}>{active && <i aria-hidden="true" />}{active ? "LIVE COMPUTE" : jobStatusLabel(job.status).toUpperCase()}</span>
+            <span className={active ? "is-live" : ""}>{active && job.status !== "queued" && <i aria-hidden="true" />}{job.status === "queued" ? "QUEUED" : active ? "LIVE COMPUTE" : jobStatusLabel(job.status).toUpperCase()}</span>
             <span>{job.kind.startsWith("campaign_") ? "VALIDATION CAMPAIGN" : job.kind === "optimize" ? "OPTUNA SWEEP" : "HISTORICAL REPLAY"}</span>
             <span>{String(config.asset_class || "crypto").toUpperCase()}</span>
           </div>
@@ -167,7 +169,8 @@ export default function ActiveResearchRun({ job, onJobUpdated }) {
         )}
       </header>
 
-      <section className="active-research__process" aria-label="Research process">
+      <ResourceReading resources={job.resources || progress.resources} />
+      {job.status !== "queued" && <section className="active-research__process" aria-label="Research process">
         <ol>
           {phases.map(([key, label], index) => (
             <li key={key} className={index < phaseIndex || progress.phase === "complete" ? "is-complete" : index === phaseIndex ? "is-current" : ""} aria-current={index === phaseIndex ? "step" : undefined}>
@@ -179,7 +182,7 @@ export default function ActiveResearchRun({ job, onJobUpdated }) {
         <div className="active-research__progress-track" aria-label={percent == null ? "Progress is indeterminate" : `${percent}% complete`}>
           <span className={percent == null ? "is-indeterminate" : ""} style={percent == null ? undefined : { width: `${percent}%` }} />
         </div>
-      </section>
+      </section>}
 
       {job.failure_reason && <div className="active-research__error" role="alert">{job.failure_reason}</div>}
       {error && <div className="active-research__error" role="alert">{error}</div>}

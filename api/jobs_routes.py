@@ -547,6 +547,13 @@ def start_paper(req: PaperJobRequest):
             "Use /api/jobs/live for live trading.",
         )
     _validate_short_controls(req)
+    from quant.run.execution_ownership import ownership_status
+    try:
+        ownership = ownership_status()
+    except (OSError, ValueError) as exc:
+        raise HTTPException(503, "Exclusive execution ownership cannot be verified") from exc
+    if ownership["active"]:
+        raise HTTPException(409, "Another broker runner owns local execution. Stop that session and wait for verified shutdown before starting another.")
     job_id = manager.new_job_id("paper")
     params_path = _execution_params_file(job_id, req)
     args = _args_from(
@@ -694,6 +701,7 @@ def get_job_progress(job_id: str):
         "status": job["status"],
         "started_at": job["started_at"],
         "finished_at": job.get("finished_at"),
+        "resources": job.get("resources"),
         **progress,
     }
 

@@ -521,3 +521,109 @@ pruned because studies may reference them. Disk use grows with distinct input
 versions. The UI displays up to 50 prior source observations; older observations
 remain in the journal. None of this proves vendor point-in-time availability or
 removes survivorship bias, and unknown historical coverage is displayed explicitly.
+
+## Shared host research capacity (P2-03)
+
+Open **Host research capacity** in the Backtest or Optimization workbench to
+review reservations, FIFO queue positions and completed dashboard-job memory
+measurements. Existing run/campaign forms launch research as before. Queued
+jobs remain active and can be canceled in this disclosure or the job's progress
+view; research starts automatically when its full reservation fits. Paper nodes
+and their independent risk supervisors never wait in the research queue.
+
+The host ceiling reserves one compute core (two on hosts with at least eight
+compute cores), plus the larger of 8 GiB or 25% of physical RAM for services.
+Apple silicon uses the detected performance/super cores for worker sizing.
+Unknown memory or an insufficient host reserve blocks research. A serial
+backtest/comparison/holdout reserves one CPU slot and 4 GiB. Parallel studies
+reserve their effective worker count times the configured worker memory
+estimate, including coordinator/caches in that aggregate estimate. Native
+numerical threads are limited to one per worker. Dashboard research also
+inherits lower OS scheduling priority. Increasing the host ceiling beyond the
+service reserve is unsupported.
+
+Set smaller host limits with **Research CPU slots**, **Research memory GiB** and
+the server's `QUANT_CONTROL_TOKEN` (at least 32 characters). Saving requires a
+localhost connection and authorized local origin; the token stays in panel
+memory. Changes persist with an operator/time audit. Reductions below active
+reservations or individual queued requests are rejected; cancel or finish that
+work first. Polling never replaces unsaved form values or dismisses a failed
+save/cancel message. API outages mark displayed capacity stale.
+
+The shared SQLite registry defaults to
+`~/.quant/research-admission.sqlite3`, independent of the dashboard Redis
+namespace. All supported research entry points under the same local OS user
+and all checkouts on that host use it. `QUANT_ADMISSION_DB` is an optional
+absolute-path override; every participating process must use the same local
+file. Separate files/users create separate budgets and are not a shared
+admission domain. Network filesystems are unsupported. Do not delete or replace
+this file while research is active. Host limits are operational settings; a
+recovery on a new host must review them against that host's resources.
+
+CLI backtests, optimization, seed campaigns, comparisons, robustness and holdout
+promotion use the same budget. CPU/memory sizing flags remain available on the
+parallel commands; automatic sizing obeys saved host limits. Seed/fold processes
+inherit one reservation instead of acquiring additional slots. CLI admission
+covers preparation through final holdout/reporting; use Ctrl-C to cancel a CLI
+request. A stopped or stalled process retains its reservation. Dead process
+identities are reclaimed, while surviving owned descendants retain capacity.
+
+The watchdog samples aggregate process-tree resident memory roughly once a
+second and stops owned research when its reservation is exceeded or monitoring
+fails. Dashboard jobs retain their sampled peak RSS and failure reason in the
+durable job registry; **Completed resource measurements** reviews those records.
+RSS sums may double-count shared pages, and peaks between samples may be missed.
+These are conservative admission estimates and a watchdog, not OS hard CPU/RAM
+isolation. Unrelated programs and other users are outside this budget. Review
+measured memory before increasing concurrency; target-host scaling and real
+TWS/Gateway fault/soak validation remain separate readiness requirements.
+
+## Exclusive broker execution ownership
+
+The supported local deployment permits **one broker execution runner at a
+time**, across every account, profile, client ID and persistence setting.
+The public `build_node` path acquires a kernel-held lock before it constructs
+IBKR adapters or reads the Nautilus cache. A second CLI or dashboard runner is
+rejected rather than queued. Changing client IDs, selecting another account,
+or using `--no-persistence` does not bypass it. Research and read-only market
+monitoring are unaffected. This conservative global scope also prevents two
+runners from concurrently writing the existing shared cache namespaces.
+
+Paper/Live → **Live telemetry → Broker execution ownership** shows the current
+owner, client/profile/mode, process ID and acquisition time. Configure the
+account through the existing **Session controls**, launch once, and review
+ownership here. A registered dashboard owner can be stopped with **Stop owning
+session**; a CLI owner must be stopped with Ctrl-C in its terminal. The panel
+reports API failure as UNKNOWN and retains prior details as historical. Stop
+requests do not immediately report ownership released.
+
+Ownership spans the node's complete lifecycle: startup, execution, graceful
+stop, cache/state save and verified disposal. Public strategy submissions,
+OCA lists, modifications, cancellations and closes check ownership first.
+Missing or changed ownership freezes entries, clears pending signals, marks
+execution uncertain and records an audit event. Resume also requires current
+ownership. A failed or unverified disconnect keeps the slot occupied until
+verified disposal succeeds or the owning process exits. A built but never
+started node may release its slot without broker disconnection.
+
+The fixed local lock is
+`~/.quant/execution-ownership/broker-execution.lock`. It is held by an open
+non-inheritable file descriptor, never a PID-only check or expiring lease.
+Paused runners retain the lock; a process crash releases it through the OS.
+Old metadata is diagnostic and does not keep a dead process alive. Account IDs
+are represented by fingerprints in this metadata. Acquisition identity is also
+included in the strategy-start audit and current strategy telemetry.
+
+There is deliberately **no TTL, takeover button, force unlock or configurable
+lock-file override**. Do not unlink/replace the lock file or launch an old,
+unguarded binary while a runner is active. Stop older runners before upgrading.
+The guarantee is limited to this application under the same local OS user and
+host. It does not fence another machine, OS user or external/manual IBKR client;
+remote/multi-host execution needs a separate broker-effective authority design.
+
+AVAILABLE means no local owner currently holds the lock. It does **not** prove
+the broker is flat, cancel resting orders or authorize a live start. Restart
+still requires fresh broker reconciliation and every existing risk/readiness
+check. Existing cache namespaces, account allocation, risk peaks, kills and
+snapshots are unchanged. Account-bound namespace migration and stronger
+automatic-kill recovery are separate open P0 items in the readiness register.

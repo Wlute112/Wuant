@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import ActionPanel from "../bezel/ActionPanel.jsx";
 import ActiveResearchRun from "./ActiveResearchRun.jsx";
+import ResearchResources from "./ResearchResources.jsx";
 import CampaignPanel from "./CampaignPanel.jsx";
 import ChannelStrip from "../channel-strip/ChannelStrip.jsx";
 import ModelDecisionTape from "../model-tape/ModelDecisionTape.jsx";
@@ -532,6 +533,7 @@ export default function ResearchHub({
       </aside>
 
       <div className="research-hub__main" inert={activeDrawer ? "" : undefined}>
+        <ResearchResources jobs={jobs} onJobUpdated={onJobStopped} />
         {activeJobView && <ActiveResearchRun job={activeJobView} onJobUpdated={onJobStopped} />}
         {!activeJobView && <EvidenceHeader run={activeRun} research={research} workflow={workflow} compareRun={compareRun} profile={profile} />}
         {!activeJobView && <nav className="research-hub__sections" aria-label="Research report sections">

@@ -1,6 +1,7 @@
-export const ACTIVE_JOB_STATUSES = new Set(["starting", "running", "cancelling"]);
+export const ACTIVE_JOB_STATUSES = new Set(["queued", "starting", "running", "cancelling"]);
 
 const STATUS_LABELS = {
+  queued: "Queued",
   starting: "Starting",
   running: "Running",
   cancelling: "Stopping",

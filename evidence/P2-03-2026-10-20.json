@@ -1,0 +1,69 @@
+{
+  "item": "P2-03",
+  "date": "2026-10-20",
+  "status": "local_implementation_complete",
+  "review": {
+    "reviewer": "Codex implementation and independent impeccable finish reviewer",
+    "findings_resolved": [
+      "CLI reservation and native thread limits now span preparation through final holdout/reporting",
+      "Desktop explanatory form rows occupy their own full-width row",
+      "Disclosure summaries meet the mobile 44px touch target",
+      "Background polling does not dismiss rejected save/cancel actions or discard unsaved fields"
+    ]
+  },
+  "implementation": {
+    "shared_budget": "Local-user SQLite FIFO queue shared by API instances, checkouts, dashboard research and supported research CLIs",
+    "default_registry": "~/.quant/research-admission.sqlite3",
+    "service_reserve": "One compute core, two when compute cores >= 8; max(8 GiB, 25% of physical RAM)",
+    "reservation": "Effective worker CPU slots and aggregate estimated worker/coordinator memory; nested seed/fold pools inherit the parent lease",
+    "watchdog": "Sample aggregate process-tree RSS every approximately one second; stop owned research on memory breach or monitoring loss",
+    "lifecycle": "Queued/running/terminal state, bounded supervisor-PID handoff, durable restart review, queued and running cancellation, dead-owner recovery retaining surviving owned process capacity",
+    "frontend": "Backtest/Optimization host capacity disclosure: authenticated limit edits, queue positions, reservations, cancellation, per-job sampled peak RSS, completed measurements, explicit stale/error states",
+    "code": [
+      "run/admission.py",
+      "run/compute.py",
+      "api/job_worker.py",
+      "api/jobs.py",
+      "api/resources.py",
+      "web/src/components/research-hub/ResearchResources.jsx"
+    ]
+  },
+  "validation": {
+    "environment": {
+      "host": "Apple M4, 10 logical CPUs, 4 detected performance compute cores, 32 GiB RAM",
+      "python": "3.12.13",
+      "browser": "Google Chrome 155.0.8059.85 via Playwright chrome channel",
+      "broker": "No broker connection or orders; Redis and detached-process tests use isolated registries"
+    },
+    "commands": [
+      {"command": "quant/.quant312/bin/python -m pytest quant/tests -q", "passed": 512, "warnings": 136, "result": "passed"},
+      {"command": "npm test", "cwd": "quant/web", "passed": 20},
+      {"command": "PLAYWRIGHT_CHANNEL=chrome npm run test:e2e", "cwd": "quant/web", "passed": 32},
+      {"command": "npm run build", "cwd": "quant/web", "result": "passed"},
+      {"command": "git diff --check", "result": "passed"}
+    ],
+    "coverage": [
+      "Atomic CPU and memory admission; FIFO head-of-line behavior; service reserves",
+      "Durable, authenticated, localhost-only budget changes and rejection of incompatible reductions",
+      "Inherited reservation identity and nested pool bounds; setup-error cleanup",
+      "CLI preparation, fold pool and final holdout remain under one reservation",
+      "Real Redis/detached-process contention, manager restart, queued cancellation and running cancellation",
+      "Independent 50ms heartbeat under competing CPU research; maximum observed interval asserted below 1 second",
+      "Supervisor crash cleanup; owned-child termination and capacity reclamation",
+      "Injected memory breach and measurement-source loss terminate only the owned research group and retain failure evidence",
+      "Desktop/mobile configuration, queue cancellation after reload, keyboard focus, touch targets, no horizontal overflow, retained action errors and unsaved inputs",
+      "Existing browser fixtures declare the pre-existing drift-review read endpoint so unrelated safety/recovery workflows remain isolated"
+    ],
+    "browser_artifacts": [
+      "web/test-results/host-capacity-desktop.png",
+      "web/test-results/host-capacity-mobile.png"
+    ]
+  },
+  "limitations": [
+    "Admission estimates, scheduler priority and sampled RSS are not OS hard CPU/RAM isolation",
+    "RSS may double-count shared pages; short peaks between samples may be missed",
+    "Unrelated processes, separate OS users, or processes configured to use separate admission databases are outside the shared budget",
+    "The heartbeat experiment validates local scheduling and queue bypass, not real TWS/Gateway execution, broker responsiveness or paper soak behavior",
+    "Target-host scaling remains P2-09; all P0 readiness gates and live-capital permissions remain unchanged"
+  ]
+}

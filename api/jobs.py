@@ -39,7 +39,7 @@ JOBS_DIR = WORKDIR / "quant" / "jobs"
 
 _TERMINATE_GRACE_SECONDS = 5.0
 _ARTIFACT_KINDS = ("backtest", "optimize")
-_ACTIVE_STATUSES = frozenset({"starting", "running", "cancelling"})
+_ACTIVE_STATUSES = frozenset({"queued", "starting", "running", "cancelling"})
 _DEFAULT_REDIS_PREFIX = "quant:dashboard:jobs"
 
 
@@ -280,6 +280,7 @@ class JobManager:
         parent_job_id: str | None = None,
     ) -> dict:
         job_id = job_id or self.new_job_id(kind)
+        from quant.run.admission import RESEARCH_KINDS
         extra = ["--run-id", job_id] if kind in _ARTIFACT_KINDS else []
         command = [PYTHON_BIN, "-u", "-m", module, *args, *extra]
         log_path = JOBS_DIR / f"{job_id}.log"
@@ -289,7 +290,7 @@ class JobManager:
             "id": job_id,
             "kind": kind,
             "command": _redact_command(command),
-            "status": "starting",
+            "status": "queued" if kind in RESEARCH_KINDS else "starting",
             "pid": None,
             "process_group_id": None,
             "child_pid": None,
@@ -397,6 +398,16 @@ class JobManager:
         if job.get("status") not in _ACTIVE_STATUSES:
             return job
         pid = job.get("pid")
+        if pid is None and job.get("status") in {"queued", "starting"}:
+            # A concurrent API poll may observe the persisted launch before
+            # Popen returns its supervisor PID. Allow that bounded handoff;
+            # an abandoned launch still becomes a visible failure.
+            try:
+                age = (datetime.now(timezone.utc) - datetime.fromisoformat(job["started_at"])).total_seconds()
+                if 0 <= age < 10:
+                    return job
+            except (KeyError, TypeError, ValueError):
+                pass
         if pid is not None and _pid_is_alive(int(pid)):
             return job
         # A healthy supervisor commits terminal state before exiting. A dead

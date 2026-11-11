@@ -46,6 +46,8 @@ class BrokerReadinessContext:
 
 
 P0_GATES = (
+    ReadinessGate("execution_ownership", "Exclusive broker execution ownership", False),
+    ReadinessGate("account_state_isolation", "Account-bound persistence and verified legacy migration", False),
     ReadinessGate("order_lifecycle", "Order lifecycle and rejection policy", False),
     ReadinessGate("safe_shutdown", "Safe cancel/confirm shutdown", False),
     ReadinessGate("broker_protection", "Fill-based broker stop/target protection", False),

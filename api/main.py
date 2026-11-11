@@ -13,9 +13,11 @@ import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from quant.api import broker_routes, campaigns, jobs_routes, live_mock, news_routes, operations, profiles, runs, recovery
+from quant.api import broker_routes, campaigns, drift, jobs_routes, live_mock, news_routes, operations, profiles, runs, recovery
 from quant.api.jobs import JobManager, WORKDIR
 from quant.run.readiness import live_readiness_status
+from quant.api import resources
+from quant.api import execution_ownership
 
 # quant.run.artifacts resolves "quant/runs" relative to the process cwd. Pin
 # it to WORKDIR regardless of where uvicorn was launched from, so it always
@@ -44,6 +46,9 @@ app.include_router(broker_routes.router)
 app.include_router(profiles.router)
 app.include_router(operations.router)
 app.include_router(recovery.router)
+app.include_router(drift.router)
+app.include_router(resources.router)
+app.include_router(execution_ownership.router)
 
 
 @app.on_event("startup")
@@ -53,11 +58,13 @@ def start_broker_monitor():
     jobs_routes.manager.store.ping()
     broker_routes.monitor.start()
     recovery.start_scheduler()
+    drift.start_scheduler()
 
 
 @app.on_event("shutdown")
 def stop_broker_monitor():
     recovery.stop_scheduler()
+    drift.stop_scheduler()
     broker_routes.monitor.stop()
 
 

@@ -23,6 +23,7 @@ const STATUS_CLASS = {
 
 function emptyOutputCopy(job) {
   if (!job) return "Select a job to view its output";
+  if (job.status === "queued") return "Queued for shared host CPU/RAM capacity.";
   if (job.status === "starting") return "Process accepted. Waiting for output.";
   if (job.status === "cancelling") return "Cancellation requested. Waiting for clean shutdown.";
   if (job.status === "completed") return "Job completed without console output.";

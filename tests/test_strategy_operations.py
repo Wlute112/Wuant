@@ -24,6 +24,7 @@ def strategy(tmp_path, monkeypatch):
                               last_event=lambda: SimpleNamespace(ts_event=int(now.timestamp() * 1e9)))
     obj = SimpleNamespace(
         id="ML", _operations=store, _operations_failed=False, _telemetry_failed=False,
+        _execution_owner=SimpleNamespace(snapshot=lambda: {"healthy": True}),
         _risk=RiskManager(5000), _execution_safety=safety, _operations_entries_frozen=True,
         _reconciliation_state="BROKER_RECONCILED", _data_quality_blocked_instruments=set(),
         _staged_exit_active=False, _pending_exits={}, _startup_protection_pending=set(),
