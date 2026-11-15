@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import OptimizationEvidence from "./OptimizationEvidence.jsx";
+import SearchDiagnostics from "./SearchDiagnostics.jsx";
 import DataReport from "./DataReport.jsx";
 import ChannelStrip from "../channel-strip/ChannelStrip.jsx";
 import { useInterval } from "../../hooks/useInterval.js";
@@ -82,11 +84,11 @@ export default function ActiveResearchRun({ job, onJobUpdated }) {
     [progress.timeline],
   );
   const candidateSeries = useMemo(
-    () => (progress.history || []).filter((item) => item.score != null).map((item) => ({ x: item.trial, y: item.score })),
+    () => (progress.history || []).filter((item) => item.state === "complete" && item.score != null && item.score > -1000000).map((item) => ({ x: item.trial, y: item.score })),
     [progress.history],
   );
   const bestSeries = useMemo(
-    () => (progress.history || []).filter((item) => item.best != null).map((item) => ({ x: item.trial, y: item.best })),
+    () => (progress.history || []).filter((item) => item.best != null && item.best > -1000000).map((item) => ({ x: item.trial, y: item.best })),
     [progress.history],
   );
   const percent = Number.isFinite(progress.percent) ? Math.max(0, Math.min(100, progress.percent)) : null;
@@ -137,7 +139,7 @@ export default function ActiveResearchRun({ job, onJobUpdated }) {
         ["Trial", progress.trial_current ? `${progress.trial_current}${progress.trials_target ? ` / ${progress.trials_target}` : ""}` : "—"],
         ["Fold", progress.fold_current != null ? `${progress.fold_current} / ${progress.fold_total || "—"}` : "—"],
         ["Best score", progress.best_score == null ? "—" : formatNum(progress.best_score, 4)],
-        ["Candidate", progress.candidate_score == null ? "—" : formatNum(progress.candidate_score, 4)],
+        ["Candidate", progress.candidate_score == null ? "—" : progress.candidate_score <= -1000000 ? "Not qualifying" : formatNum(progress.candidate_score, 4)],
         ["Pruned", progress.trials_pruned ?? 0],
         ["Elapsed", durationLabel(job.started_at, job.finished_at, now)],
       ]
@@ -186,6 +188,7 @@ export default function ActiveResearchRun({ job, onJobUpdated }) {
       {noCandidate && <section className="research-panel optimization-outcome" role="status" aria-label="Optimization outcome">
         <div className="research-panel__body">
           <h2>No qualifying candidate</h2>
+          <SearchDiagnostics diagnostics={progress.search_diagnostics} />
           <p>No saved parameters were replaced. The outer holdout was not evaluated.</p>
           <p>Resume study <code>{progress.resume_run_id || job.run_id || job.id}</code> with the same data and validation settings to add development trials.</p>
         </div>
@@ -214,7 +217,7 @@ export default function ActiveResearchRun({ job, onJobUpdated }) {
             overlayColor="var(--color-text-primary)"
             overlayLabel="incumbent"
             currentValueLabel={progress.best_score == null ? "—" : formatNum(progress.best_score, 4)}
-            emptyMessage={noCandidate ? "No completed candidates to score" : "The first walk-forward candidate is being evaluated"}
+            emptyMessage={noCandidate ? "No completed trial met the qualification rules" : progress.trials_complete ? "No qualifying completed trials yet" : "The first walk-forward candidate is being evaluated"}
             tickFormat={(value) => formatNum(value, 3)}
             height={310}
           />
@@ -230,6 +233,8 @@ export default function ActiveResearchRun({ job, onJobUpdated }) {
           />
         )}
       </section>
+
+      {job.kind === "optimize" && <OptimizationEvidence key={job.id} job={job} updatedAt={progress.updated_at} />}
 
       <div className="active-research__context">
         <span><strong>Source</strong>{config.csv || "Default dataset"}</span>

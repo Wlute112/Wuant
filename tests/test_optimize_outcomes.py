@@ -9,7 +9,7 @@ import pytest
 from optuna.trial import TrialState, create_trial
 
 from quant.optimize import optimize
-from quant.optimize.selection import NO_QUALIFYING_CANDIDATE, NO_QUALIFYING_FOLDS_SCORE, qualifying_trial
+from quant.optimize.selection import NO_QUALIFYING_CANDIDATE, NO_QUALIFYING_FOLDS_SCORE, qualifying_trial, search_diagnostics
 from quant.run import artifacts, research
 
 
@@ -29,7 +29,7 @@ def search(tmp_path, monkeypatch):
     monkeypatch.setattr(optimize, "ComputePool", lambda plan: nullcontext(None))
     monkeypatch.setattr(optimize, "build_and_run", lambda **kwargs: pytest.fail("Rejected search touched the holdout"))
     monkeypatch.setattr(optimize, "save_optimize_artifact", lambda **kwargs: pytest.fail("Rejected search saved a winning result"))
-    def run(values, *extra, run_id="search_test"):
+    def run(values, *extra, run_id="search_test", objective_factory=None):
         sequence = iter(values)
         def objective(trial):
             trial.suggest_int("parameter", 1, 3)
@@ -38,8 +38,10 @@ def search(tmp_path, monkeypatch):
             value = next(sequence)
             if value == "prune":
                 raise optuna.TrialPruned()
+            trial.set_user_attr("development_assessment", {"version": 1,
+                "passed": value > NO_QUALIFYING_FOLDS_SCORE and value != float("inf"), "reasons": []})
             return value
-        monkeypatch.setattr(optimize, "make_objective", lambda *args, **kwargs: objective)
+        monkeypatch.setattr(optimize, "make_objective", objective_factory or (lambda *args, **kwargs: objective))
         argv = ["optimize", "--csv", str(source), "--tickers", "BTC", "--workers", "1",
                 "--trials", str(len(values)), "--seed", "42", "--storage", storage,
                 "--run-id", run_id, "--out-params", str(output), "--progress-path", str(progress), *extra]
@@ -73,10 +75,15 @@ def test_no_qualifier_preserves_parameters_and_holdout_and_reports_outcome(searc
     assert saved["best_params"] == {} and saved["in_sample_value"] is None
     assert saved["oos_metrics"] is None and saved["validation"]["final_test"] is None
     assert len(saved["trials"]) == len(values)
+    diagnostics = saved["search_diagnostics"]
+    assert diagnostics["completed_trials"] == sum(value != "prune" for value in values)
+    assert diagnostics["pruned_trials"] == values.count("prune")
+    assert diagnostics["qualifying_trials"] == 0
     assert saved["can_resume"] is True and saved["resume_run_id"] == study.study_name
     progress = json.loads(progress_path.read_text())
     assert progress["phase"] == "complete" and progress["outcome"] == NO_QUALIFYING_CANDIDATE
     assert progress["best_score"] is None and progress["outer_holdout_status"] == "UNTOUCHED"
+    assert progress["search_diagnostics"] == diagnostics
     summary = artifacts.list_run_summaries()[0]
     assert summary["selection_status"] == NO_QUALIFYING_CANDIDATE
     report = research.analyze_run(saved)
@@ -84,6 +91,7 @@ def test_no_qualifier_preserves_parameters_and_holdout_and_reports_outcome(searc
     assert report["optimization"]["best_params"] == {}
     assert report["optimization"]["best_trial_number"] is None
     assert all(item["incumbent"] is None for item in report["optimization"]["history"])
+    assert report["optimization"]["search_diagnostics"]["qualifying_trials"] == 0
 
 
 def test_rejected_study_can_resume_and_only_a_qualifier_can_replace_saved_parameters(search):
@@ -116,6 +124,62 @@ def test_selection_ignores_pruned_rejected_and_nonfinite_trials_but_accepts_nega
                   create_trial(value=-.25), create_trial(value=4, state=TrialState.PRUNED)]:
         study.add_trial(trial)
     assert qualifying_trial(study).value == -.25
+
+
+def test_diagnostics_explain_active_and_inactive_rejections_without_inventing_a_winner():
+    def trial(number, ratios, trades):
+        return {"number": number, "state": "COMPLETE", "value": NO_QUALIFYING_FOLDS_SCORE,
+                "user_attrs": {"walk_forward_folds": [
+                    {"normal_ratio": ratio, "stressed_ratio": ratio - .1, "trades": count}
+                    for ratio, count in zip(ratios, trades)]}}
+    trials = [trial(0, [0, -.3, -.8, -.2, 0], [0, 8, 14, 2, 0]),
+              trial(1, [.2, 0, 0, -.3, .2], [16, 0, 0, 10, 4]),
+              trial(2, [0] * 5, [0] * 5),
+              {"number": 3, "state": "PRUNED", "value": 100},
+              {"number": 4, "state": "FAIL", "value": None},
+              {"number": 5, "state": "COMPLETE", "value": -.25}]
+    result = search_diagnostics(trials, {"min_positive_fold_fraction": .6})
+    assert (result["completed_trials"], result["pruned_trials"], result["failed_trials"], result["qualifying_trials"]) == (4, 1, 1, 1)
+    first, second, inactive = result["rejected_trials"]
+    assert first["trial_number"] == 1 and first["trades"] == 24 and first["inactive_folds"] == 2
+    assert first["reasons"] == ["0 of 5 positive folds; 3 required."]
+    assert second["reasons"] == ["2 of 5 positive folds; 3 required."]
+    assert inactive["reasons"][-1] == "No executed trades across the validation folds."
+
+
+def test_diagnostics_keep_nonfinite_missing_and_legacy_evidence_explicit():
+    trials = [{"number": 0, "state": "COMPLETE", "value": None},
+              {"number": 1, "state": "COMPLETE", "value": NO_QUALIFYING_FOLDS_SCORE,
+               "user_attrs": {"walk_forward_folds": [{"normal_ratio": float("nan"), "stressed_ratio": 0}]}}]
+    result = search_diagnostics(trials, {})
+    assert result["min_positive_fold_fraction"] is None
+    first, second = result["rejected_trials"]
+    assert first["positive_folds"] is None and first["trades"] is None
+    assert first["required_positive_folds"] is None
+    assert "nonfinite" in first["reasons"][0] and "nonfinite" in second["reasons"][0]
+    json.dumps(result, allow_nan=False)
+
+
+def test_old_rejected_run_and_progress_get_diagnostics_without_rewriting_evidence(search, monkeypatch):
+    from quant.api import jobs_routes
+    from types import SimpleNamespace
+    run, _, progress_path, _, directory = search
+    run([NO_QUALIFYING_FOLDS_SCORE])
+    path = directory / "runs/search_test.json"
+    record = json.loads(path.read_text())
+    record.pop("search_diagnostics")
+    path.write_text(json.dumps(record))
+    original = path.read_bytes()
+    restored = artifacts.load_run("search_test")
+    assert restored["search_diagnostics"]["completed_trials"] == 1
+    assert path.read_bytes() == original
+    progress = json.loads(progress_path.read_text())
+    progress.pop("search_diagnostics")
+    (directory / "search_test_progress.json").write_text(json.dumps(progress))
+    monkeypatch.setattr(jobs_routes, "JOBS_DIR", directory)
+    monkeypatch.setattr(jobs_routes, "manager", SimpleNamespace(get=lambda _: {
+        "kind": "optimize", "status": "completed", "started_at": None}))
+    assert jobs_routes.get_job_progress("search_test")["search_diagnostics"] == restored["search_diagnostics"]
 
 
 def test_no_qualifier_artifact_and_analysis_are_available_through_the_api(search):

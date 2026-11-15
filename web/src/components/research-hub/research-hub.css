@@ -502,6 +502,15 @@
 .research-table td { padding: var(--space-sm); border-bottom: 1px solid var(--color-hairline); text-align: left; white-space: nowrap; }
 .research-table thead th { color: var(--color-text-dim); font-family: var(--font-mono); font-size: var(--text-label-size); letter-spacing: 0.06em; text-transform: uppercase; }
 .research-table td.num { text-align: right; }
+.search-diagnostics { min-width: 0; }
+.search-diagnostics p, .search-diagnostics li { max-width: 75ch; }
+.search-diagnostics summary { min-height: 44px; align-content: center; cursor: pointer; }
+.search-diagnostics details { margin-block: var(--space-md); }
+.search-diagnostics .research-table-wrap { max-height: 360px; }
+.search-diagnostics .search-diagnostics__reasons { min-width: 28ch; max-width: 60ch; white-space: normal; }
+.search-diagnostics__reasons ul { margin: 0; padding-inline-start: var(--space-md); }
+.search-diagnostics__reasons li + li { margin-block-start: var(--space-sm); }
+.search-diagnostics :focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 3px; }
 
 .research-panel--model .research-panel__body { padding: 0; }
 .research-panel--model .model-tape { border: 0; }

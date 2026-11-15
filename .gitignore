@@ -37,3 +37,6 @@ web/playwright-report/
 
 # Locally retained dataset bytes and provenance manifests
 *.csv.provenance/
+
+# Bounded optimization research evidence, local to each job
+jobs/*.evidence/

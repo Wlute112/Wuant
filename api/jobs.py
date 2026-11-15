@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -451,13 +452,21 @@ class JobManager:
                     f"companion job {companion_id!r} is still running; cancel it first"
                 )
         deleted: list[str] = []
+        files_deleted = 0
         for current_id in [job_id, *[str(value) for value in companion_ids]]:
+            # Evidence includes nested directories. Keep the durable record
+            # until cleanup succeeds so an interrupted deletion can be retried.
+            for pattern in (f"{current_id}.*", f"{current_id}_*", f".{current_id}.*"):
+                for path in JOBS_DIR.glob(pattern):
+                    if path.is_dir() and not path.is_symlink():
+                        shutil.rmtree(path)
+                    else:
+                        path.unlink(missing_ok=True)
+                    files_deleted += 1
             if self.store.delete(current_id):
                 deleted.append(current_id)
-            for pattern in (f"{current_id}*", f".{current_id}*"):
-                for path in JOBS_DIR.glob(pattern):
-                    path.unlink(missing_ok=True)
-        return {"job_found": job_id in deleted, "deleted_job_ids": deleted}
+        return {"job_found": job_id in deleted, "deleted_job_ids": deleted,
+                "files_deleted": files_deleted}
 
     def cancel(self, job_id: str) -> dict | None:
         job = self.get(job_id)

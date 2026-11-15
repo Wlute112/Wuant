@@ -44,7 +44,7 @@ import secrets
 import tempfile
 import time
 from contextlib import closing, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -55,7 +55,7 @@ from quant.run.artifacts import save_optimize_artifact, save_optimize_search_art
 from quant.optimize.selection import (
     NO_QUALIFYING_CANDIDATE, NO_QUALIFYING_FOLDS_SCORE, qualifying_trial,
     holdout_assessment, annotate_holdout, REJECTED_OUTER_HOLDOUT,
-    DEVELOPMENT_SELECTED,
+    DEVELOPMENT_SELECTED, DEVELOPMENT_ELIGIBILITY_VERSION, development_assessment,
 )
 from quant.run.asset_profiles import get_asset_profile, strategy_defaults_for_asset
 from quant.run.backtest_common import (
@@ -316,6 +316,8 @@ class FoldPerformance:
     turnover: float
     trades: int
     net_profit_usd: float | None = None
+    evidence: dict | None = field(default=None, compare=False)
+    sizing_diagnostics: dict | None = field(default=None, compare=False)
 
 
 def _engine_performance(
@@ -336,6 +338,9 @@ def _engine_performance(
         turnover=float(metrics.turnover_rate),
         trades=int(metrics.total_trades),
         net_profit_usd=float(metrics.net_profit_usd),
+        sizing_diagnostics={symbol: dict(observation)
+                            for strategy in engine.trader.strategies()
+                            for symbol, observation in getattr(strategy, "_sizing_diagnostics", {}).items()},
     )
 
 
@@ -401,9 +406,19 @@ def _prompt_refit_every_n_bars() -> int:
 
 def evaluate_backtest(task: dict) -> FoldPerformance:
     """Picklable worker entry point. Return metrics, never a live engine."""
+    from dataclasses import replace
+    task = dict(task)
+    capture_bounds = task.pop("evidence_bounds", None)
     engine = build_and_run(**task)
     try:
-        return _engine_performance(engine, task["starting_cash"], task["asset_class"])
+        result = _engine_performance(engine, task["starting_cash"], task["asset_class"])
+        if capture_bounds:
+            try:
+                from quant.optimize.evidence import capture
+                result = replace(result, evidence=capture(engine, *capture_bounds))
+            except Exception as error:  # Evidence cannot change evaluation outcomes.
+                result = replace(result, evidence={"error": str(error)})
+        return result
     finally:
         engine.dispose()
 
@@ -433,11 +448,14 @@ def fold_tasks(folds, tickers, overrides, starting_cash, asset_class,
 
 def evaluate_folds(folds, tickers, overrides, starting_cash, asset_class,
                    embargo_bars, evaluation_seed, normal_slippage_probability,
-                   stress_cost_multiplier, pool: ComputePool | None = None):
+                   stress_cost_multiplier, pool: ComputePool | None = None, capture_evidence=False):
     """Independent fold/cost runs, consumed chronologically for deterministic pruning."""
     tasks = fold_tasks(folds, tickers, overrides, starting_cash, asset_class,
                        embargo_bars, evaluation_seed, normal_slippage_probability,
                        stress_cost_multiplier)
+    if capture_evidence:
+        for task, fold in zip(tasks, [fold for fold in folds for _ in range(2)]):
+            task["evidence_bounds"] = (fold.validation_start_ns, fold.validation_end_ns)
     context = (pool.results(evaluate_backtest, tasks) if pool is not None
                else nullcontext(map(evaluate_backtest, tasks)))
     with context as results:
@@ -466,6 +484,7 @@ def make_objective(
     seed: int | None = None,
     pool: ComputePool | None = None,
     progress_callback=None,
+    evidence_writer=None,
 ):
     if seed is not None:
         # Backward-compatible alias for callers predating --evaluation-seed.
@@ -507,13 +526,21 @@ def make_objective(
         if structural_overrides:
             overrides.update(structural_overrides)
 
+        evidence = {"trial": trial.number + 1, "params": dict(trial.params),
+                    "effective_params": overrides, "state": "running", "folds": []}
+        def persist():
+            if evidence_writer:
+                evidence_writer.write(trial.number + 1, evidence)
+        persist()
         horizon_embargo = max(int(overrides["horizon"]), int(embargo_bars))
         normal_results: list[FoldPerformance] = []
         stressed_results: list[FoldPerformance] = []
         fold_records = []
+        capture_options = {"capture_evidence": True} if evidence_writer is not None else {}
         with closing(evaluate_folds(
             folds, tickers, overrides, starting_cash, asset_class, horizon_embargo,
             evaluation_seed, normal_slippage_probability, stress_cost_multiplier, pool,
+            **capture_options,
         )) as results:
             for step, (fold, normal, stressed) in enumerate(results):
                 normal_results.append(normal)
@@ -532,8 +559,32 @@ def make_objective(
                         "stressed_ratio": stressed.ratio,
                         "turnover": normal.turnover,
                         "trades": normal.trades,
+                        "stressed_trades": stressed.trades,
+                        "sizing_diagnostics": {
+                            "normal": normal.sizing_diagnostics or {},
+                            "stressed": stressed.sizing_diagnostics or {},
+                        },
                     }
                 )
+                if evidence_writer:
+                    evidence["folds"].append({
+                        **fold_records[-1],
+                        "training_start": pd.Timestamp(fold.timestamps_ns[0], unit="ns", tz="UTC").isoformat(),
+                        "training_end": pd.Timestamp(fold.model_fit_end_ns(horizon_embargo), unit="ns", tz="UTC").isoformat(),
+                        "normal": {"ratio": normal.ratio, "turnover": normal.turnover,
+                                   "trades": normal.trades, "net_profit_usd": normal.net_profit_usd,
+                                   "detail": normal.evidence},
+                        "stressed": {"ratio": stressed.ratio, "turnover": stressed.turnover,
+                                     "trades": stressed.trades, "net_profit_usd": stressed.net_profit_usd,
+                                     "detail": stressed.evidence},
+                    })
+                    evidence["score_components"] = {
+                        "median_ratio": float(np.median([r.ratio for r in normal_results])),
+                        "dispersion_penalty": float(std_weight * np.std([r.ratio for r in normal_results])),
+                        "turnover_penalty": float(turnover_weight * np.median([r.turnover for r in normal_results])),
+                        "cost_penalty": float(cost_sensitivity_weight * np.median([max(0, n.ratio - t.ratio) for n, t in zip(normal_results, stressed_results)])),
+                    }
+                    persist()
                 interim = stability_aware_score(
                     [result.ratio for result in normal_results],
                     [result.ratio for result in stressed_results],
@@ -554,8 +605,14 @@ def make_objective(
                     )
                 if trial.should_prune():
                     trial.set_user_attr("walk_forward_folds", fold_records)
+                    evidence.update(state="pruned", reason="Stopped early by the Optuna pruning rule; remaining folds were not evaluated.")
+                    persist()
                     raise optuna.TrialPruned()
 
+        # Inactive folds must not let a flat portfolio outrank active losses
+        # and consume the one-shot outer holdout. Score intermediate results
+        # without this gate for pruning, then enforce it on complete evidence.
+        assessment = development_assessment(fold_records, min_positive_fraction)
         final_score = stability_aware_score(
             [result.ratio for result in normal_results],
             [result.ratio for result in stressed_results],
@@ -564,7 +621,11 @@ def make_objective(
             turnover_weight=turnover_weight,
             cost_sensitivity_weight=cost_sensitivity_weight,
             min_positive_fraction=min_positive_fraction,
+            require_positive_folds=True,
         )
+        if not assessment["passed"]:
+            final_score = NO_QUALIFYING_FOLDS_SCORE
+        trial.set_user_attr("development_assessment", assessment)
         trial.set_user_attr("walk_forward_folds", fold_records)
         trial.set_user_attr(
             "positive_folds", sum(result.ratio > 0 for result in normal_results)
@@ -596,6 +657,11 @@ def make_objective(
                 fold_total=len(folds),
                 candidate_score=round(float(final_score), 6),
             )
+        evidence.update(state="complete", score=float(final_score),
+                        development_assessment=assessment,
+                        reason=("Development rejected. " + assessment["reasons"][0] if not assessment["passed"]
+                                else "Development evaluation complete; holdout approval is separate."))
+        persist()
         return final_score
 
     return objective
@@ -1025,6 +1091,8 @@ def main(refit_every_n_bars: int | None = 1) -> None:
     )
     validation_contract = {
         "scheme": "purged_nested_walk_forward_v1",
+        "development_eligibility_version": DEVELOPMENT_ELIGIBILITY_VERSION,
+        "require_active_folds": True,
         "execution_model_version": (
             EQUITY_EXECUTION_VERSION
             if args.asset_class == "equity" else None
@@ -1097,6 +1165,8 @@ def main(refit_every_n_bars: int | None = 1) -> None:
         print(f"Running {n_trials} trials.")
 
     initial_trial_count = len(study.trials)
+    from quant.optimize.evidence import EvidenceWriter
+    evidence_writer = EvidenceWriter(args.progress_path) if args.progress_path else None
     progress_history = []
 
     def update_objective_progress(**values):
@@ -1137,6 +1207,7 @@ def main(refit_every_n_bars: int | None = 1) -> None:
             best_score=best,
             candidate_score=score,
             history=progress_history[-160:],
+            evidence_available=evidence_writer is not None,
         )
 
     callbacks.append(record_trial_progress)
@@ -1158,6 +1229,7 @@ def main(refit_every_n_bars: int | None = 1) -> None:
                 evaluation_seed=args.evaluation_seed,
                 pool=pool,
                 progress_callback=update_objective_progress,
+                evidence_writer=evidence_writer,
             ),
             n_trials=n_trials,
             callbacks=callbacks,
@@ -1195,10 +1267,14 @@ def main(refit_every_n_bars: int | None = 1) -> None:
             resumed_from=args.resume_run_id, include_extended_hours=args.include_extended_hours,
             dataset_provenance=dataset_provenance, validation_contract=validation_contract,
         )
+        diagnostics = artifact["search_diagnostics"]
+        for rejected in diagnostics["rejected_trials"]:
+            print(f"Trial {rejected['trial_number']}: {' '.join(rejected['reasons'])}")
         progress.update(phase="complete", phase_label="No qualifying candidate", percent=100,
                         outcome=NO_QUALIFYING_CANDIDATE, message=message, best_score=None,
                         outer_holdout_status="UNTOUCHED", resume_run_id=study.study_name,
                         can_resume=True, trials_complete=n_complete, trials_pruned=n_pruned,
+                        search_diagnostics=diagnostics,
                         run_id=artifact["run_id"])
         split_workspace.cleanup()
         return
@@ -1234,6 +1310,8 @@ def main(refit_every_n_bars: int | None = 1) -> None:
         # clients. It is no longer a one-shot optimization split.
         "train_frac": nested_data.development_fraction,
         "validation_scheme": "purged_nested_walk_forward",
+        "development_eligibility_version": DEVELOPMENT_ELIGIBILITY_VERSION,
+        "require_active_folds": True,
         "final_test_frac": args.final_test_frac,
         "walk_forward_folds": args.walk_forward_folds,
         "embargo_bars": args.embargo_bars,
@@ -1413,6 +1491,8 @@ def main(refit_every_n_bars: int | None = 1) -> None:
             validation_metadata={
                 "compute_plan": compute_plan.as_dict(),
                 "scheme": "purged_nested_walk_forward",
+                "development_eligibility_version": DEVELOPMENT_ELIGIBILITY_VERSION,
+                "require_active_folds": True,
                 "final_test_frac": args.final_test_frac,
                 "walk_forward_folds": args.walk_forward_folds,
                 "embargo_bars": args.embargo_bars,

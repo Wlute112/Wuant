@@ -695,6 +695,12 @@ def get_job_progress(job_id: str):
             progress = {}
     else:
         progress = {}
+    if progress.get("outcome") == "NO_QUALIFYING_CANDIDATE" and "search_diagnostics" not in progress:
+        # Older progress files can use retained development evidence too.
+        from quant.run.artifacts import load_run
+        run = load_run(job_id)
+        if run and run.get("search_diagnostics"):
+            progress["search_diagnostics"] = run["search_diagnostics"]
     return {
         "job_id": job_id,
         "kind": job["kind"],
@@ -703,6 +709,43 @@ def get_job_progress(job_id: str):
         "finished_at": job.get("finished_at"),
         **progress,
     }
+
+
+@router.get("/{job_id}/evidence")
+def get_optimization_evidence(job_id: str, trial: int | None = Query(None, ge=1)):
+    job = manager.get(job_id)
+    if job is None or not re.fullmatch(r"[A-Za-z0-9_-]+", job_id):
+        raise HTTPException(404, "Job not found")
+    directory = (JOBS_DIR / f"{job_id}_progress.json").with_suffix(".evidence")
+    if trial is None:
+        trials = []
+        for path in sorted(directory.glob("*.summary.json"), key=lambda p: int(p.name.split(".")[0])):
+            try:
+                item = json.loads(path.read_text(encoding="utf-8"))
+                if item.get("state") == "running" and job.get("status") in {"cancelled", "failed", "completed"}:
+                    item["state"] = "interrupted"
+                trials.append(item)
+            except (OSError, ValueError):
+                continue
+        return {"trials": trials, "status": "available" if trials else "unavailable"}
+    try:
+        item = json.loads((directory / f"{trial}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise HTTPException(404, "Trial detail unavailable; older runs did not capture fold evidence.")
+    # Terminal job state is authoritative when cancellation interrupted a trial.
+    if item.get("state") == "running" and job.get("status") in {"cancelled", "failed", "completed"}:
+        item["state"] = "interrupted"
+        item["reason"] = "Evaluation ended before this trial completed. Only completed folds are shown."
+    import pandas as pd
+    from quant.run.research import _benchmark_values
+    from quant.optimize.evidence import sample_points
+    for fold in item.get("folds", []):
+        series, meta = _benchmark_values(pd.Timestamp(fold["validation_start"]), pd.Timestamp(fold["validation_end"]))
+        fold["benchmark"] = meta | {"points": sample_points([
+            {"ts": ts.isoformat(), "value": float(value / series.iloc[0] * 100)}
+            for ts, value in series.items()
+        ]) if meta["status"] == "ready" else []}
+    return item
 
 
 @router.post("/{job_id}/cancel")

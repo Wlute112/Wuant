@@ -43,10 +43,10 @@
 .live-chart ::selection { background: var(--color-trace-cyan); color: var(--color-void); }
 
 /* Keep the control rail to one row and reserve remaining height for the plot. */
-.live-chart__controls { display: flex; flex: 0 0 auto; align-items: center; gap: var(--space-xs); min-width: 0; padding: var(--space-xs); overflow-x: auto; overflow-y: hidden; border-bottom: 1px solid var(--color-hairline); scrollbar-width: thin; white-space: nowrap; }
+.live-chart__controls { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: var(--space-sm); min-width: 0; padding: var(--space-xs) var(--space-sm); overflow-x: auto; overflow-y: hidden; border-bottom: 1px solid var(--color-hairline); scrollbar-width: thin; white-space: nowrap; }
 .live-chart__controls > *, .live-chart__controls button, .live-chart__controls label { flex-shrink: 0; }
-.live-chart__controls .live-chart__toolbar, .live-chart__controls .live-chart__navigation, .live-panel__chart-module .live-chart__controls .live-panel__market-console { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-xs); padding: 0; border: 0; }
-.live-panel__chart-module .live-chart__controls .live-panel__symbol-search { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-xs); }
+.live-chart__controls .live-chart__toolbar, .live-chart__controls .live-chart__navigation, .live-panel__chart-module .live-chart__controls .live-panel__market-console { display: contents; }
+.live-panel__chart-module .live-chart__controls .live-panel__symbol-search { display: contents; }
 .live-panel__chart-module .live-chart__controls .live-panel__symbol-search label { display: flex; flex-direction: row; align-items: center; }
 .live-chart__controls label { font-size: var(--text-label-size); }
 .live-panel__chart-module .live-chart__controls .live-panel__symbol-search input { width: 72px; }
@@ -54,7 +54,7 @@
 .live-panel__chart-module .live-chart__controls .live-panel__symbol-search .label { display: none; }
 .live-chart__controls select, .live-chart__controls button, .live-panel__chart-module .live-chart__controls input { font: var(--text-label-size)/1.3 var(--font-mono); min-height: 28px; padding: var(--space-xs); }
 .live-chart__controls .live-panel__known-symbols, .live-chart__navigation > span { display: none; }
-.live-chart__controls .live-chart__navigation { border-left: 1px solid var(--color-hairline); padding-left: var(--space-xs); }
+
 .live-chart .model-tape__canvas { min-height: 0; }
 .live-chart__status { flex: 0 0 auto; flex-wrap: nowrap; overflow: hidden; white-space: nowrap; padding: var(--space-xs) var(--space-sm); }
 .live-chart__status > span { overflow: hidden; text-overflow: ellipsis; }

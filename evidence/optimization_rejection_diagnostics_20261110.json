@@ -1,0 +1,33 @@
+{
+  "implementation": "Cloud directly: coupled artifact, progress and frontend reporting; no local delegation.",
+  "affected_run": "optimize_9b6b86c90c",
+  "finding": "The recorded no-candidate outcome is correct. Two completed trials had 0/5 and 2/5 positive folds against a 3/5 requirement, with 24 and 30 filled orders. The UI hid the reason, described completed rejected trials as absent, and exposed a rejection sentinel as a score.",
+  "changes": [
+    "Shared diagnostics distinguish completed, qualifying, pruned and failed trials; describe positive-fold requirements, activity and missing/nonfinite evidence.",
+    "New artifacts and terminal progress retain diagnostics. Older saved runs and progress reconstruct them from recorded development evidence without rewriting artifacts.",
+    "Saved and job views expose counts and accessible rejection details. Charts exclude rejection sentinels and incomplete trial values; the candidate reading says Not qualifying.",
+    "Optional evidence arguments are passed only when capture is enabled, preserving non-capture evaluator compatibility.",
+    "The existing launcher build/cleanup regression explicitly selects static mode, matching its asserted behavior."
+  ],
+  "checks": {
+    "python_compile": "passed",
+    "targeted_python": "74 passed",
+    "full_python": "672 passed, 6 subtests passed, 256 warnings; 45.16 seconds",
+    "full_browser": "61 passed using Chrome; 46.0 seconds",
+    "javascript": "30 passed",
+    "production_build": "passed",
+    "impeccable_detector": "No findings on changed UI targets",
+    "visual_review": "Desktop 1440px and mobile 390px screenshots inspected; rejection details use a keyboard-focusable scrolling region and preserve document width.",
+    "saved_evidence": "Actual QQQ artifact hash unchanged after read-only API/research diagnostics reconstruction; saved parameters empty and outer holdout UNTOUCHED."
+  },
+  "initial_check_failures": [
+    "Two new browser assertions matched both chart text and its screen-reader description; selectors were scoped to the chart.",
+    "The first full Python invocation used a relative PYTHONPATH that failed in two subprocess tests. Final verification used the absolute runtime package path.",
+    "Full Python checks exposed the optional-capture compatibility issue and an existing static-launcher test relying on a former default; both corrected before final verification."
+  ],
+  "limits": [
+    "Browser workflow tests use isolated API fixtures. Live dashboard health and served saved-run/progress diagnostics are checked separately after restart.",
+    "No new observed-market optimization campaign was launched. Adding development trials cannot guarantee a qualifier.",
+    "Qualification, risk limits, existing parameters and consumed-holdout locks are unchanged."
+  ]
+}

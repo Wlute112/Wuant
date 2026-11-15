@@ -1,10 +1,21 @@
 import { test, expect } from './fixtures.js';
 
+const diagnostics = {
+  completed_trials: 2, qualifying_trials: 0, pruned_trials: 0, failed_trials: 0,
+  min_positive_fold_fraction: .6,
+  require_active_folds: true,
+  rejected_trials: [
+    { trial_number: 1, positive_folds: 0, fold_count: 5, required_positive_folds: 3, trades: 24, inactive_folds: 2, reasons: ['0 of 5 positive folds; 3 required.'] },
+    { trial_number: 2, positive_folds: 2, fold_count: 5, required_positive_folds: 3, trades: 30, inactive_folds: 2, reasons: ['2 of 5 positive folds; 3 required.', 'Fold 4: no executed trades under normal and stressed costs.', 'Fold 4: whole-share sizing blocked entries. QQQ.IBKR: 14 attempts below one share (largest allowed quantity 0.637; risk cap up to $12.50).'] },
+  ],
+};
+
 const rejectedRun = {
   run_id: 'search-rejected', name: 'Rejected development search', kind: 'optimize', asset_class: 'equity',
   tickers: ['QQQ'], selection_status: 'NO_QUALIFYING_CANDIDATE', can_resume: true,
   resume_run_id: `study-rejected-${'x'.repeat(80)}`, best_params: {}, in_sample_value: null,
   oos_metrics: null, oos_score: null, oos_equity_curve: [],
+  search_diagnostics: diagnostics,
   validation: { outer_holdout_status: 'UNTOUCHED', final_test: null },
 };
 
@@ -23,9 +34,22 @@ for (const width of [1440, 390]) {
     await expect(outcome.getByRole('heading', { name: 'No qualifying candidate' })).toBeVisible();
     await expect(outcome).toContainText('No saved parameters were replaced. The outer holdout was not evaluated.');
     await expect(outcome).toContainText('study-rejected');
+    await expect(outcome).toContainText('2 completed trials · 0 qualifying');
+    await expect(outcome).toContainText('2 of 5 positive folds; 3 required.');
+    await expect(outcome).toContainText('Every validation fold must execute trades under both normal and stressed costs.');
+    await expect(outcome).toContainText('QQQ.IBKR: 14 attempts below one share');
+    await outcome.getByText('Rejection details · 2 trials', { exact: true }).click();
+    const table = outcome.getByRole('table');
+    await expect(table.getByRole('row')).toHaveCount(3);
+    await expect(table.getByRole('row').nth(1)).toContainText('24');
+    await expect(table.getByRole('row').nth(2)).toContainText('risk cap up to $12.50');
+    const scrollRegion = outcome.getByRole('region', { name: 'Rejected trial details' });
+    await scrollRegion.focus();
+    await expect(scrollRegion).toBeFocused();
     await expect(page.getByText('DEVELOPMENT SEARCH · HOLDOUT UNTOUCHED')).toBeVisible();
     await page.getByRole('button', { name: 'Optimization', exact: true }).click();
     await expect(page.getByText('No parameters selected: no candidate qualified.')).toBeVisible();
+    await expect(page.getByRole('group', { name: 'OBJECTIVE / TRIAL chart', exact: true }).getByText('No completed trial met the qualification rules')).toBeVisible();
     await expect(page.getByText('Trial 0', { exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: `test-results/rejected-optimization-${width}.png`, fullPage: true });
@@ -45,12 +69,16 @@ test('completed job progress does not mark the outer holdout complete when no tr
     phase: 'complete', phase_label: 'No qualifying candidate', percent: 100,
     outcome: 'NO_QUALIFYING_CANDIDATE', best_score: null, resume_run_id: 'study-rejected',
     outer_holdout_status: 'UNTOUCHED', history: [],
+    search_diagnostics: diagnostics, candidate_score: -1000000,
   } }));
   await page.goto('/?asset=equity&workflow=optimize');
   await page.locator('.run-list__row.is-job button').first().click();
   await expect(page.getByRole('status', { name: 'Optimization outcome' })).toContainText('not evaluated');
   await expect(page.getByText('Outer holdout', { exact: true })).toHaveCount(0);
-  await expect(page.getByRole('group', { name: 'CANDIDATE SCORE chart', exact: true }).getByText('No completed candidates to score')).toBeVisible();
+  await expect(page.getByRole('status', { name: 'Optimization outcome' })).toContainText('2 of 5 positive folds; 3 required.');
+  await expect(page.getByRole('group', { name: 'CANDIDATE SCORE chart', exact: true }).getByText('No completed trial met the qualification rules')).toBeVisible();
+  await expect(page.locator('.active-research__readings')).toContainText('Not qualifying');
+  await expect(page.locator('.active-research__readings')).not.toContainText('-1000000');
 });
 
 test('rejected result is excluded from the backtest winner selector', async ({ page, backend }) => {

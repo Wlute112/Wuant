@@ -9,6 +9,62 @@ NO_QUALIFYING_CANDIDATE = "NO_QUALIFYING_CANDIDATE"
 REJECTED_OUTER_HOLDOUT = "REJECTED_OUTER_HOLDOUT"
 PASSED_OUTER_HOLDOUT = "PASSED_OUTER_HOLDOUT"
 DEVELOPMENT_SELECTED = "DEVELOPMENT_SELECTED"
+DEVELOPMENT_ELIGIBILITY_VERSION = 1
+
+
+def development_assessment(folds, min_positive_fraction):
+    """Gate development evidence before a candidate can consume the holdout.
+
+    Every fold must demonstrate execution under both cost assumptions. Positive
+    normal-cost ratios remain a separate requirement; inactivity is not profit.
+    Only observed sizing attempts are explained, never inferred from no fills.
+    """
+    reasons = []
+    finite = lambda value: (isinstance(value, Real) and not isinstance(value, bool)
+                            and math.isfinite(value))
+    if not folds:
+        reasons.append("No development folds were evaluated.")
+    normal = [fold.get("normal_ratio") for fold in folds]
+    stressed = [fold.get("stressed_ratio") for fold in folds]
+    if not all(finite(value) for value in normal + stressed):
+        reasons.append("Fold risk-adjusted returns are missing or nonfinite.")
+    if folds and all(finite(value) for value in normal):
+        positive = sum(value > 0 for value in normal)
+        required = max(1, math.ceil(len(folds) * min_positive_fraction))
+        if positive < required:
+            reasons.append(f"{positive} of {len(folds)} positive folds; {required} required.")
+    for index, fold in enumerate(folds, 1):
+        inactive = []
+        missing = []
+        for label, key in (("normal", "trades"), ("stressed", "stressed_trades")):
+            count = fold.get(key)
+            if not finite(count) or count < 0:
+                missing.append(label)
+            elif count == 0:
+                inactive.append(label)
+        if not inactive and not missing:
+            continue
+        number = fold.get("fold", index)
+        if inactive:
+            reasons.append(f"Fold {number}: no executed trades under {' and '.join(inactive)} costs.")
+        if missing:
+            reasons.append(f"Fold {number}: executed-trade counts are missing or invalid under "
+                           f"{' and '.join(missing)} costs.")
+        # One compact summary per inactive fold; symbols/counts come from the
+        # normal run when possible, otherwise from the stressed run.
+        observations = (fold.get("sizing_diagnostics") or {}).get((inactive + missing)[0]) or {}
+        blocked = []
+        for symbol, sizing in observations.items():
+            count = sizing.get("below_one_share", 0)
+            quantity = sizing.get("max_raw_quantity")
+            budget = sizing.get("max_risk_cap_usd")
+            if finite(count) and count > 0 and finite(quantity) and finite(budget):
+                blocked.append(f"{symbol}: {count} attempts below one share "
+                               f"(largest allowed quantity {quantity:.3f}; risk cap up to ${budget:.2f})")
+        if blocked:
+            reasons.append(f"Fold {number}: whole-share sizing blocked entries. " + "; ".join(blocked) + ".")
+    return {"version": DEVELOPMENT_ELIGIBILITY_VERSION, "passed": not reasons,
+            "reasons": reasons}
 
 
 def is_qualifying_score(value) -> bool:
@@ -20,9 +76,71 @@ def is_qualifying_score(value) -> bool:
 
 def qualifying_trial(study):
     """Select a DEVELOPMENT candidate; this does not certify its outer holdout."""
+    requires_assessment = bool((study.user_attrs.get("validation_contract") or {}).get(
+        "development_eligibility_version"))
     return max((trial for trial in study.get_trials(deepcopy=False)
-                if trial.state.name == "COMPLETE" and is_qualifying_score(trial.value)),
+                if trial.state.name == "COMPLETE" and is_qualifying_score(trial.value)
+                and trial.user_attrs.get("development_assessment", {}).get("passed", not requires_assessment)),
                key=lambda trial: trial.value, default=None)
+
+
+def search_diagnostics(trials, validation):
+    """Explain recorded development rejections without selecting a winner.
+
+    This also works on older artifacts. Missing fold evidence stays unknown;
+    neither the outer holdout nor the simulator is consulted.
+    """
+    fraction = validation.get("min_positive_fold_fraction")
+    if (not isinstance(fraction, Real) or isinstance(fraction, bool)
+            or not math.isfinite(fraction) or not 0 < fraction <= 1):
+        fraction = None
+    completed = [trial for trial in trials if trial.get("state") == "COMPLETE"]
+    rejected = []
+    requires_assessment = bool(validation.get("development_eligibility_version"))
+    for trial in completed:
+        assessment = (trial.get("user_attrs") or {}).get("development_assessment") or {}
+        if is_qualifying_score(trial.get("value")) and assessment.get("passed", not requires_assessment):
+            continue
+        folds = (trial.get("user_attrs") or {}).get("walk_forward_folds") or []
+        normal = [fold.get("normal_ratio") for fold in folds]
+        stressed = [fold.get("stressed_ratio") for fold in folds]
+        finite = lambda value: (isinstance(value, Real) and not isinstance(value, bool)
+                                and math.isfinite(value))
+        ratios_known = bool(folds) and all(finite(value) for value in normal)
+        positive = sum(value > 0 for value in normal) if ratios_known else None
+        required = max(1, math.ceil(len(folds) * fraction)) if folds and fraction else None
+        trades_known = bool(folds) and all(finite(fold.get("trades")) for fold in folds)
+        reasons = []
+        if requires_assessment and not assessment:
+            reasons.append("Development eligibility assessment is missing.")
+        if not finite(trial.get("value")):
+            reasons.append("The trial score is missing or nonfinite.")
+        if folds and not all(finite(value) for value in normal + stressed):
+            reasons.append("Fold risk-adjusted returns are missing or nonfinite.")
+        if positive is not None and required is not None and positive < required:
+            reasons.append(f"{positive} of {len(folds)} positive folds; {required} required.")
+        if trades_known and not any(fold["trades"] > 0 for fold in folds):
+            reasons.append("No executed trades across the validation folds.")
+        for reason in assessment.get("reasons", []):
+            if reason not in reasons:
+                reasons.append(reason)
+        rejected.append({
+            "trial_number": trial["number"] + 1,
+            "positive_folds": positive, "fold_count": len(folds),
+            "required_positive_folds": required,
+            "trades": sum(fold["trades"] for fold in folds) if trades_known else None,
+            "inactive_folds": sum(fold["trades"] == 0 for fold in folds) if trades_known else None,
+            "reasons": reasons or ["The recorded score did not qualify; detailed rejection evidence is unavailable."],
+        })
+    return {
+        "completed_trials": len(completed),
+        "pruned_trials": sum(trial.get("state") == "PRUNED" for trial in trials),
+        "failed_trials": sum(trial.get("state") == "FAIL" for trial in trials),
+        "qualifying_trials": len(completed) - len(rejected),
+        "min_positive_fold_fraction": fraction,
+        "require_active_folds": validation.get("require_active_folds", False),
+        "rejected_trials": rejected,
+    }
 
 
 def holdout_assessment(record):

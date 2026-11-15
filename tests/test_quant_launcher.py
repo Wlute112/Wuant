@@ -150,7 +150,7 @@ class LauncherTests(unittest.TestCase):
             self.assertEqual(value, expected)
 
     def test_startup_build_readiness_and_term_cleanup(self):
-        proc = subprocess.Popen([str(self.link), "--no-browser"], cwd=self.base, env=self.env,
+        proc = subprocess.Popen([str(self.link), "--static", "--no-browser"], cwd=self.base, env=self.env,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         children = []
         try:

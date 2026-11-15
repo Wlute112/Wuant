@@ -55,6 +55,7 @@ export const test = base.extend({
         state.jobs.unshift(job);
         return reply(job);
       }
+      if (path.endsWith('/evidence')) return reply({ trials: [], status: 'unavailable' });
       if (/^\/api\/jobs\/[^/]+\/(logs|progress)$/.test(path)) {
         const job = state.jobs.find(item => item.id === path.split('/')[3]);
         if (job?.kind === 'synthetic_fixture' && path.endsWith('/progress')) return reply(job.status === 'completed'

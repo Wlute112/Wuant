@@ -1,0 +1,36 @@
+{
+  "implementation": "Cloud directly: small filesystem cleanup and deletion ordering repair; no local delegation.",
+  "cause": "Job cleanup called Path.unlink on optimization progress.evidence directories. Run artifacts and registry records were removed before that failure, preventing normal retries.",
+  "changes": [
+    "Recursively remove job-owned directories and unlink files/symlinks without following directory symlinks.",
+    "Use filename delimiters instead of an unrestricted job ID prefix when matching cleanup paths.",
+    "Check active jobs/companions and clean job files before deleting the durable record or run artifact.",
+    "Allow retry cleanup when a previous partial deletion removed the artifact, registry entry or both. Fully absent results still return HTTP 404."
+  ],
+  "checks": {
+    "python_compile": "passed",
+    "full_python": "682 passed, 6 subtests passed, 256 warnings in 42.15 seconds",
+    "targeted_python_before_additional_companion_regression": "39 passed",
+    "browser_deletion": "2 passed using Chrome at 1440px and 390px, including reload persistence",
+    "live_http_fixture_deletion": "HTTP 200; artifact, nested evidence, log and Redis record removed",
+    "live_http_orphan_cleanup": "HTTP 200 with missing artifact/registry; leftover evidence and log removed",
+    "live_http_repeat_after_complete_deletion": "HTTP 404, no internal server error",
+    "existing_user_runs": "All original run filenames and SHA-256 hashes unchanged by disposable fixture checks",
+    "dashboard_restart": "API health and frontend HTTP 200 after loading the fix",
+    "diff_whitespace": "passed"
+  },
+  "regressions": [
+    "Nested evidence directories",
+    "Neighboring run IDs with shared prefixes",
+    "Partially deleted artifact and/or registry",
+    "Active job and active companion protection",
+    "Filesystem cleanup failure followed by retry",
+    "Completed companion cleanup",
+    "External directory symlinks",
+    "Fully missing runs"
+  ],
+  "limits": [
+    "Browser tests use isolated API fixtures; real filesystem and Redis behavior is verified independently by Python and live HTTP checks.",
+    "Cleanup across files and Redis is retryable rather than a cross-store atomic transaction."
+  ]
+}

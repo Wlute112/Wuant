@@ -113,6 +113,8 @@ export const api = {
     request(`/api/jobs/${encodeURIComponent(jobId)}/logs?tail_lines=${tailLines}`),
   getJobProgress: (jobId) =>
     request(`/api/jobs/${encodeURIComponent(jobId)}/progress`),
+  getJobEvidence: (jobId, trial = null) =>
+    request(`/api/jobs/${encodeURIComponent(jobId)}/evidence${trial == null ? "" : `?trial=${trial}`}`),
   cancelJob: (jobId) =>
     request(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" }),
   uploadCsv: (file) =>

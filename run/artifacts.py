@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 
 from quant.strategies.parameters import STRATEGY_ID
-from quant.optimize.selection import NO_QUALIFYING_CANDIDATE, qualifying_trial, annotate_holdout
+from quant.optimize.selection import NO_QUALIFYING_CANDIDATE, qualifying_trial, annotate_holdout, search_diagnostics
 from quant.models.cross_asset import PriceHistory
 from quant.models.industry import industry_peers_for_symbol
 from quant.models.prediction_engine import PredictionConfig, PredictionEngine
@@ -603,6 +603,7 @@ def save_optimize_search_artifact(
             "compute_plan": study.user_attrs.get("compute_plan"),
         },
     }
+    artifact["search_diagnostics"] = search_diagnostics(artifact["trials"], artifact["validation"])
     _write_artifact(run_id, artifact)
     return artifact
 
@@ -770,6 +771,8 @@ def load_run(run_id: str) -> dict | None:
         return None
     with open(path) as fh:
         data = json.load(fh)
+    if isinstance(data, dict) and data.get("selection_status") == NO_QUALIFYING_CANDIDATE:
+        data["search_diagnostics"] = search_diagnostics(data.get("trials") or [], data.get("validation") or {})
     return annotate_holdout(data) if isinstance(data, dict) and data.get("kind") == "optimize" else data
 
 

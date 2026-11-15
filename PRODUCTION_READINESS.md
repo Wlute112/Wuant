@@ -386,6 +386,30 @@ record rejected outcomes explicitly. Previously consumed studies remain locked.
 records 155 targeted Python tests, 53 browser tests, 26 JavaScript tests and a
 passing production build. See `OPERATIONS.md` for outcome and resume semantics.
 
+The November 10 follow-up exposes completed/pruned/failed counts, per-trial
+positive-fold requirements and execution activity in both saved results and
+job progress, including older artifacts without rewriting them. Rejection
+sentinels no longer appear as candidate chart scores or numeric readings.
+The latest two-trial QQQ search legitimately had 0/5 and 2/5 positive folds
+against a 3/5 requirement; qualification and holdout rules remain unchanged.
+[Follow-up checks and limits](evidence/optimization_rejection_diagnostics_20261110.json).
+
+The November 12 follow-up restores the positive-fold eligibility gate and
+requires actual execution in every development fold at normal and stressed
+costs. Candidates with inactive folds cannot consume the final holdout. Equity
+sizing diagnostics explain observed entries suppressed by whole-share rounding,
+including their risk cap and largest permitted quantity. The policy is versioned
+in immutable validation contracts; old studies cannot mix scores with it.
+The rejected 50-trial `optimize_c0208f961e` remains historical, consumed evidence.
+[Implementation, regression checks and limits](evidence/development_eligibility_20261112.json).
+
+Run deletion now removes nested optimization evidence directories, checks active
+jobs before removing results, and retains registry records until job cleanup
+succeeds. Retries can finish deletions left without an artifact or registry by
+the previous error. [Deletion regression evidence](evidence/run_deletion_fix_20261110.json)
+records the passing full Python suite, desktop/mobile deletion checks and live
+HTTP checks using disposable fixtures.
+
 ### Inactive holdout rejection and equity replay correction (2026-11-09)
 
 Development selection no longer implies outer-holdout qualification. Inactive

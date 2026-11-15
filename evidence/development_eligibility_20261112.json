@@ -1,0 +1,68 @@
+{
+  "implementation": "Cloud directly: coupled simulator observations, selection gates, immutable contracts and UI reporting. No local generation.",
+  "affected_historical_run": "optimize_c0208f961e",
+  "changes": [
+    "Restored the configured positive normal-cost fold fraction (default 60%).",
+    "Every development fold must have executed trades under both normal and stressed costs before selection.",
+    "Observed equity entry sizing retains per-symbol attempts below one share, largest risk-sized quantity and risk-cap dollars, independently of optional chart capture.",
+    "Rejected scores cannot become incumbents or trigger goal completion; missing assessments fail closed for versioned studies.",
+    "Development eligibility version 1 and require_active_folds are locked into the validation contract, selected payload and validation artifact.",
+    "Saved results, terminal progress and captured trial review explain actual activity and observed sizing blockers; long rejection details wrap in keyboard-accessible tables."
+  ],
+  "checks": {
+    "python_compile": "passed",
+    "full_python": {
+      "passed": 699,
+      "subtests_passed": 6,
+      "warnings": 278,
+      "seconds": 42.84
+    },
+    "full_browser": {
+      "passed": 65,
+      "seconds": 47.9,
+      "channel": "Chrome"
+    },
+    "javascript": {
+      "passed": 30
+    },
+    "production_build": "passed",
+    "diff_whitespace": "passed",
+    "native_execution": "Synthetic equity quantities below one whole share produce no fills and recorded blockers; fractional crypto still trades; optional capture preserves metrics and sizing observations.",
+    "optimizer_lifecycle": "Real Optuna/SQLite plus controlled fold results: inactive normal/stress folds, insufficient positive folds and missing activity evidence reject; parameters unchanged and holdout untouched; active qualifiers dispatch holdout; incompatible policy resume rejects.",
+    "api": "New rejection details survive strict API JSON serialization and research analysis. Refreshed live API reports original historical holdout consumed/rejected/nonresumable.",
+    "dashboard_runtime": "Restarted launcher after confirming zero active jobs; API health ok with Redis registry; frontend HTTP 200 and updated diagnostics served."
+  },
+  "impeccable": {
+    "scope": "Affected rejection and trial-detail views only; incumbent Strip Recorder design preserved.",
+    "audit": "Semantic headings/lists and labeled keyboard-focusable table region retained; no new dependencies, animation, colors or layout framework. Long reason cells required wrapping.",
+    "polish": "Wrapped long rejection reasons, separated reasons into list items, distinguished missing activity evidence from recorded zero trades, clarified normal versus stressed cost requirements.",
+    "detector": "No findings on changed UI targets.",
+    "visual_review": "Chrome screenshots at 1440px and 390px inspected for saved outcomes and captured trial rejection; no document-width overflow. Table focus exercised.",
+    "limits": "Emulated viewport and keyboard checks, not physical-device or exhaustive screen-reader/contrast certification."
+  },
+  "historical_preservation": {
+    "run_sha256": "544575072f88cd7d455f051c41a1ba6d7dae9561873dbe8e0ea9a458cda7f583",
+    "published_params_sha256": "c65b406816ef941206d9570277e75b317ed096b656791e9fe3c1765d602949c8",
+    "byte_unchanged": true,
+    "status": "REJECTED_OUTER_HOLDOUT",
+    "outer_holdout_status": "CONSUMED",
+    "can_resume": false
+  },
+  "limits": [
+    "No observed-market optimization or market holdout replay was launched for this change.",
+    "An active development candidate can still fail the one-shot holdout; these checks do not guarantee profitability or future activity.",
+    "Sizing diagnostics describe actual entry attempts. Absent observations are not interpreted as proof that risk sizing blocked orders.",
+    "Risk settings, whole-share flooring, fractional crypto sizing and consumed-study locks are preserved."
+  ],
+  "source_sha256": {
+    "optimize/optimize.py": "f5da301cf78fbfb47f1006ad6996380fe406aeaa71dcf0ba9b9e2cd0230b7247",
+    "optimize/selection.py": "d26e6173ff183167e6da096cf49c0c8339dcc6f6fcc2e5ad0dcd7997917c6bef",
+    "strategies/ml_strategy.py": "fdead6cfa67c33ba9e86b297f35b68a731f937b2307c5820a55ec58c2999d449",
+    "tests/test_development_eligibility.py": "f181afffe1ab8e886e29e9bec126829b387ea3bc6c033448bab282cfd15c2b2f",
+    "tests/test_optimize_outcomes.py": "44493217f7e0e82c810bd1d2e4c7388a50dfd28759bd41b25cd209cfd41897bb",
+    "web/src/components/research-hub/SearchDiagnostics.jsx": "e34199cf49b0dd27cc4e5f1224978a096723170019af2182b092b6e549ab0fe1",
+    "web/src/components/research-hub/OptimizationEvidence.jsx": "a7a8fff8119576cc97455f46313e6bd923c74308864ae9125a113a8d54467a8a",
+    "web/src/components/research-hub/research-hub.css": "fc5c8aa7d82a953dbdaa57f1fbfa1bdce32fa43e865e4d05c8657454cff016ee",
+    "web/src/components/research-hub/optimization-evidence.css": "f293bb99d193bf1d54f24d1cda432fd8070fcfc73c99fede4ef8e58e89327549"
+  }
+}

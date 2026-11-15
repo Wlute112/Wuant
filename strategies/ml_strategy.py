@@ -367,6 +367,9 @@ class MLStrategy(Strategy):
         # is complete (all instruments reported, or the timestamp advances).
         self._pending: dict[InstrumentId, _PendingSignal] = {}
         self._pending_ts = None  # timestamp the current buffer belongs to
+        # Bounded execution observations for research rejection diagnostics.
+        # Counts are recorded only when an actual entry reaches the sizer.
+        self._sizing_diagnostics: dict[str, dict] = {}
         self._session_signals: dict[InstrumentId, SessionSignal] = {}
         self._n_instruments = 0  # set in on_start; == len(instrument_ids)
         self._equity_identities = {}
@@ -2907,6 +2910,17 @@ class MLStrategy(Strategy):
             raw_qty = self._risk.size_for_trade(
                 equity, price, stop_price, available_notional=avail
             )
+        if self.config.execution_mode == "backtest" and self.config.asset_class == "equity":
+            sizing = self._sizing_diagnostics.setdefault(str(iid), {
+                "entry_attempts": 0, "below_one_share": 0,
+                "max_raw_quantity": 0.0, "max_risk_cap_usd": 0.0,
+            })
+            sizing["entry_attempts"] += 1
+            sizing["max_raw_quantity"] = max(sizing["max_raw_quantity"], float(raw_qty))
+            sizing["max_risk_cap_usd"] = max(sizing["max_risk_cap_usd"], float(equity) * min(
+                self.config.risk_budget_pct, self.config.max_trade_risk_pct))
+            if 0 < raw_qty < 1:
+                sizing["below_one_share"] += 1
         if raw_qty <= 0:
             return
 

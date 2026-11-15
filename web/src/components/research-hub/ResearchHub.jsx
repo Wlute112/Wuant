@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import ActionPanel from "../bezel/ActionPanel.jsx";
+import OptimizationEvidence from "./OptimizationEvidence.jsx";
+import SearchDiagnostics from "./SearchDiagnostics.jsx";
 import ActiveResearchRun from "./ActiveResearchRun.jsx";
 import CampaignPanel from "./CampaignPanel.jsx";
 import ChannelStrip from "../channel-strip/ChannelStrip.jsx";
@@ -242,7 +244,7 @@ function TradeSummary({ research, run }) {
 
 function TrialHistory({ optimization }) {
   const history = optimization?.history || [];
-  const complete = history.filter((trial) => trial.value != null).map((trial) => ({ x: trial.number, y: trial.value }));
+  const complete = history.filter((trial) => trial.state === "COMPLETE" && trial.value != null && trial.value > -1000000).map((trial) => ({ x: trial.number, y: trial.value }));
   const incumbent = history.filter((trial) => trial.incumbent != null).map((trial) => ({ x: trial.number, y: trial.incumbent }));
   return (
     <ChannelStrip
@@ -253,7 +255,7 @@ function TrialHistory({ optimization }) {
       overlayColor="var(--color-text-dim)"
       overlayLabel="incumbent"
       currentValueLabel={complete.length ? formatNum(complete.at(-1).y, 3) : "—"}
-      emptyMessage="No completed Optuna trials recorded"
+      emptyMessage={history.length ? "No completed trial met the qualification rules" : "No completed Optuna trials recorded"}
       tickFormat={(value) => formatNum(value, 2)}
       height={250}
     />
@@ -550,6 +552,7 @@ export default function ResearchHub({
           <section className="research-panel optimization-outcome" role="status" aria-label="Optimization outcome">
             <header className="research-panel__header"><h2>No qualifying candidate</h2></header>
             <div className="research-panel__body">
+              <SearchDiagnostics diagnostics={activeRun.search_diagnostics || research?.optimization?.search_diagnostics} />
               <p>No saved parameters were replaced. The outer holdout was not evaluated.</p>
               <p>Review the trial history in Optimization. To add development trials, open New sweep and enter <code>{activeRun.resume_run_id || activeRun.run_id}</code> in Resume study, using the same data, universe and validation settings.</p>
             </div>
@@ -626,6 +629,7 @@ export default function ResearchHub({
         {!activeJobView && workflow === "optimize" && section === "optimization" && (
           <div className="research-hub__content-grid">
             <Panel title="Validation campaign" note="Seed consensus → robustness → one-shot outer holdout" className="is-wide"><CampaignPanel key={assetClass} assetClass={assetClass} profile={profile} jobs={jobs} onJobStarted={onJobStarted} /></Panel>
+            {activeRun && jobs.find(job => job.run_id === activeRun.run_id && job.kind === "optimize") && <div className="is-wide"><OptimizationEvidence key={activeRun.run_id} job={jobs.find(job => job.run_id === activeRun.run_id && job.kind === "optimize")} /></div>}
             {activeRun && <Panel title="Search history" note="Every trial and the running incumbent" className="is-wide"><TrialHistory optimization={research?.optimization} /></Panel>}
             {activeRun && <Panel title="Parameter sensitivity" note="Search-space association"><ParameterImportance optimization={research?.optimization} /></Panel>}
             {activeRun && <Panel title="Selected parameters" note={`Trial ${research?.optimization?.best_trial_number ?? "—"}`}><BestParameters optimization={research?.optimization} /></Panel>}

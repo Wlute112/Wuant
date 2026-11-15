@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 import numpy as np
 import pandas as pd
 
-from quant.optimize.selection import NO_QUALIFYING_CANDIDATE, is_qualifying_score
+from quant.optimize.selection import NO_QUALIFYING_CANDIDATE, is_qualifying_score, search_diagnostics
 
 FRED_SP500_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500"
 SP500_CACHE_PATH = Path(__file__).resolve().parents[1] / "data" / "benchmarks" / "sp500_fred.csv"
@@ -310,6 +310,7 @@ def _optimization_analysis(run: dict) -> dict | None:
         "parameter_importance": importance,
         "best_trial_number": best_trial.get("number"),
         "selection_status": run.get("selection_status"),
+        "search_diagnostics": search_diagnostics(trials, run.get("validation") or {}),
         "best_params": (run.get("best_params") or best_trial.get("params") or {}) if best_trial else {},
         "folds": folds,
         "validation": run.get("validation") or {},

@@ -729,8 +729,10 @@ was unavailable; broker transport was verified through the read-only API.
 
 A completed study can produce no usable candidate. Only completed trials with a
 finite objective above the rejection sentinel can become the incumbent; the
-stability objective still owns fold eligibility. Penalized negative scores above
-the sentinel remain eligible. Pruned, rejected and nonfinite trials cannot meet
+development assessment requires executed trades in every validation fold under
+both normal and stressed costs, plus positive normal-cost ratios in the configured
+fraction of folds (60% by default). Penalized negative scores above
+the sentinel remain eligible only after those checks pass. Pruned, rejected and nonfinite trials cannot meet
 a goal target or supply winning parameters.
 
 When no trial qualifies, the optimizer records `NO_QUALIFYING_CANDIDATE` in the
@@ -761,6 +763,21 @@ reports, pruned/empty/nonfinite outcomes, resume to a qualifier, qualifying
 holdout dispatch and seed-campaign reporting. Browser checks cover outcome and
 resume guidance, skipped holdout progress, rejected-result selection and narrow
 layouts. No new market-data optimization campaign was launched for this fix.
+
+The November 12 development-eligibility update restores the positive-fold gate
+and rejects inactive folds before they can consume the outer holdout. Equity
+entry attempts now retain per-symbol counts of quantities below one whole share,
+the largest observed risk-sized quantity, and the applicable risk cap. Saved
+rejection details and captured trial evidence show these observed blockers;
+missing sizing observations are not treated as proof of a sizing failure.
+Risk limits and whole-share execution rules are unchanged.
+
+New validation contracts include `development_eligibility_version` and
+`require_active_folds`. Studies without the same contract must start a new sweep;
+their old scores cannot enter a new-policy search. Consumed holdouts, including
+`optimize_c0208f961e`, remain consumed. The update does not re-evaluate their market
+data or change their historical outcomes. Regression coverage and limits are
+recorded in [development eligibility evidence](evidence/development_eligibility_20261112.json).
 
 ### Development selection and outer-holdout rejection (2026-11-09)
 

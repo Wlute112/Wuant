@@ -1,4 +1,4 @@
-"""Read-only routes over persisted run artifacts (see quant.run.artifacts)."""
+"""Review and deletion routes over persisted run artifacts."""
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
@@ -41,12 +41,16 @@ def remove_run(run_id: str):
     wiring), so the same id cleans up both the artifact and the job's
     log/temp-override files.
     """
-    if not delete_run(run_id):
-        raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
     job_found = False
+    files_deleted = 0
     if jobs_routes.manager is not None:
         try:
-            job_found = jobs_routes.manager.delete(run_id)["job_found"]
+            cleanup = jobs_routes.manager.delete(run_id)
+            job_found = cleanup["job_found"]
+            files_deleted = cleanup.get("files_deleted", 0)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+    artifact_deleted = delete_run(run_id)
+    if not artifact_deleted and not job_found and not files_deleted:
+        raise HTTPException(status_code=404, detail=f"run {run_id!r} not found")
     return {"run_id": run_id, "deleted": True, "job_deleted": job_found}
